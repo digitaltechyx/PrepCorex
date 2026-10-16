@@ -185,16 +185,16 @@ export function AdminLabelBillingPanel() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Label billing settings</CardTitle>
-        <CardDescription>
+    <Card className="min-w-0 overflow-hidden">
+      <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+        <CardTitle className="text-base sm:text-lg">Label billing settings</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
           Assign the client <strong>one</strong> payment path: either{" "}
           <strong>Card purchase limit</strong> (period options + dollar cap) or{" "}
           <strong>Wallet</strong> (period options + spend limit + balance). They cannot use both.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 overflow-visible">
+      <CardContent className="space-y-3 overflow-visible p-3 sm:space-y-4 sm:p-6">
         <div className="space-y-2">
           <Label>Client</Label>
           <Popover
@@ -211,7 +211,7 @@ export function AdminLabelBillingPanel() {
                 variant="outline"
                 role="combobox"
                 aria-expanded={clientPickerOpen}
-                className="relative z-10 w-full max-w-xl justify-between font-normal pointer-events-auto"
+                className="relative z-10 h-9 w-full max-w-xl justify-between font-normal pointer-events-auto sm:h-10"
               >
                 <span className="truncate text-left">
                   {selectedClient ? selectedClient.label : "Select client…"}
@@ -589,8 +589,9 @@ export function AdminLabelBillingPanel() {
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button
+                className="w-full sm:w-auto"
                 disabled={saving || (!allowShippo && !allowShipbest)}
                 onClick={() => {
                   const addAmount = Number(addBalanceDollars);
@@ -651,6 +652,7 @@ export function AdminLabelBillingPanel() {
               </Button>
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 disabled={saving}
                 onClick={() =>
                   void patch(
@@ -663,6 +665,7 @@ export function AdminLabelBillingPanel() {
               </Button>
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 disabled={saving || billingMode === "limit"}
                 onClick={() =>
                   void patch(

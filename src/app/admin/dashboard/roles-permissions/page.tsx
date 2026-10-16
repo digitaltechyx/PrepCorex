@@ -141,78 +141,72 @@ export default function RolesPermissionsPage() {
   }
 
   const roleMeta: Record<string, { icon: React.ReactNode; accent: string }> = {
-    admin: { icon: <Crown className="h-5 w-5" />, accent: "from-violet-500/15 to-purple-600/10 border-violet-200 dark:border-violet-800/50" },
-    user: { icon: <User className="h-5 w-5" />, accent: "from-blue-500/15 to-cyan-500/10 border-blue-200 dark:border-blue-800/50" },
-    commission_agent: { icon: <HandCoins className="h-5 w-5" />, accent: "from-emerald-500/15 to-teal-500/10 border-emerald-200 dark:border-emerald-800/50" },
-    sub_admin: { icon: <UserCog className="h-5 w-5" />, accent: "from-amber-500/15 to-orange-500/10 border-amber-200 dark:border-amber-800/50" },
+    admin: { icon: <Crown className="h-4 w-4 sm:h-5 sm:w-5" />, accent: "from-violet-500/15 to-purple-600/10 border-violet-200 dark:border-violet-800/50" },
+    user: { icon: <User className="h-4 w-4 sm:h-5 sm:w-5" />, accent: "from-blue-500/15 to-cyan-500/10 border-blue-200 dark:border-blue-800/50" },
+    commission_agent: { icon: <HandCoins className="h-4 w-4 sm:h-5 sm:w-5" />, accent: "from-emerald-500/15 to-teal-500/10 border-emerald-200 dark:border-emerald-800/50" },
+    sub_admin: { icon: <UserCog className="h-4 w-4 sm:h-5 sm:w-5" />, accent: "from-amber-500/15 to-orange-500/10 border-amber-200 dark:border-amber-800/50" },
   };
 
+  const tabTriggerClass =
+    "gap-1 rounded-lg px-1.5 py-1.5 text-[10px] font-medium sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm data-[state=inactive]:text-muted-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:shadow-sm";
+
   return (
-    <div className="space-y-8">
-      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-primary/5 px-6 py-8 shadow-sm">
-        <div className="relative flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary shadow-inner">
-              <ShieldCheck className="h-6 w-6" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-primary/5 via-background to-primary/5 px-3 py-3 shadow-sm sm:rounded-2xl sm:px-6 sm:py-6">
+        <div className="relative flex flex-col gap-0.5 sm:gap-1">
+          <h1 className="flex items-center gap-2 text-lg font-bold tracking-tight text-foreground sm:gap-3 sm:text-3xl">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary shadow-inner sm:h-11 sm:w-11 sm:rounded-xl">
+              <ShieldCheck className="h-4 w-4 sm:h-6 sm:w-6" />
             </span>
             Roles & Permissions
           </h1>
-          <p className="text-muted-foreground max-w-xl">
-            Full control over roles and feature access. Assign roles and granular permissions to users.
+          <p className="max-w-xl text-xs text-muted-foreground sm:text-sm">
+            Assign roles and feature access to users.
           </p>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "overview" | "assign" | "locations" | "logs")}>
-        <TabsList className="inline-flex h-14 w-full max-w-4xl rounded-2xl border-2 border-border/60 bg-gradient-to-r from-muted/60 to-muted/40 p-1.5 shadow-sm">
-          <TabsTrigger
-            value="overview"
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
-          >
-            <ListChecks className="h-4 w-4" />
-            Overview
+        <TabsList className="mb-3 grid h-auto w-full grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-muted/50 p-1 sm:mb-4 sm:max-w-4xl sm:gap-1 sm:rounded-2xl sm:border-2 sm:p-1.5">
+          <TabsTrigger value="overview" className={tabTriggerClass}>
+            <ListChecks className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Overview</span>
+            <span className="hidden sm:inline">Overview</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="assign"
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
-          >
-            <UserCog className="h-4 w-4" />
-            Assign to User
+          <TabsTrigger value="assign" className={tabTriggerClass}>
+            <UserCog className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Assign</span>
+            <span className="hidden sm:inline">Assign to User</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="locations"
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
-          >
-            <MapPin className="h-4 w-4" />
-            Assign Location
+          <TabsTrigger value="locations" className={tabTriggerClass}>
+            <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Locs</span>
+            <span className="hidden sm:inline">Assign Location</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="logs"
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium transition-all duration-200 data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:text-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:text-foreground data-[state=active]:shadow-md"
-          >
-            <ScrollText className="h-4 w-4" />
+          <TabsTrigger value="logs" className={tabTriggerClass}>
+            <ScrollText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             Logs
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-8 mt-8">
-          <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-            <CardHeader className="border-b bg-muted/20 pb-6">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  <Users className="h-5 w-5" />
+        <TabsContent value="overview" className="mt-0 space-y-3 sm:space-y-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+            <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary sm:h-10 sm:w-10 sm:rounded-xl">
+                  <Users className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
                 Roles
               </CardTitle>
-              <CardDescription className="text-base">
-                System roles. Users can have multiple roles and get access to all corresponding dashboards.
+              <CardDescription className="text-xs sm:text-sm">
+                Users can have multiple roles. Tap a card to see who has it.
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-6">
+            <CardContent className="p-3 pt-3 sm:p-6 sm:pt-4">
               {usersLoading ? (
-                <Skeleton className="h-40 w-full rounded-xl" />
+                <Skeleton className="h-24 w-full rounded-xl sm:h-40" />
               ) : (
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
                   {ROLE_DEFINITIONS.map((role) => {
                     const meta = roleMeta[role.value];
                     const count = roleCounts[role.value] ?? 0;
@@ -221,19 +215,25 @@ export default function RolesPermissionsPage() {
                         key={role.value}
                         type="button"
                         onClick={() => setSelectedRoleForDialog(role.value)}
-                        className={`group relative text-left overflow-hidden rounded-xl border-2 bg-gradient-to-br ${meta?.accent ?? ""} p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
+                        className={`group relative overflow-hidden rounded-lg border bg-gradient-to-br p-2.5 text-left shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 sm:rounded-xl sm:border-2 sm:p-4 ${meta?.accent ?? ""}`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-background/80 text-foreground shadow-sm">
+                        <div className="flex items-start justify-between gap-1">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground shadow-sm sm:h-10 sm:w-10 sm:rounded-lg">
                             {meta?.icon}
                           </span>
-                          <Badge variant="secondary" className="shrink-0 font-semibold">
-                            {count} users
+                          <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[10px] font-semibold sm:h-6 sm:text-xs">
+                            {count}
                           </Badge>
                         </div>
-                        <h3 className="mt-3 font-semibold text-foreground">{role.label}</h3>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{role.description}</p>
-                        <p className="mt-2 text-xs text-muted-foreground/90">{role.dashboardAccess}</p>
+                        <h3 className="mt-1.5 text-xs font-semibold text-foreground sm:mt-3 sm:text-base">
+                          {role.label}
+                        </h3>
+                        <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-muted-foreground sm:mt-1 sm:line-clamp-none sm:text-xs sm:leading-relaxed">
+                          {role.description}
+                        </p>
+                        <p className="mt-1 hidden text-xs text-muted-foreground/90 sm:block">
+                          {role.dashboardAccess}
+                        </p>
                       </button>
                     );
                   })}
@@ -242,54 +242,58 @@ export default function RolesPermissionsPage() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-            <CardHeader className="border-b bg-muted/20 pb-6">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400">
-                  <KeyRound className="h-5 w-5" />
+          <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+            <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400 sm:h-10 sm:w-10 sm:rounded-xl">
+                  <KeyRound className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
                 Client Features
               </CardTitle>
-              <CardDescription className="text-base">
-                Permissions for the client dashboard. Grant or revoke per user in Assign to User.
+              <CardDescription className="text-xs sm:text-sm">
+                Grant or revoke per user in Assign.
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <CardContent className="p-3 pt-3 sm:p-6 sm:pt-4">
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
                 {CLIENT_FEATURES_CONFIG.map((f) => (
                   <div
                     key={f.value}
-                    className="flex flex-col rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
+                    className="flex flex-col rounded-lg border bg-card p-2.5 shadow-sm sm:rounded-xl sm:border-2 sm:p-4"
                   >
-                    <span className="font-semibold text-foreground">{f.label}</span>
-                    <span className="mt-1 text-sm text-muted-foreground leading-relaxed">{f.description}</span>
+                    <span className="text-xs font-semibold text-foreground sm:text-sm">{f.label}</span>
+                    <span className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-relaxed">
+                      {f.description}
+                    </span>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-            <CardHeader className="border-b bg-muted/20 pb-6">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-400">
-                  <ShieldCheck className="h-5 w-5" />
+          <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+            <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400 sm:h-10 sm:w-10 sm:rounded-xl">
+                  <ShieldCheck className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
                 Admin Features
               </CardTitle>
-              <CardDescription className="text-base">
-                Permissions for the admin panel. Sub admins only see modules for which they have the matching feature.
+              <CardDescription className="text-xs sm:text-sm">
+                Sub admins only see modules they are granted.
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <CardContent className="p-3 pt-3 sm:p-6 sm:pt-4">
+              <div className="grid gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
                 {ADMIN_FEATURES_CONFIG.map((f) => (
                   <div
                     key={f.value}
-                    className="flex flex-col rounded-xl border-2 border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
+                    className="flex flex-col rounded-lg border bg-card p-2.5 shadow-sm sm:rounded-xl sm:border-2 sm:p-4"
                   >
-                    <span className="font-semibold text-foreground">{f.label}</span>
-                    <span className="mt-1 text-sm text-muted-foreground leading-relaxed">{f.description}</span>
+                    <span className="text-xs font-semibold text-foreground sm:text-sm">{f.label}</span>
+                    <span className="mt-0.5 text-[11px] leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-relaxed">
+                      {f.description}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -297,22 +301,22 @@ export default function RolesPermissionsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="assign" className="mt-8">
-          <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-            <CardHeader className="border-b bg-muted/20 pb-6">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  <UserCog className="h-5 w-5" />
+        <TabsContent value="assign" className="mt-0">
+          <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+            <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+              <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary sm:h-10 sm:w-10 sm:rounded-xl">
+                  <UserCog className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
-                Assign roles and permissions
+                Assign roles &amp; permissions
               </CardTitle>
-              <CardDescription className="text-base">
-                Select a user and update their roles and feature access. Changes take effect immediately.
+              <CardDescription className="text-xs sm:text-sm">
+                Select a user and update roles / features. Changes apply immediately.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6 pt-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Select user</label>
+            <CardContent className="space-y-3 p-3 pt-3 sm:space-y-6 sm:p-6 sm:pt-4">
+              <div className="space-y-1.5 sm:space-y-2">
+                <label className="text-xs font-medium sm:text-sm">Select user</label>
                 <Popover
                   open={userSelectOpen}
                   onOpenChange={(open) => {
@@ -325,11 +329,13 @@ export default function RolesPermissionsPage() {
                       variant="outline"
                       role="combobox"
                       aria-expanded={userSelectOpen}
-                      className="w-full max-w-md justify-between rounded-xl border-2 h-11 font-normal"
+                      className="h-10 w-full max-w-md justify-between rounded-lg border font-normal sm:h-11 sm:rounded-xl sm:border-2"
                     >
-                      {selectedUser
-                        ? formatUserDisplayName(selectedUser, { showEmail: true })
-                        : "Choose a user..."}
+                      <span className="truncate">
+                        {selectedUser
+                          ? formatUserDisplayName(selectedUser, { showEmail: true })
+                          : "Choose a user..."}
+                      </span>
                       <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -338,23 +344,23 @@ export default function RolesPermissionsPage() {
                     align="start"
                     onOpenAutoFocus={(e) => e.preventDefault()}
                   >
-                    <div className="p-2 border-b">
+                    <div className="border-b p-2">
                       <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          placeholder="Search users by name or email..."
+                          placeholder="Search name or email…"
                           value={userSelectSearch}
                           onChange={(e) => setUserSelectSearch(e.target.value)}
-                          className="pl-8 h-10 rounded-lg"
+                          className="h-9 rounded-lg pl-8"
                           autoComplete="off"
                         />
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1.5">
+                      <p className="mt-1.5 text-xs text-muted-foreground">
                         {filteredUsersForSelect.length} user{filteredUsersForSelect.length !== 1 ? "s" : ""}
-                        {userSelectSearch.trim() ? " match search" : ""}
+                        {userSelectSearch.trim() ? " match" : ""}
                       </p>
                     </div>
-                    <ScrollArea className="h-[280px]">
+                    <ScrollArea className="h-[min(280px,50dvh)]">
                       <div className="p-1">
                         {filteredUsersForSelect.length === 0 ? (
                           <p className="py-6 text-center text-sm text-muted-foreground">No user found.</p>
@@ -363,13 +369,15 @@ export default function RolesPermissionsPage() {
                             <button
                               key={u.uid || u.email || `user-${index}`}
                               type="button"
-                              className="w-full text-left rounded-lg px-3 py-2.5 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
+                              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:outline-none"
                               onClick={() => {
                                 setSelectedUserId(u.uid ?? "");
                                 setUserSelectOpen(false);
                               }}
                             >
-                              {formatUserDisplayName(u, { showEmail: true })}
+                              <span className="block truncate">
+                                {formatUserDisplayName(u, { showEmail: true })}
+                              </span>
                             </button>
                           ))
                         )}
@@ -380,7 +388,7 @@ export default function RolesPermissionsPage() {
               </div>
 
               {selectedUser ? (
-                <div className="rounded-xl border-2 border-border/60 bg-card p-6 shadow-sm">
+                <div className="rounded-lg border bg-card p-2.5 shadow-sm sm:rounded-xl sm:border-2 sm:p-6">
                   <RoleFeatureManagement
                     user={selectedUser}
                     onSuccess={() => {
@@ -389,7 +397,7 @@ export default function RolesPermissionsPage() {
                   />
                 </div>
               ) : (
-                <p className="py-10 text-center text-sm text-muted-foreground">
+                <p className="py-6 text-center text-xs text-muted-foreground sm:py-10 sm:text-sm">
                   Select a user above to manage their roles and permissions.
                 </p>
               )}
@@ -397,42 +405,41 @@ export default function RolesPermissionsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="locations" className="mt-8">
+        <TabsContent value="locations" className="mt-0">
           <AssignLocationTab />
         </TabsContent>
 
-        <TabsContent value="logs" className="mt-8">
+        <TabsContent value="logs" className="mt-0">
           <RolesPermissionsLogsTab />
         </TabsContent>
       </Tabs>
 
       <Dialog open={selectedRoleForDialog !== null} onOpenChange={(open) => !open && setSelectedRoleForDialog(null)}>
-        <DialogContent className="max-w-md sm:max-w-lg max-h-[90vh] flex flex-col gap-4 p-0">
-          <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle>
+        <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90vh]">
+          <DialogHeader className="shrink-0 border-b p-4 text-left sm:p-6 sm:pb-4">
+            <DialogTitle className="text-base sm:text-lg">
               {selectedRoleForDialog ? roleLabelByValue[selectedRoleForDialog] : ""} — Users
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">
               {usersWithSelectedRole.length} user{usersWithSelectedRole.length !== 1 ? "s" : ""} with this role.
-              Each user shows all of their role tags.
             </DialogDescription>
           </DialogHeader>
-          <div className="px-6">
+          <div className="shrink-0 space-y-1.5 border-b px-4 py-3 sm:px-6">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name or email..."
+                placeholder="Search by name or email…"
                 value={dialogUserSearch}
                 onChange={(e) => setDialogUserSearch(e.target.value)}
-                className="pl-9 h-10 rounded-xl border-2"
+                className="h-9 rounded-lg border pl-9 sm:h-10 sm:rounded-xl"
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">
+            <p className="text-[11px] text-muted-foreground sm:text-xs">
               {filteredDialogUsers.length} of {usersWithSelectedRole.length} shown
             </p>
           </div>
-          <ScrollArea className="h-[50vh] min-h-[240px] max-h-[420px] px-6 pb-6">
-            <ul className="space-y-2 pr-4 pb-4">
+          <ScrollArea className="min-h-0 flex-1 px-4 py-3 sm:px-6 sm:pb-6">
+            <ul className="space-y-1.5 pb-4 pr-2 sm:space-y-2">
               {filteredDialogUsers.length === 0 ? (
                 <li className="py-8 text-center text-sm text-muted-foreground">
                   No users match your search.
@@ -443,14 +450,14 @@ export default function RolesPermissionsPage() {
                   return (
                     <li
                       key={u.uid || u.email || `dialog-user-${index}`}
-                      className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 hover:bg-muted/30 transition-colors"
+                      className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 sm:gap-1.5 sm:rounded-xl sm:px-3 sm:py-2.5"
                     >
-                      <span className="font-medium text-foreground text-sm">
+                      <span className="truncate text-xs font-medium text-foreground sm:text-sm">
                         {formatUserDisplayName(u, { showEmail: true })}
                       </span>
                       <div className="flex flex-wrap gap-1">
                         {roles.map((r) => (
-                          <Badge key={r} variant="secondary" className="text-xs font-medium">
+                          <Badge key={r} variant="secondary" className="h-5 px-1.5 text-[10px] font-medium sm:text-xs">
                             {roleLabelByValue[r]}
                           </Badge>
                         ))}

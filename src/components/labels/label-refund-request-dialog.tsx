@@ -172,7 +172,7 @@ export function LabelRefundRequestDialog({ open, label, onOpenChange, onSubmitte
         }
       }}
     >
-      <DialogContent className="max-h-[min(92vh,720px)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col overflow-y-auto sm:max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>Request label refund</DialogTitle>
           <DialogDescription>

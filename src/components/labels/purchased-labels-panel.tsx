@@ -24,6 +24,8 @@ import { format } from "date-fns";
 type PurchasedLabelsPanelProps = {
   userId: string | null | undefined;
   emptyHint?: string;
+  /** Tighter spacing for admin Buy Labels purchased tab. */
+  compactLayout?: boolean;
 };
 
 function getStatusBadge(label: LabelPurchase) {
@@ -64,8 +66,6 @@ function getStatusBadge(label: LabelPurchase) {
       return <Badge className="bg-yellow-500">Pending</Badge>;
     case "label_failed":
       return <Badge variant="destructive">Label Failed</Badge>;
-    case "payment_failed":
-      return <Badge variant="destructive">Payment Failed</Badge>;
     default:
       return <Badge variant="outline">{status}</Badge>;
   }
@@ -183,7 +183,10 @@ function handleTrackShipment(trackingNumber: string, provider: string) {
 export function PurchasedLabelsPanel({
   userId,
   emptyHint = "Purchase your first shipping label to get started",
+  compactLayout = false,
 }: PurchasedLabelsPanelProps) {
+  const outerGap = compactLayout ? "space-y-3 sm:space-y-6" : "space-y-6";
+  const cardPad = compactLayout ? "p-3 sm:p-6" : undefined;
   const { data: labels, loading } = useCollection<LabelPurchase>(
     userId ? `users/${userId}/labelPurchases` : ""
   );
@@ -274,8 +277,8 @@ export function PurchasedLabelsPanel({
 
   if (!userId) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
+      <Card className="min-w-0 overflow-hidden">
+        <CardContent className={`flex flex-col items-center justify-center py-8 sm:py-12 ${cardPad ?? ""}`}>
           <Package className="mb-4 h-12 w-12 text-muted-foreground" />
           <p className="text-lg font-medium">Select an account</p>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -295,24 +298,36 @@ export function PurchasedLabelsPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`min-w-0 ${outerGap}`}>
       {safeLabels.length > 0 && (
-        <Card className="rounded-2xl border border-border/70 shadow-sm">
-          <CardHeader className="pb-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Card
+          className={`min-w-0 overflow-hidden border border-border/70 shadow-sm ${compactLayout ? "rounded-xl sm:rounded-2xl" : "rounded-2xl"}`}
+        >
+          <CardHeader
+            className={
+              compactLayout
+                ? "border-b bg-muted/20 p-3 pb-3 sm:p-6 sm:pb-4"
+                : "pb-4"
+            }
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary sm:h-9 sm:w-9">
                   <Filter className="h-4 w-4" />
                 </span>
-                <div>
-                  <CardTitle className="text-base">Filter by Date</CardTitle>
-                  <CardDescription>Narrow labels by purchase date range.</CardDescription>
+                <div className="min-w-0">
+                  <CardTitle className={compactLayout ? "text-sm sm:text-base" : "text-base"}>
+                    Filter by Date
+                  </CardTitle>
+                  <CardDescription className={compactLayout ? "text-xs sm:text-sm" : undefined}>
+                    Narrow labels by purchase date range.
+                  </CardDescription>
                 </div>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <CardContent className={compactLayout ? "p-3 pt-0 sm:p-6 sm:pt-0" : "pt-0"}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <div className="space-y-2">
                 <Label
                   htmlFor="purchased-labels-start-date"
@@ -352,7 +367,7 @@ export function PurchasedLabelsPanel({
                   setStartDate("");
                   setEndDate("");
                 }}
-                className="mt-4 w-full sm:w-auto"
+                className="mt-3 w-full sm:mt-4 sm:w-auto"
               >
                 Clear Date Filter
               </Button>
@@ -362,16 +377,16 @@ export function PurchasedLabelsPanel({
       )}
 
       {safeLabels.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
+        <Card className="min-w-0 overflow-hidden">
+          <CardContent className="flex flex-col items-center justify-center py-8 sm:py-12">
             <Package className="mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-lg font-medium">No labels purchased yet</p>
             <p className="mt-2 text-sm text-muted-foreground">{emptyHint}</p>
           </CardContent>
         </Card>
       ) : filteredLabels.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
+        <Card className="min-w-0 overflow-hidden">
+          <CardContent className="flex flex-col items-center justify-center py-8 sm:py-12">
             <Package className="mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-lg font-medium">No labels found</p>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -387,7 +402,7 @@ export function PurchasedLabelsPanel({
                   setStartDate("");
                   setEndDate("");
                 }}
-                className="mt-4"
+                className="mt-3 w-full sm:mt-4 sm:w-auto"
               >
                 Clear Date Filter
               </Button>
@@ -395,13 +410,13 @@ export function PurchasedLabelsPanel({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredLabels.map((label, index) => (
             <Card
               key={label.id || `label-${index}`}
-              className="rounded-2xl border border-border/70 transition-shadow hover:shadow-md"
+              className="min-w-0 overflow-hidden rounded-xl border border-border/70 transition-shadow hover:shadow-md sm:rounded-2xl"
             >
-              <CardHeader className="pb-3">
+              <CardHeader className={`pb-2 sm:pb-3 ${compactLayout ? "p-3 sm:p-6" : ""}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
                     <CardTitle className="text-base font-semibold">
@@ -422,7 +437,7 @@ export function PurchasedLabelsPanel({
                   {getStatusBadge(label)}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 pt-0">
+              <CardContent className={`space-y-3 pt-0 sm:space-y-4 ${compactLayout ? "p-3 sm:p-6" : ""}`}>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -469,8 +484,8 @@ export function PurchasedLabelsPanel({
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 pt-2">
-                  <div className="flex gap-2">
+                <div className="flex flex-col gap-2 pt-1 sm:pt-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                   {label.labelUrl &&
                     (label.status === "label_purchased" || label.status === "completed") &&
                     String(label.refundStatus || "").toLowerCase() !== "refunded" && (

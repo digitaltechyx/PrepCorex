@@ -390,7 +390,7 @@ export function BuyLabelsBulkImportDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className={`max-h-[90vh] overflow-y-auto ${reviewStep ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
+        className={`flex max-h-[100dvh] w-[calc(100%-1.5rem)] flex-col overflow-y-auto sm:max-h-[90vh] ${reviewStep ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -720,7 +720,7 @@ export function BuyLabelsBulkImportDialog({
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:gap-0 [&>button]:w-full sm:[&>button]:w-auto">
           {reviewStep ? (
             <>
               <Button type="button" variant="outline" onClick={handleBackToUpload} disabled={submitting}>

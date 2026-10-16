@@ -212,7 +212,7 @@ export function PaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-md flex-col overflow-y-auto sm:max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5" />

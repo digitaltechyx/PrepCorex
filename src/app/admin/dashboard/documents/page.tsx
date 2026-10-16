@@ -604,64 +604,61 @@ export default function DocumentRequestsPage() {
     }
   };
 
+  const mgmtTabTriggerClass =
+    "gap-1 rounded-md px-1.5 py-2 text-[10px] font-semibold text-muted-foreground transition-all sm:gap-2 sm:px-4 sm:py-2.5 sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground";
+
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <Tabs value={managementTab} onValueChange={setManagementTab} className="space-y-6">
-        <div className="rounded-lg border bg-card p-1.5 shadow-sm">
-          <TabsList className="grid h-auto w-full max-w-3xl grid-cols-3 gap-1.5 bg-muted/50 p-1">
-            <TabsTrigger
-              value="requests"
-              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
-            >
-              <FileStack className="h-4 w-4 shrink-0" />
-              Document Requests
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Tabs value={managementTab} onValueChange={setManagementTab} className="min-w-0 space-y-3 sm:space-y-6">
+        <div className="rounded-lg border bg-card p-1 shadow-sm sm:p-1.5">
+          <TabsList className="grid h-auto w-full grid-cols-3 gap-0.5 bg-muted/50 p-1 sm:max-w-3xl sm:gap-1.5">
+            <TabsTrigger value="requests" className={mgmtTabTriggerClass}>
+              <FileStack className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              <span className="sm:hidden">Requests</span>
+              <span className="hidden sm:inline">Document Requests</span>
             </TabsTrigger>
-            <TabsTrigger
-              value="msa"
-              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
-            >
-              <FileSignature className="h-4 w-4 shrink-0" />
-              MSA Agreements
+            <TabsTrigger value="msa" className={mgmtTabTriggerClass}>
+              <FileSignature className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              <span className="sm:hidden">MSA</span>
+              <span className="hidden sm:inline">MSA Agreements</span>
               <Badge
                 variant={managementTab === "msa" ? "secondary" : "outline"}
-                className="ml-0.5 h-5 min-w-[1.25rem] px-1.5 text-xs font-bold"
+                className="ml-0.5 h-4 min-w-[1rem] px-1 text-[10px] font-bold sm:h-5 sm:min-w-[1.25rem] sm:px-1.5 sm:text-xs"
               >
                 {usersWithMSA.length}
               </Badge>
             </TabsTrigger>
-            <TabsTrigger
-              value="platform-legal"
-              className="gap-2 rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:text-foreground"
-            >
-              <BookOpen className="h-4 w-4 shrink-0" />
-              Legal Templates
+            <TabsTrigger value="platform-legal" className={mgmtTabTriggerClass}>
+              <BookOpen className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              <span className="sm:hidden">Legal</span>
+              <span className="hidden sm:inline">Legal Templates</span>
             </TabsTrigger>
           </TabsList>
         </div>
 
-        <TabsContent value="requests" className="mt-0 space-y-6">
+        <TabsContent value="requests" className="mt-0 space-y-3 sm:space-y-6">
           {/* Stat cards */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <Card
           role="button"
           tabIndex={0}
           onClick={() => setActiveTab("pending")}
           onKeyDown={(e) => e.key === "Enter" && setActiveTab("pending")}
-          className="border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-lg cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2"
+          className="border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2 sm:shadow-lg"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-orange-900">Pending</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center shadow-md">
-              <Clock className="h-5 w-5 text-white" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs font-medium text-orange-900 sm:text-sm">Pending</CardTitle>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-500 shadow-md sm:h-10 sm:w-10">
+              <Clock className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12" />
+              <Skeleton className="h-7 w-10 sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-orange-900">{pendingRequests.length}</div>
-                <p className="text-xs text-orange-700 mt-1">Awaiting review</p>
+                <div className="text-2xl font-bold text-orange-900 sm:text-3xl">{pendingRequests.length}</div>
+                <p className="mt-0.5 text-[10px] text-orange-700 sm:mt-1 sm:text-xs">Awaiting review</p>
               </>
             )}
           </CardContent>
@@ -671,57 +668,60 @@ export default function DocumentRequestsPage() {
           tabIndex={0}
           onClick={() => setActiveTab("completed")}
           onKeyDown={(e) => e.key === "Enter" && setActiveTab("completed")}
-          className="border-2 border-green-200/50 bg-gradient-to-br from-green-50 to-green-100/50 shadow-lg cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2"
+          className="border-2 border-green-200/50 bg-gradient-to-br from-green-50 to-green-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 sm:shadow-lg"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-green-900">Completed</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-green-500 flex items-center justify-center shadow-md">
-              <CheckCircle className="h-5 w-5 text-white" />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs font-medium text-green-900 sm:text-sm">Completed</CardTitle>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500 shadow-md sm:h-10 sm:w-10">
+              <CheckCircle className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12" />
+              <Skeleton className="h-7 w-10 sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-green-900">{completedRequests.length}</div>
-                <p className="text-xs text-green-700 mt-1">Fulfilled</p>
+                <div className="text-2xl font-bold text-green-900 sm:text-3xl">{completedRequests.length}</div>
+                <p className="mt-0.5 text-[10px] text-green-700 sm:mt-1 sm:text-xs">Fulfilled</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="border-2 border-blue-200/50 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-blue-900">Total Requests</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center shadow-md">
-              <FileStack className="h-5 w-5 text-white" />
+        <Card className="border-2 border-blue-200/50 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-md sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs font-medium text-blue-900 sm:text-sm">Total</CardTitle>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 shadow-md sm:h-10 sm:w-10">
+              <FileStack className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12" />
+              <Skeleton className="h-7 w-10 sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-blue-900">{requestsWithUserData.length}</div>
-                <p className="text-xs text-blue-700 mt-1">All time</p>
+                <div className="text-2xl font-bold text-blue-900 sm:text-3xl">{requestsWithUserData.length}</div>
+                <p className="mt-0.5 text-[10px] text-blue-700 sm:mt-1 sm:text-xs">All time</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-amber-900">Processed This Week</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
-              <CalendarCheck className="h-5 w-5 text-white" />
+        <Card className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-md sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-xs font-medium text-amber-900 sm:text-sm">
+              <span className="sm:hidden">This week</span>
+              <span className="hidden sm:inline">Processed This Week</span>
+            </CardTitle>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 shadow-md sm:h-10 sm:w-10">
+              <CalendarCheck className="h-4 w-4 text-white sm:h-5 sm:w-5" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12" />
+              <Skeleton className="h-7 w-10 sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-amber-900">{processedThisWeek}</div>
-                <p className="text-xs text-amber-700 mt-1">Last 7 days</p>
+                <div className="text-2xl font-bold text-amber-900 sm:text-3xl">{processedThisWeek}</div>
+                <p className="mt-0.5 text-[10px] text-amber-700 sm:mt-1 sm:text-xs">Last 7 days</p>
               </>
             )}
           </CardContent>
@@ -729,12 +729,12 @@ export default function DocumentRequestsPage() {
           </div>
 
           {/* Filters Dashboard */}
-          <Card className="border shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Filters</CardTitle>
-          <CardDescription>Narrow requests by search, client, company, document type, and requested date.</CardDescription>
+          <Card className="min-w-0 border shadow-sm">
+        <CardHeader className="p-3 pb-2 sm:p-6 sm:pb-3">
+          <CardTitle className="text-sm sm:text-base">Filters</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Search, client, company, type, and date.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -801,28 +801,28 @@ export default function DocumentRequestsPage() {
         </CardContent>
       </Card>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="pending">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0 space-y-3 sm:space-y-4">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:inline-flex sm:h-10 sm:w-auto">
+              <TabsTrigger value="pending" className="gap-1 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:text-sm">
                 Pending ({pendingRequests.length})
               </TabsTrigger>
-              <TabsTrigger value="completed">
-                Completed ({completedRequests.length})
+              <TabsTrigger value="completed" className="gap-1 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:text-sm">
+                Done ({completedRequests.length})
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="pending" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-orange-500" />
+            <TabsContent value="pending" className="space-y-3 sm:space-y-4">
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="p-3 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Clock className="h-4 w-4 text-orange-500 sm:h-5 sm:w-5" />
                 Pending Requests
               </CardTitle>
-              <CardDescription>
-                Document requests awaiting your review, approval, upload, or rejection
+              <CardDescription className="text-xs sm:text-sm">
+                Awaiting review, approval, upload, or rejection
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -838,11 +838,11 @@ export default function DocumentRequestsPage() {
                 </div>
               ) : (
                 <>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   {pendingPagination.items.map((request) => (
                     <div
                       key={request.id}
-                      className="rounded-lg border bg-background p-4"
+                      className="rounded-lg border bg-background p-3 sm:p-4"
                     >
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -919,17 +919,18 @@ export default function DocumentRequestsPage() {
                           )}
                           </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
                           {request.documentType !== CUSTOM_DOCUMENT_REQUEST_LABEL && (
                             <Button
                               size="sm"
+                              className="h-8 flex-1 sm:flex-none"
                               onClick={() => handleApproveRequest(request)}
                               disabled={approvingRequestId === request.id}
                             >
                               {approvingRequestId === request.id ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin sm:mr-2 sm:h-4 sm:w-4" />
                               ) : (
-                                <CheckCircle className="mr-2 h-4 w-4" />
+                                <CheckCircle className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />
                               )}
                               Approve
                             </Button>
@@ -937,15 +938,16 @@ export default function DocumentRequestsPage() {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="h-8 flex-1 sm:flex-none"
                             onClick={() => handleOpenUploadDialog(request)}
                           >
-                            <Upload className="mr-2 h-4 w-4" />
+                            <Upload className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />
                             Upload
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            className="h-8 flex-1 border-red-200 text-red-600 hover:bg-red-50 sm:flex-none"
                             onClick={() => handleRejectRequest(request)}
                           >
                             Reject
@@ -968,18 +970,18 @@ export default function DocumentRequestsPage() {
           </Card>
             </TabsContent>
 
-            <TabsContent value="completed" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-500" />
+            <TabsContent value="completed" className="space-y-3 sm:space-y-4">
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="p-3 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <CheckCircle className="h-4 w-4 text-green-500 sm:h-5 sm:w-5" />
                 Completed Requests
               </CardTitle>
-              <CardDescription>
-                Document requests that have been fulfilled
+              <CardDescription className="text-xs sm:text-sm">
+                Fulfilled document requests
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -995,13 +997,13 @@ export default function DocumentRequestsPage() {
                 </div>
               ) : (
                 <>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                   {completedPagination.items.map((request) => (
                     <div
                       key={request.id}
-                      className="rounded-lg border bg-background p-4"
+                      className="rounded-lg border bg-background p-3 sm:p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="flex items-start gap-3 flex-1 min-w-0">
                           <div className="h-9 w-9 rounded-full bg-green-100 flex items-center justify-center shrink-0">
                             <FileText className="h-4 w-4 text-green-600" />
@@ -1046,10 +1048,11 @@ export default function DocumentRequestsPage() {
                       {request.documentUrl && (
                         <Button
                           variant="outline"
+                          size="sm"
                           onClick={() => handleDownload(request.documentUrl!, request.fileName || "document.pdf")}
-                          className="ml-4"
+                          className="h-8 w-full shrink-0 sm:ml-4 sm:w-auto"
                         >
-                          <Download className="mr-2 h-4 w-4" />
+                          <Download className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />
                           Download
                         </Button>
                       )}
@@ -1070,18 +1073,18 @@ export default function DocumentRequestsPage() {
             </TabsContent>
           </Tabs>
         </TabsContent>
-        <TabsContent value="msa" className="mt-0 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSignature className="h-5 w-5 text-indigo-500" />
-                Signed Master Service Agreements ({filteredMSAUsers.length})
+        <TabsContent value="msa" className="mt-0 space-y-3 sm:space-y-4">
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="p-3 sm:p-6">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg">
+                <FileSignature className="h-4 w-4 text-indigo-500 sm:h-5 sm:w-5" />
+                Signed MSAs ({filteredMSAUsers.length})
               </CardTitle>
-              <CardDescription>
-                Clients who have accepted the MSA. Download a copy for any client.
+              <CardDescription className="text-xs sm:text-sm">
+                Clients who accepted the MSA — download a copy for any client.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               {usersWithMSA.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileSignature className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -1137,10 +1140,12 @@ export default function DocumentRequestsPage() {
                         <SelectItem value="name_desc">Name Z → A</SelectItem>
                       </SelectContent>
                     </Select>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 xl:col-span-2">
                       {hasMsaActiveFilters && (
                         <Button
                           variant="outline"
+                          size="sm"
+                          className="h-9"
                           onClick={() => {
                             setMsaSearchQuery("");
                             setMsaSelectedCompany("all");
@@ -1152,8 +1157,8 @@ export default function DocumentRequestsPage() {
                           Reset
                         </Button>
                       )}
-                      <Badge variant="outline" className="h-10 px-3">
-                        Total Agreements: {filteredMSAUsers.length}
+                      <Badge variant="outline" className="h-9 px-2 text-xs sm:h-10 sm:px-3">
+                        Total: {filteredMSAUsers.length}
                       </Badge>
                     </div>
                   </div>
@@ -1162,11 +1167,11 @@ export default function DocumentRequestsPage() {
                     {paginatedMSAUsers.map((u: UserProfile) => (
                       <div
                         key={u.uid}
-                        className="flex items-center justify-between rounded-lg border bg-muted/30 p-3"
+                        className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div>
-                          <p className="font-medium">{u.name ?? u.email}</p>
-                          <p className="text-sm text-muted-foreground">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium sm:text-base">{u.name ?? u.email}</p>
+                          <p className="text-xs text-muted-foreground sm:text-sm">
                             {u.msaClientDetails!.companyName} · Effective {u.msaEffectiveDate}
                             {getAcceptedMsaVersion(u) != null && (
                               <> · Signed {formatPlatformVersionLabel(getAcceptedMsaVersion(u)!)}</>
@@ -1176,6 +1181,7 @@ export default function DocumentRequestsPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          className="h-8 w-full shrink-0 sm:w-auto"
                           onClick={() => handleDownloadMSA(u)}
                           disabled={msaDownloadingUid === u.uid}
                         >
@@ -1183,8 +1189,8 @@ export default function DocumentRequestsPage() {
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download MSA
+                              <Download className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />
+                              Download
                             </>
                           )}
                         </Button>
@@ -1211,14 +1217,14 @@ export default function DocumentRequestsPage() {
 
       {/* Upload Dialog */}
       <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90vh]">
+          <DialogHeader className="shrink-0 border-b p-4 text-left sm:p-6">
             <DialogTitle>Upload Document</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs sm:text-sm">
               Upload the requested document for {selectedRequest?.userName}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
             <div className="space-y-2">
               <Label>Document Type</Label>
               <Input value={selectedRequest?.documentType || ""} disabled />

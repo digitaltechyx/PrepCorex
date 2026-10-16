@@ -17,7 +17,7 @@ import { MemberManagement } from "@/components/admin/member-management";
 import { CommissionAgentsManagement } from "@/components/admin/commission-agents-management";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { getUserRoles, hasRole } from "@/lib/permissions";
+import { getUserRoles } from "@/lib/permissions";
 import { assignClientIdsToExistingUsers } from "@/lib/client-id";
 import { Hash, Loader2 } from "lucide-react";
 
@@ -109,100 +109,104 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="border-2 shadow-xl overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-600 text-white pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
-                <Users className="h-6 w-6" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden border-2 shadow-xl">
+        <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-600 pb-3 text-white sm:pb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-2xl">
+                <Users className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
                 User Management
               </CardTitle>
-              <CardDescription className="text-green-100 mt-2">
-                Manage user accounts and approvals ({filteredUsers.length} users)
+              <CardDescription className="mt-1 text-xs text-green-100 sm:mt-2 sm:text-sm">
+                Manage accounts &amp; approvals ({filteredUsers.length})
               </CardDescription>
             </div>
-            <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm sm:flex">
               <Shield className="h-7 w-7 text-white" />
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-6 pb-6 border-b">
-            <div className="flex-1">
+        <CardContent className="p-3 sm:p-6">
+          <div className="mb-3 flex flex-col gap-2 border-b pb-3 sm:mb-4 sm:flex-row sm:gap-3 sm:pb-4">
+            <div className="min-w-0 flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
                 <Input
-                  placeholder="Search by name, email, phone, or client ID..."
+                  placeholder="Search name, email, phone, ID…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-11 shadow-sm"
+                  className="h-9 pl-10 shadow-sm sm:h-10"
                 />
               </div>
             </div>
             {!isSubAdmin && (
-            <>
-              {usersWithoutClientIdCount > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex items-center gap-2 shadow-sm"
-                  onClick={handleAssignClientIds}
-                  disabled={isAssigningIds}
-                >
-                  {isAssigningIds ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Hash className="h-4 w-4" />
-                  )}
-                  Assign client IDs ({usersWithoutClientIdCount})
-                </Button>
-              )}
-              <Dialog open={showCreateUser} onOpenChange={setShowCreateUser}>
-                <DialogTrigger asChild>
-                  <Button className="flex items-center gap-2 shadow-sm">
-                    <UserPlus className="h-4 w-4" />
-                    Create User
+              <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+                {usersWithoutClientIdCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-full shadow-sm sm:w-auto"
+                    onClick={handleAssignClientIds}
+                    disabled={isAssigningIds}
+                  >
+                    {isAssigningIds ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Hash className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">Assign IDs ({usersWithoutClientIdCount})</span>
                   </Button>
-                </DialogTrigger>
-              <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Create New User</DialogTitle>
-                  <DialogDescription>
-                    Add a new user to the inventory management system.
-                  </DialogDescription>
-                </DialogHeader>
-                <CreateUserForm 
-                  onSuccess={() => setShowCreateUser(false)}
-                  onCancel={() => setShowCreateUser(false)}
-                />
-              </DialogContent>
-            </Dialog>
-            </>
+                )}
+                <Dialog open={showCreateUser} onOpenChange={setShowCreateUser}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="h-9 w-full shadow-sm sm:w-auto">
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Create User
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90vh]">
+                    <DialogHeader className="shrink-0 border-b p-4 text-left sm:p-6">
+                      <DialogTitle>Create New User</DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">
+                        Add a new user to the inventory management system.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+                      <CreateUserForm
+                        onSuccess={() => setShowCreateUser(false)}
+                        onCancel={() => setShowCreateUser(false)}
+                      />
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             )}
           </div>
 
           <Tabs
             value={isSubAdmin ? "users" : activeTab}
             onValueChange={(v) => !isSubAdmin && setActiveTab(v as "users" | "commission_agents")}
-            className="w-full"
+            className="w-full min-w-0"
           >
-            <TabsList className={isSubAdmin ? "grid w-full grid-cols-1 mb-6" : "grid w-full grid-cols-2 mb-6"}>
-              <TabsTrigger value="users" className="flex items-center gap-2">
-                <Users className="h-4 w-4" />
+            <TabsList className={isSubAdmin ? "mb-3 grid h-auto w-full grid-cols-1" : "mb-3 grid h-auto w-full grid-cols-2 gap-1 p-1"}>
+              <TabsTrigger value="users" className="gap-1 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:text-sm">
+                <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Users
                 {pendingUsersCount > 0 && (
-                  <Badge variant="destructive" className="ml-2">
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
                     {pendingUsersCount}
                   </Badge>
                 )}
               </TabsTrigger>
               {!isSubAdmin && (
-                <TabsTrigger value="commission_agents" className="flex items-center gap-2">
-                  <UserCheck className="h-4 w-4" />
-                  Commission Agents
+                <TabsTrigger value="commission_agents" className="gap-1 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:text-sm">
+                  <UserCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  <span className="sm:hidden">Agents</span>
+                  <span className="hidden sm:inline">Commission Agents</span>
                   {pendingCommissionAgentsCount > 0 && (
-                    <Badge variant="destructive" className="ml-2">
+                    <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
                       {pendingCommissionAgentsCount}
                     </Badge>
                   )}
@@ -212,9 +216,9 @@ export default function AdminUsersPage() {
 
             <TabsContent value="users" className="mt-0">
               {usersLoading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-32 w-full rounded-xl" />
+                <div className="space-y-1.5">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-14 w-full rounded-lg" />
                   ))}
                 </div>
               ) : (
@@ -232,9 +236,9 @@ export default function AdminUsersPage() {
             {!isSubAdmin && (
               <TabsContent value="commission_agents" className="mt-0">
                 {usersLoading ? (
-                  <div className="space-y-4">
-                    {[1, 2, 3].map((i) => (
-                      <Skeleton key={i} className="h-32 w-full rounded-xl" />
+                  <div className="space-y-1.5">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Skeleton key={i} className="h-14 w-full rounded-lg" />
                     ))}
                   </div>
                 ) : (
@@ -248,4 +252,3 @@ export default function AdminUsersPage() {
     </div>
   );
 }
-

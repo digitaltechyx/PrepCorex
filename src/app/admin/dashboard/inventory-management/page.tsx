@@ -107,75 +107,98 @@ export default function AdminInventoryManagementPage() {
   }, [authUser, selectedUser?.uid, inventoryLoading, inventory]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-3 sm:space-y-6">
       {selectedUser && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-2 border-blue-200/50 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-blue-900">Total Inventory</CardTitle>
-              <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center shadow-md">
-                <Boxes className="h-5 w-5 text-white" />
+        <div className="grid grid-cols-2 gap-1.5 sm:gap-4 lg:grid-cols-4">
+          <Card className="min-w-0 overflow-hidden rounded-lg border border-blue-200/60 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+              <CardTitle className="text-[10px] font-medium leading-tight text-blue-900 sm:text-sm">
+                Total Inventory
+              </CardTitle>
+              <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-blue-500 shadow-sm sm:flex">
+                <Boxes className="h-4 w-4 text-white" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
               {inventoryLoading ? (
-                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-5 w-10 rounded sm:h-8 sm:w-16" />
               ) : (
                 <>
-                  <div className="text-3xl font-bold text-blue-900">{stats.totalUnits.toLocaleString()}</div>
-                  <p className="text-xs text-blue-700 mt-1">Units across {stats.skuCount} SKU(s)</p>
+                  <div className="text-base font-bold tabular-nums text-blue-900 sm:text-3xl">
+                    {stats.totalUnits.toLocaleString()}
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-tight text-blue-700 sm:mt-1 sm:text-xs">
+                    <span className="sm:hidden">{stats.skuCount} SKUs</span>
+                    <span className="hidden sm:inline">Units across {stats.skuCount} SKU(s)</span>
+                  </p>
                 </>
               )}
             </CardContent>
           </Card>
-          <Card className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-amber-900">Low Stock SKUs</CardTitle>
-              <div className="h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
-                <AlertTriangle className="h-5 w-5 text-white" />
+          <Card className="min-w-0 overflow-hidden rounded-lg border border-amber-200/60 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+              <CardTitle className="text-[10px] font-medium leading-tight text-amber-900 sm:text-sm">
+                Low Stock SKUs
+              </CardTitle>
+              <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-amber-500 shadow-sm sm:flex">
+                <AlertTriangle className="h-4 w-4 text-white" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
               {inventoryLoading ? (
-                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-16" />
               ) : (
                 <>
-                  <div className="text-3xl font-bold text-amber-900">{stats.lowStockSkus}</div>
-                  <p className="text-xs text-amber-700 mt-1">Qty ≤ 10</p>
+                  <div className="text-base font-bold tabular-nums text-amber-900 sm:text-3xl">
+                    {stats.lowStockSkus}
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-tight text-amber-700 sm:mt-1 sm:text-xs">Qty ≤ 10</p>
                 </>
               )}
             </CardContent>
           </Card>
-          <Card className="border-2 border-teal-200/50 bg-gradient-to-br from-teal-50 to-teal-100/50 shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-teal-900">Shipped Orders</CardTitle>
-              <div className="h-10 w-10 rounded-full bg-teal-500 flex items-center justify-center shadow-md">
-                <Truck className="h-5 w-5 text-white" />
+          <Card className="min-w-0 overflow-hidden rounded-lg border border-teal-200/60 bg-gradient-to-br from-teal-50 to-teal-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+              <CardTitle className="text-[10px] font-medium leading-tight text-teal-900 sm:text-sm">
+                Shipped Orders
+              </CardTitle>
+              <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-teal-500 shadow-sm sm:flex">
+                <Truck className="h-4 w-4 text-white" />
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
               {shippedLoading ? (
-                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-16" />
               ) : (
                 <>
-                  <div className="text-3xl font-bold text-teal-900">{stats.shippedOrders}</div>
-                  <p className="text-xs text-teal-700 mt-1">Total shipments</p>
+                  <div className="text-base font-bold tabular-nums text-teal-900 sm:text-3xl">
+                    {stats.shippedOrders}
+                  </div>
+                  <p className="mt-0.5 text-[10px] leading-tight text-teal-700 sm:mt-1 sm:text-xs">
+                    <span className="sm:hidden">Shipments</span>
+                    <span className="hidden sm:inline">Total shipments</span>
+                  </p>
                 </>
               )}
             </CardContent>
           </Card>
-          <Card className="border-2 border-orange-200/50 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-lg">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-orange-900">Pending Requests</CardTitle>
-              <div className="h-10 w-10 rounded-full bg-orange-500 flex items-center justify-center shadow-md">
-                <Clock className="h-5 w-5 text-white" />
+          <Card className="min-w-0 overflow-hidden rounded-lg border border-orange-200/60 bg-gradient-to-br from-orange-50 to-orange-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+              <CardTitle className="text-[10px] font-medium leading-tight text-orange-900 sm:text-sm">
+                Pending Requests
+              </CardTitle>
+              <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-orange-500 shadow-sm sm:flex">
+                <Clock className="h-4 w-4 text-white" />
               </div>
             </CardHeader>
-            <CardContent>
-              <>
-                <div className="text-3xl font-bold text-orange-900">{stats.pendingRequests}</div>
-                <p className="text-xs text-orange-700 mt-1">Awaiting fulfillment</p>
-              </>
+            <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+              <div className="text-base font-bold tabular-nums text-orange-900 sm:text-3xl">
+                {stats.pendingRequests}
+              </div>
+              <p className="mt-0.5 text-[10px] leading-tight text-orange-700 sm:mt-1 sm:text-xs">
+                <span className="sm:hidden">Awaiting</span>
+                <span className="hidden sm:inline">Awaiting fulfillment</span>
+              </p>
             </CardContent>
           </Card>
         </div>

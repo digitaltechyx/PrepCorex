@@ -194,22 +194,20 @@ export function PlatformDocumentsManagement() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Platform legal documents</CardTitle>
-        <CardDescription>
-          Edit agreement content in-app with rich text formatting. The PDF and client views use only
-          the sections you enter below (plus the auto-generated Document Control table). When you
-          save, enter the version number you want published. The previous live version is archived
-          automatically.
+    <Card className="min-w-0 overflow-hidden">
+      <CardHeader className="p-3 sm:p-6">
+        <CardTitle className="text-base sm:text-lg">Platform legal documents</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
+          Edit agreement content in-app. PDF and client views use the sections below (plus Document
+          Control). Save with a new version number; the previous live version is archived automatically.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4 p-3 pt-0 sm:space-y-5 sm:p-6 sm:pt-0">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1 max-w-md w-full">
+          <div className="w-full max-w-md space-y-1">
             <Label>Document</Label>
             <Select value={slug} onValueChange={(v) => setSlug(v as PlatformDocumentSlug)}>
-              <SelectTrigger>
+              <SelectTrigger className="h-9 sm:h-10">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -221,25 +219,25 @@ export function PlatformDocumentsManagement() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" size="sm" className="h-9 w-full sm:w-auto" asChild>
               <a
                 href={`/api/platform-documents/${slug}/pdf?version=${meta.version ?? 1}&t=${encodeURIComponent(meta.updatedAt || "")}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Preview live PDF
+                <ExternalLink className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />
+                Preview PDF
               </a>
             </Button>
-            <Button onClick={() => void handleSave()} disabled={saving || loading}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save new version
+            <Button size="sm" className="h-9 w-full sm:w-auto" onClick={() => void handleSave()} disabled={saving || loading}>
+              {saving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin sm:mr-2 sm:h-4 sm:w-4" /> : <Save className="mr-1 h-3.5 w-3.5 sm:mr-2 sm:h-4 sm:w-4" />}
+              Save version
             </Button>
           </div>
         </div>
 
-        <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground space-y-3">
+        <div className="space-y-3 rounded-lg border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground sm:px-4 sm:py-3 sm:text-sm">
           <div>
             Current live version: <strong>{formatPlatformVersionLabel(meta.version)}</strong>
             {meta.updatedAt ? (
@@ -266,12 +264,12 @@ export function PlatformDocumentsManagement() {
           </div>
         </div>
 
-        <div className="space-y-2 rounded-lg border p-4">
+        <div className="space-y-2 rounded-lg border p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold">Archived versions</p>
               <p className="text-xs text-muted-foreground">
-                Older versions kept for download. You can delete archives that are no longer needed.
+                Older versions for download — delete when no longer needed.
               </p>
             </div>
             {loadingVersions ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -344,7 +342,7 @@ export function PlatformDocumentsManagement() {
             if (!open) setVersionToDelete(null);
           }}
         >
-          <AlertDialogContent>
+          <AlertDialogContent className="w-[calc(100%-1.5rem)] max-w-lg">
             <AlertDialogHeader>
               <AlertDialogTitle>Delete archived version?</AlertDialogTitle>
               <AlertDialogDescription>
@@ -386,7 +384,7 @@ export function PlatformDocumentsManagement() {
             </div>
 
             {documentControl.length > 0 ? (
-              <div className="space-y-2 rounded-lg border p-4">
+              <div className="space-y-2 rounded-lg border p-3 sm:p-4">
                 {showDocumentControlHeading ? (
                   <p className="text-sm font-semibold text-primary">Document Control</p>
                 ) : null}
@@ -394,7 +392,7 @@ export function PlatformDocumentsManagement() {
                   Auto-generated for this document. Version and dates update when you save with a new
                   version number.
                 </p>
-                <div className="overflow-x-auto">
+                <div className="hidden overflow-x-auto sm:block">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-primary text-primary-foreground">
@@ -412,13 +410,21 @@ export function PlatformDocumentsManagement() {
                     </tbody>
                   </table>
                 </div>
+                <div className="space-y-2 sm:hidden">
+                  {documentControl.map((row) => (
+                    <div key={row.field} className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                      <p className="font-medium text-foreground">{row.field}</p>
+                      <p className="mt-0.5 break-words text-muted-foreground">{row.value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
             <div className="space-y-4">
               <Label>Sections</Label>
               {sections.map((section, index) => (
-                <div key={index} className="space-y-2 rounded-lg border p-4">
+                <div key={index} className="space-y-2 rounded-lg border p-3 sm:p-4">
                   <div className="flex items-center justify-between gap-2">
                     <Label className="text-xs text-muted-foreground">Section {index + 1}</Label>
                     {sections.length > 1 && (

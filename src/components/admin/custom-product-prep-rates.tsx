@@ -304,24 +304,24 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
   };
 
   return (
-    <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
-      <CardHeader className="border-b bg-gradient-to-r from-amber-50 to-orange-50 pb-3">
-        <CardTitle className="flex items-center gap-2 text-xl text-amber-800">
-          <Boxes className="h-5 w-5" />
+    <Card className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white/90 shadow-sm sm:rounded-2xl">
+      <CardHeader className="border-b bg-gradient-to-r from-amber-50 to-orange-50 p-3 pb-2 sm:p-6 sm:pb-3">
+        <CardTitle className="flex items-center gap-2 text-base text-amber-800 sm:text-xl">
+          <Boxes className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
           Product-specific FBA / FBM rates
         </CardTitle>
-        <CardDescription className="text-amber-900/80">
+        <CardDescription className="text-xs text-amber-900/80 sm:text-sm">
           For <span className="font-medium">{clientName}</span> custom profile only. Listed products
           use these rates (flat or by volume); all other products keep the profile tiers above.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground max-w-xl">
+      <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <p className="max-w-xl text-xs text-muted-foreground">
             Flat rate applies to all volumes for that service. Leave flat blank and set volume tiers
             instead. Blank tiers fall back to the profile rate for that band.
           </p>
-          <Button type="button" size="sm" onClick={() => setPickerOpen(true)}>
+          <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => setPickerOpen(true)}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             Add product
           </Button>
@@ -488,10 +488,10 @@ export function CustomProductPrepRatesPanel({ profileId, clientUserId, clientNam
         )}
 
         <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
+          <DialogContent className="w-[calc(100%-1.5rem)] max-w-lg p-4 sm:p-6">
+            <DialogHeader className="text-left">
               <DialogTitle>Add product override</DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-xs sm:text-sm">
                 Choose a warehouse product for {clientName}. Marketplace sync items are excluded.
               </DialogDescription>
             </DialogHeader>

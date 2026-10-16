@@ -85,75 +85,88 @@ export default function InventoryPage() {
   }, [authUser, userProfile, inventoryLoading, inventoryData]);
 
   return (
-    <div className="space-y-6">
-      {/* Stat cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-2 border-blue-200/50 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-blue-900">Total Quantity</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center shadow-md">
-              <Package className="h-5 w-5 text-white" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      {/* Stat cards — compact 2×2 on mobile */}
+      <div className="grid grid-cols-2 gap-1.5 sm:gap-4 lg:grid-cols-4">
+        <Card className="min-w-0 overflow-hidden rounded-lg border border-blue-200/60 bg-gradient-to-br from-blue-50 to-blue-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-blue-900 sm:text-sm">
+              Total Quantity
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-blue-500 shadow-sm sm:flex">
+              <Package className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {inventoryLoading ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-5 w-10 rounded sm:h-8 sm:w-16" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-blue-900">{totalQuantity}</div>
-                <p className="text-xs text-blue-700 mt-1">Sum of all item quantities</p>
+                <div className="text-base font-bold tabular-nums text-blue-900 sm:text-3xl">{totalQuantity}</div>
+                <p className="mt-0.5 hidden text-xs text-blue-700 sm:mt-1 sm:block">Sum of all item quantities</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="border-2 border-sky-200/50 bg-gradient-to-br from-sky-50 to-sky-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-sky-900">Products</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-sky-500 flex items-center justify-center shadow-md">
-              <PackageCheck className="h-5 w-5 text-white" />
+        <Card className="min-w-0 overflow-hidden rounded-lg border border-sky-200/60 bg-gradient-to-br from-sky-50 to-sky-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-sky-900 sm:text-sm">
+              Products
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-sky-500 shadow-sm sm:flex">
+              <PackageCheck className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {inventoryLoading ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-16" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-sky-900">{warehouseInventory.length}</div>
-                <p className="text-xs text-sky-700 mt-1">Warehouse inventory items</p>
+                <div className="text-base font-bold tabular-nums text-sky-900 sm:text-3xl">
+                  {warehouseInventory.length}
+                </div>
+                <p className="mt-0.5 hidden text-xs text-sky-700 sm:mt-1 sm:block">Warehouse inventory items</p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="border-2 border-green-200/50 bg-gradient-to-br from-green-50 to-green-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-green-900">In Stock</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-green-500 flex items-center justify-center shadow-md">
-              <PackageCheck className="h-5 w-5 text-white" />
+        <Card className="min-w-0 overflow-hidden rounded-lg border border-green-200/60 bg-gradient-to-br from-green-50 to-green-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-green-900 sm:text-sm">
+              In Stock
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-green-500 shadow-sm sm:flex">
+              <PackageCheck className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {inventoryLoading ? (
-              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-16" />
             ) : (
               <>
-                <div className="text-3xl font-bold text-green-900">{inStockCount}</div>
-                <p className="text-xs text-green-700 mt-1">
-                  {outOfStockCount > 0 ? `${outOfStockCount} out of stock` : "All items in stock"}
+                <div className="text-base font-bold tabular-nums text-green-900 sm:text-3xl">{inStockCount}</div>
+                <p className="mt-0.5 text-[10px] leading-tight text-green-700 sm:mt-1 sm:text-xs">
+                  {outOfStockCount > 0 ? `${outOfStockCount} out of stock` : "All in stock"}
                 </p>
               </>
             )}
           </CardContent>
         </Card>
-        <Card className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-amber-900">Pending Requests</CardTitle>
-            <div className="h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
-              <Clock className="h-5 w-5 text-white" />
+        <Card className="min-w-0 overflow-hidden rounded-lg border border-amber-200/60 bg-gradient-to-br from-amber-50 to-amber-100/50 shadow-sm sm:rounded-xl sm:border-2 sm:shadow-lg">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-amber-900 sm:text-sm">
+              Pending Requests
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-amber-500 shadow-sm sm:flex">
+              <Clock className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-amber-900">{pendingRequestsCount}</div>
-            <p className="text-xs text-amber-700 mt-1">Awaiting admin approval</p>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+            <div className="text-base font-bold tabular-nums text-amber-900 sm:text-3xl">{pendingRequestsCount}</div>
+            <p className="mt-0.5 text-[10px] leading-tight text-amber-700 sm:mt-1 sm:text-xs">
+              <span className="sm:hidden">Awaiting</span>
+              <span className="hidden sm:inline">Awaiting admin approval</span>
+            </p>
           </CardContent>
         </Card>
       </div>

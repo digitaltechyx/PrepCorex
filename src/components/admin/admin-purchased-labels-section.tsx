@@ -14,6 +14,9 @@ import { hasRole } from "@/lib/permissions";
 
 type ViewMode = "mine" | "client";
 
+const viewTabClass =
+  "gap-1 px-2 py-1.5 text-xs sm:gap-2 sm:px-3 sm:text-sm";
+
 export function AdminPurchasedLabelsSection() {
   const { userProfile } = useAuth();
   const { managedUsers, loading: usersLoading } = useManagedUsers();
@@ -48,20 +51,26 @@ export function AdminPurchasedLabelsSection() {
   const activeUserId = viewMode === "mine" ? userProfile?.uid : selectedUser?.uid;
 
   return (
-    <div className="space-y-6">
-      <Card className="border border-border/70 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Whose labels?</CardTitle>
-          <CardDescription>
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden border border-border/70 shadow-sm">
+        <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+          <CardTitle className="text-base sm:text-lg">Whose labels?</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
             Labels you buy here are saved under your admin account. You can also open any
             client&apos;s purchase history.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-6">
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-            <TabsList>
-              <TabsTrigger value="mine">My purchases</TabsTrigger>
-              <TabsTrigger value="client">Client purchases</TabsTrigger>
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1">
+              <TabsTrigger value="mine" className={viewTabClass}>
+                <span className="sm:hidden">Mine</span>
+                <span className="hidden sm:inline">My purchases</span>
+              </TabsTrigger>
+              <TabsTrigger value="client" className={viewTabClass}>
+                <span className="sm:hidden">Client</span>
+                <span className="hidden sm:inline">Client purchases</span>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -73,15 +82,15 @@ export function AdminPurchasedLabelsSection() {
                   placeholder="Search clients…"
                   value={clientSearch}
                   onChange={(e) => setClientSearch(e.target.value)}
-                  className="pl-9"
+                  className="h-9 pl-9 sm:h-10"
                   disabled={usersLoading}
                 />
               </div>
-              <div className="max-h-64 overflow-y-auto rounded-md border bg-background">
+              <div className="max-h-56 overflow-y-auto rounded-md border bg-background sm:max-h-64">
                 {usersLoading ? (
-                  <p className="px-3 py-4 text-sm text-muted-foreground">Loading clients…</p>
+                  <p className="px-3 py-3 text-sm text-muted-foreground sm:py-4">Loading clients…</p>
                 ) : filteredUsers.length === 0 ? (
-                  <p className="px-3 py-4 text-sm text-muted-foreground">No client found.</p>
+                  <p className="px-3 py-3 text-sm text-muted-foreground sm:py-4">No client found.</p>
                 ) : (
                   filteredUsers.map((user) => {
                     const isSelected = selectedUserId === user.uid;
@@ -91,7 +100,7 @@ export function AdminPurchasedLabelsSection() {
                         type="button"
                         onClick={() => setSelectedUserId(user.uid)}
                         className={cn(
-                          "flex w-full items-start gap-2 border-b px-3 py-2.5 text-left text-sm transition-colors last:border-b-0 hover:bg-accent",
+                          "flex w-full items-start gap-2 border-b px-3 py-2 text-left text-sm transition-colors last:border-b-0 hover:bg-accent sm:py-2.5",
                           isSelected && "bg-accent"
                         )}
                       >
@@ -126,6 +135,7 @@ export function AdminPurchasedLabelsSection() {
       </Card>
 
       <PurchasedLabelsPanel
+        compactLayout
         userId={activeUserId}
         emptyHint={
           viewMode === "mine"
@@ -137,8 +147,8 @@ export function AdminPurchasedLabelsSection() {
       />
 
       {viewMode === "client" && !selectedUser && !usersLoading && (
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Package className="h-4 w-4" />
+        <div className="flex items-center justify-center gap-2 px-2 text-center text-sm text-muted-foreground">
+          <Package className="h-4 w-4 shrink-0" />
           Pick a client above to load their label history.
         </div>
       )}

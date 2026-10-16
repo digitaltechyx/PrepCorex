@@ -103,18 +103,18 @@ export function PrepMarketRatesPanel() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Scissors className="h-4 w-4" />
+    <Card className="min-w-0 overflow-hidden">
+      <CardHeader className="p-3 sm:p-6">
+        <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+          <Scissors className="h-4 w-4 shrink-0" />
           Prep savings market rates
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-xs sm:text-sm">
           Per-unit rates used on client Reports to estimate savings vs a typical 3PL for FBA prep,
           FBM pick/pack, cross-dock handling, and product return processing.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 p-3 pt-0 sm:space-y-4 sm:p-6 sm:pt-0">
         {loading ? (
           <div className="flex items-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -122,9 +122,11 @@ export function PrepMarketRatesPanel() {
           </div>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="prep-fba-rate">Typical FBA prep / unit ($)</Label>
+            <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="prep-fba-rate" className="text-xs sm:text-sm">
+                  Typical FBA prep / unit ($)
+                </Label>
                 <Input
                   id="prep-fba-rate"
                   type="number"
@@ -134,8 +136,10 @@ export function PrepMarketRatesPanel() {
                   onChange={(e) => setFbaPerUnit(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="prep-fbm-rate">Typical FBM pick/pack / unit ($)</Label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="prep-fbm-rate" className="text-xs sm:text-sm">
+                  Typical FBM pick/pack / unit ($)
+                </Label>
                 <Input
                   id="prep-fbm-rate"
                   type="number"
@@ -145,8 +149,10 @@ export function PrepMarketRatesPanel() {
                   onChange={(e) => setFbmPerUnit(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="prep-crossdock-rate">Typical cross-dock / unit ($)</Label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="prep-crossdock-rate" className="text-xs sm:text-sm">
+                  Typical cross-dock / unit ($)
+                </Label>
                 <Input
                   id="prep-crossdock-rate"
                   type="number"
@@ -156,8 +162,10 @@ export function PrepMarketRatesPanel() {
                   onChange={(e) => setCrossdockPerUnit(e.target.value)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="prep-returns-rate">Typical return handling / unit ($)</Label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="prep-returns-rate" className="text-xs sm:text-sm">
+                  Typical return handling / unit ($)
+                </Label>
                 <Input
                   id="prep-returns-rate"
                   type="number"
@@ -168,7 +176,7 @@ export function PrepMarketRatesPanel() {
                 />
               </div>
             </div>
-            <Button onClick={() => void handleSave()} disabled={saving}>
+            <Button className="w-full sm:w-auto" onClick={() => void handleSave()} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save prep rates
             </Button>

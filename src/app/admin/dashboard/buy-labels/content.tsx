@@ -30,6 +30,9 @@ import {
 
 type LabelsTab = "buy" | "purchased" | "billing";
 
+const tabTriggerClass =
+  "gap-1 rounded-lg px-1.5 py-1.5 text-[10px] font-medium sm:gap-2 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-sm data-[state=inactive]:text-muted-foreground data-[state=active]:bg-background data-[state=active]:font-semibold data-[state=active]:shadow-sm";
+
 export default function AdminBuyLabelsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -120,50 +123,61 @@ export default function AdminBuyLabelsPageContent() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight">Buy Labels</h1>
-        <p className="text-sm text-muted-foreground">
-          Purchase shipping labels and view or download completed purchases.
-        </p>
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <div className="relative overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-cyan-500/5 via-background to-blue-600/5 px-3 py-3 shadow-sm sm:rounded-2xl sm:px-6 sm:py-6">
+        <div className="relative min-w-0">
+          <h1 className="flex items-center gap-2 text-lg font-bold tracking-tight text-foreground sm:gap-3 sm:text-3xl">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-700 shadow-inner dark:text-cyan-300 sm:h-11 sm:w-11 sm:rounded-xl">
+              <Tag className="h-4 w-4 sm:h-6 sm:w-6" />
+            </span>
+            Buy Labels
+          </h1>
+          <p className="mt-0.5 max-w-xl text-xs text-muted-foreground sm:mt-2 sm:text-sm">
+            Purchase shipping labels and view or download completed purchases.
+          </p>
+        </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-        <TabsList className="grid h-auto w-full max-w-xl grid-cols-3">
-          <TabsTrigger value="buy" className="gap-2">
-            <Tag className="h-4 w-4" />
-            Buy Label
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="min-w-0 space-y-3 sm:space-y-6">
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-0.5 rounded-xl border border-border/60 bg-muted/50 p-1 sm:max-w-xl sm:gap-1 sm:rounded-2xl sm:border-2 sm:p-1.5">
+          <TabsTrigger value="buy" className={tabTriggerClass}>
+            <Tag className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Buy</span>
+            <span className="hidden sm:inline">Buy Label</span>
           </TabsTrigger>
-          <TabsTrigger value="purchased" className="gap-2">
-            <Package className="h-4 w-4" />
-            Purchased Labels
+          <TabsTrigger value="purchased" className={tabTriggerClass}>
+            <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Labels</span>
+            <span className="hidden sm:inline">Purchased Labels</span>
           </TabsTrigger>
-          <TabsTrigger value="billing" className="gap-2">
-            <Wallet className="h-4 w-4" />
-            Label billing
+          <TabsTrigger value="billing" className={tabTriggerClass}>
+            <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Billing</span>
+            <span className="hidden sm:inline">Label billing</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="buy" className="mt-0">
-          <Card className="border-2 shadow-xl">
-            <CardHeader className="rounded-t-lg bg-gradient-to-r from-cyan-500 to-blue-600 pb-4 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-2xl font-bold text-white">
-                    <Tag className="h-6 w-6" />
+          <Card className="min-w-0 overflow-hidden border-2 shadow-xl">
+            <CardHeader className="rounded-t-lg bg-gradient-to-r from-cyan-500 to-blue-600 p-3 pb-3 text-white sm:p-6 sm:pb-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-2xl">
+                    <Tag className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
                     Buy Label
                   </CardTitle>
-                  <CardDescription className="mt-2 text-cyan-100">
+                  <CardDescription className="mt-1 text-xs text-cyan-100 sm:mt-2 sm:text-sm">
                     Purchase shipping labels from the admin dashboard.
                   </CardDescription>
                 </div>
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm sm:flex">
                   <Tag className="h-7 w-7 text-white" />
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="relative z-0 overflow-visible p-6">
+            <CardContent className="relative z-0 overflow-visible p-3 sm:p-6">
               <BuyLabelsForm
+                compactLayout
                 successRedirect="/admin/dashboard/buy-labels?tab=purchased"
                 enableClientInventoryPicker
                 initialToAddress={shopifyPrefill?.toAddress ?? ebayPrefill?.toAddress ?? null}
@@ -241,7 +255,7 @@ export default function AdminBuyLabelsPageContent() {
           <AdminPurchasedLabelsSection />
         </TabsContent>
 
-        <TabsContent value="billing" className="mt-0 space-y-6">
+        <TabsContent value="billing" className="mt-0 space-y-3 sm:space-y-6">
           <AdminLabelBillingPanel />
           <LabelMarketRatesPanel />
         </TabsContent>

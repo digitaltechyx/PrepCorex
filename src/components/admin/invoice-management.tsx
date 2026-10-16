@@ -1034,30 +1034,33 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const totalCommissionPages = Math.ceil(currentCommissions.length / itemsPerPage);
 
   return (
-    <div className="space-y-6">
-      {/* Main Tabs: Invoices and Commissions */}
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      {/* Main Tabs: Invoices / Discount / Commissions */}
       <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "invoices" | "commissions" | "discount-trail")} className="w-full">
-        <TabsList className="grid grid-cols-3 w-full mb-6 h-12 p-1 rounded-xl bg-slate-100/90 border">
-          <TabsTrigger value="invoices" className="flex items-center gap-2">
-            <Receipt className="h-4 w-4" />
+        <TabsList className="mb-3 grid h-9 w-full grid-cols-3 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:mb-6 sm:h-12 sm:rounded-xl sm:p-1">
+          <TabsTrigger value="invoices" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+            <Receipt className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
             Invoices
           </TabsTrigger>
-          <TabsTrigger value="discount-trail" className="flex items-center gap-2">
-            <Tag className="h-4 w-4" />
-            Discount trail
+          <TabsTrigger value="discount-trail" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+            <Tag className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Discount</span>
+            <span className="hidden sm:inline">Discount trail</span>
           </TabsTrigger>
-          <TabsTrigger value="commissions" className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
-            Commissions
+          <TabsTrigger value="commissions" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+            <DollarSign className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="truncate">Commissions</span>
             {pendingCommissions.length > 0 && (
-              <Badge variant="secondary" className="ml-1">{pendingCommissions.length}</Badge>
+              <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1 text-[9px] sm:ml-1 sm:h-5 sm:text-xs">
+                {pendingCommissions.length}
+              </Badge>
             )}
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="invoices" className="space-y-6">
+        <TabsContent value="invoices" className="mt-0 space-y-3 sm:space-y-6">
           {/* Invoice Dashboard Stats */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
             <Card
               role="button"
               tabIndex={0}
@@ -1071,83 +1074,96 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   setUsersPage(1);
                 }
               }}
-              className={`border-2 border-indigo-200/60 bg-gradient-to-br from-indigo-50 to-indigo-100/40 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+              className={`min-w-0 cursor-pointer overflow-hidden rounded-lg border border-indigo-200/60 bg-gradient-to-br from-indigo-50 to-indigo-100/40 shadow-sm transition-all hover:shadow-md sm:rounded-xl sm:border-2 ${
                 userFilterTab === "unpaid" ? "ring-2 ring-indigo-400" : ""
               }`}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-indigo-800">Due Amount</CardTitle>
+              <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-indigo-800 sm:text-sm">
+                  Due Amount
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-indigo-900">
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+                <p className="text-sm font-bold tabular-nums text-indigo-900 sm:text-2xl">
                   ${invoiceDashboardStats.dueAmount.toFixed(2)}
                 </p>
-                <p className="text-xs text-indigo-700 mt-1">Outstanding across users</p>
+                <p className="mt-0.5 hidden text-xs text-indigo-700 sm:mt-1 sm:block">Outstanding across users</p>
               </CardContent>
             </Card>
-            <Card className="border-2 border-rose-200/60 bg-gradient-to-br from-rose-50 to-rose-100/40 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-rose-800">Overdue Invoices</CardTitle>
+            <Card className="min-w-0 overflow-hidden rounded-lg border border-rose-200/60 bg-gradient-to-br from-rose-50 to-rose-100/40 shadow-sm sm:rounded-xl sm:border-2">
+              <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-rose-800 sm:text-sm">
+                  Overdue
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-rose-900">
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+                <p className="text-sm font-bold tabular-nums text-rose-900 sm:text-2xl">
                   {invoiceDashboardStats.overdueInvoices}
                 </p>
-                <p className="text-xs text-rose-700 mt-1">Pending past due date</p>
+                <p className="mt-0.5 hidden text-xs text-rose-700 sm:mt-1 sm:block">Pending past due date</p>
               </CardContent>
             </Card>
-            <Card className="border-2 border-teal-200/60 bg-gradient-to-br from-teal-50 to-cyan-100/40 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-teal-800">Today&apos;s Revenue</CardTitle>
+            <Card className="min-w-0 overflow-hidden rounded-lg border border-teal-200/60 bg-gradient-to-br from-teal-50 to-cyan-100/40 shadow-sm sm:rounded-xl sm:border-2">
+              <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-teal-800 sm:text-sm">
+                  Today
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-teal-900">
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+                <p className="text-sm font-bold tabular-nums text-teal-900 sm:text-2xl">
                   ${invoiceDashboardStats.todaysRevenue.toFixed(2)}
                 </p>
-                <p className="text-xs text-teal-700 mt-1">Paid invoices dated today</p>
+                <p className="mt-0.5 hidden text-xs text-teal-700 sm:mt-1 sm:block">Paid invoices dated today</p>
               </CardContent>
             </Card>
           </div>
 
           {/* Invoices Dashboard Header */}
-          <Card className="border-2 shadow-lg overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white pb-4">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-white">
-                    <Users className="h-5 w-5 text-white" />
-                    Invoice Management
+          <Card className="min-w-0 overflow-hidden border-2 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-indigo-600 to-violet-600 pb-3 text-white sm:pb-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+                <div className="min-w-0">
+                  <CardTitle className="flex items-center gap-2 text-base text-white sm:text-lg">
+                    <Users className="h-4 w-4 shrink-0 text-white sm:h-5 sm:w-5" />
+                    Users & invoices
                   </CardTitle>
-                  <CardDescription className="text-indigo-100">View user invoices and payment status</CardDescription>
+                  <CardDescription className="text-xs text-indigo-100 sm:text-sm">
+                    View user invoices and payment status
+                  </CardDescription>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:w-auto">
-                  <div className="rounded-lg bg-white/15 border border-white/20 px-3 py-2 text-center">
-                    <p className="text-[11px] uppercase tracking-wide text-indigo-100">Pending Invoices</p>
-                    <p className="text-lg font-bold text-white">{userSummaries.reduce((sum, s) => sum + s.pendingCount, 0)}</p>
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-3 lg:w-auto">
+                  <div className="rounded-lg border border-white/20 bg-white/15 px-2 py-1.5 text-center sm:px-3 sm:py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-indigo-100 sm:text-[11px]">Pending</p>
+                    <p className="text-base font-bold tabular-nums text-white sm:text-lg">
+                      {userSummaries.reduce((sum, s) => sum + s.pendingCount, 0)}
+                    </p>
                   </div>
-                  <div className="rounded-lg bg-white/15 border border-white/20 px-3 py-2 text-center">
-                    <p className="text-[11px] uppercase tracking-wide text-indigo-100">Paid Invoices</p>
-                    <p className="text-lg font-bold text-white">{userSummaries.reduce((sum, s) => sum + s.paidCount, 0)}</p>
+                  <div className="rounded-lg border border-white/20 bg-white/15 px-2 py-1.5 text-center sm:px-3 sm:py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-indigo-100 sm:text-[11px]">Paid</p>
+                    <p className="text-base font-bold tabular-nums text-white sm:text-lg">
+                      {userSummaries.reduce((sum, s) => sum + s.paidCount, 0)}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center">
                   <Button
                     variant="secondary"
                     size="sm"
-                    className="h-9 bg-white text-indigo-700 hover:bg-indigo-50"
+                    className="h-9 w-full bg-white text-indigo-700 hover:bg-indigo-50 sm:w-auto"
                     onClick={() => setIsStorageTestDialogOpen(true)}
                   >
-                    <Receipt className="h-4 w-4 mr-2" />
-                    Generate Storage Invoice (Test)
+                    <Receipt className="mr-2 h-4 w-4" />
+                    <span className="sm:hidden">Storage invoice (test)</span>
+                    <span className="hidden sm:inline">Generate Storage Invoice (Test)</span>
                   </Button>
                 </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-5">
-          <div className="space-y-4">
+        <CardContent className="p-3 pt-3 sm:p-6 sm:pt-5">
+          <div className="space-y-3 sm:space-y-4">
             {/* Search Bar */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
               <Input
                 placeholder="Search users..."
                 value={searchTerm}
@@ -1155,13 +1171,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   setSearchTerm(e.target.value);
                   setUsersPage(1);
                 }}
-                className="pl-10 h-11 shadow-sm"
+                className="h-10 pl-10 shadow-sm sm:h-11"
               />
               {searchTerm && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 transform p-0"
                   onClick={() => setSearchTerm("")}
                 >
                   <X className="h-3 w-3" />
@@ -1174,39 +1190,39 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               setUserFilterTab(value as "all" | "unpaid" | "paid");
               setUsersPage(1);
             }} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 h-12 p-1 rounded-xl bg-slate-100/90 border">
+              <TabsList className="grid h-9 w-full grid-cols-3 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:h-12 sm:rounded-xl sm:p-1">
                 <TabsTrigger
                   value="all"
-                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-700 data-[state=active]:shadow-sm"
+                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>All Users</span>
-                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                    <Users className="hidden h-4 w-4 sm:block" />
+                    <span>All</span>
+                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.length}
                     </span>
                   </div>
                 </TabsTrigger>
                 <TabsTrigger
                   value="unpaid"
-                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm"
+                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    <span>Unpaid Users</span>
-                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                    <Clock className="hidden h-4 w-4 sm:block" />
+                    <span>Unpaid</span>
+                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.filter(({ pendingCount }) => pendingCount > 0).length}
                     </span>
                   </div>
                 </TabsTrigger>
                 <TabsTrigger
                   value="paid"
-                  className="rounded-lg font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm"
+                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-2">
-                    <CheckCircle className="h-4 w-4" />
-                    <span>Paid Users</span>
-                    <span className="inline-flex min-w-[1.6rem] items-center justify-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                    <CheckCircle className="hidden h-4 w-4 sm:block" />
+                    <span>Paid</span>
+                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.filter(({ pendingCount, paidCount }) => pendingCount === 0 && paidCount > 0).length}
                     </span>
                   </div>
@@ -1218,67 +1234,107 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       </Card>
 
       {/* Users List */}
-      <Card className="border-2 shadow-lg">
-        <CardHeader>
-          <CardTitle className="text-xl">Users ({filteredUsers.length})</CardTitle>
-          <CardDescription>Click on a user to view their invoices</CardDescription>
+      <Card className="min-w-0 border-2 shadow-lg">
+        <CardHeader className="p-3 sm:p-6">
+          <CardTitle className="text-base sm:text-xl">Users ({filteredUsers.length})</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Click on a user to view their invoices</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
           {loading ? (
             <div className="space-y-2">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-14 bg-muted animate-pulse rounded-lg" />
+                <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
               ))}
             </div>
           ) : filteredUsers.length > 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-              <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                <TableHeader className="bg-slate-50">
-                  <TableRow>
-                    <TableHead className="min-w-[260px]">User</TableHead>
-                    <TableHead className="min-w-[260px]">Email</TableHead>
-                    <TableHead className="min-w-[120px] text-right">Pending</TableHead>
-                    <TableHead className="min-w-[100px] text-right">Overdue</TableHead>
-                    <TableHead className="min-w-[100px] text-right">Paid</TableHead>
-                    <TableHead className="min-w-[180px] text-right">Pending Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
-                    <TableRow
-                      key={`${user.uid || user.email || 'user'}-${idx}`}
-                      className="cursor-pointer hover:bg-indigo-50/40 transition-colors"
-                      onClick={() => handleViewUserInvoices(user)}
-                    >
-                      <TableCell className="font-semibold text-slate-900">
-                        {formatUserDisplayName(user, { showEmail: false })}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge
-                          variant={overdueCount > 0 ? "destructive" : "outline"}
-                          className={overdueCount > 0 ? "" : "text-muted-foreground"}
-                        >
-                          {overdueCount}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-yellow-600">${totalAmount.toFixed(2)}</TableCell>
+            <>
+              <div className="space-y-1.5 md:hidden">
+                {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
+                  <button
+                    key={`${user.uid || user.email || "user"}-${idx}`}
+                    type="button"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:bg-indigo-50/40"
+                    onClick={() => handleViewUserInvoices(user)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {formatUserDisplayName(user, { showEmail: false })}
+                        </p>
+                        <p className="truncate text-[11px] text-muted-foreground">{user.email || "—"}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-bold tabular-nums text-yellow-600">
+                        ${totalAmount.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <Badge variant={pendingCount > 0 ? "secondary" : "outline"} className="text-[10px]">
+                        Pending {pendingCount}
+                      </Badge>
+                      <Badge
+                        variant={overdueCount > 0 ? "destructive" : "outline"}
+                        className={`text-[10px] ${overdueCount > 0 ? "" : "text-muted-foreground"}`}
+                      >
+                        Overdue {overdueCount}
+                      </Badge>
+                      <Badge variant="default" className="bg-green-100 text-[10px] text-green-800">
+                        Paid {paidCount}
+                      </Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white md:block">
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead className="min-w-[180px]">User</TableHead>
+                      <TableHead className="min-w-[180px]">Email</TableHead>
+                      <TableHead className="min-w-[90px] text-right">Pending</TableHead>
+                      <TableHead className="min-w-[90px] text-right">Overdue</TableHead>
+                      <TableHead className="min-w-[80px] text-right">Paid</TableHead>
+                      <TableHead className="min-w-[120px] text-right">Pending Amount</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
+                      <TableRow
+                        key={`${user.uid || user.email || "user"}-${idx}`}
+                        className="cursor-pointer transition-colors hover:bg-indigo-50/40"
+                        onClick={() => handleViewUserInvoices(user)}
+                      >
+                        <TableCell className="font-semibold text-slate-900">
+                          {formatUserDisplayName(user, { showEmail: false })}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{user.email || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={pendingCount > 0 ? "secondary" : "outline"}>{pendingCount}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge
+                            variant={overdueCount > 0 ? "destructive" : "outline"}
+                            className={overdueCount > 0 ? "" : "text-muted-foreground"}
+                          >
+                            {overdueCount}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant="default" className="bg-green-100 text-green-800">{paidCount}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-yellow-600">
+                          ${totalAmount.toFixed(2)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           ) : (
-            <div className="text-center py-12">
-              <Users className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No users found</h3>
-              <p className="text-muted-foreground">
+            <div className="py-10 text-center sm:py-12">
+              <Users className="mx-auto mb-3 h-12 w-12 text-muted-foreground sm:mb-4 sm:h-16 sm:w-16" />
+              <h3 className="mb-1 text-base font-semibold sm:mb-2 sm:text-lg">No users found</h3>
+              <p className="text-sm text-muted-foreground">
                 {users.length === 0 ? "No users available." : "No users match your search."}
               </p>
             </div>
@@ -1286,26 +1342,27 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
           {/* Pagination Controls for Users */}
           {filteredUsers.length > itemsPerPage && (
-            <div className="flex items-center justify-between mt-6 pt-4 border-t">
-              <div className="text-sm text-muted-foreground">
-                Showing {usersStartIndex + 1} to {Math.min(usersEndIndex, filteredUsers.length)} of {filteredUsers.length} users
+            <div className="mt-4 flex flex-col gap-2 border-t pt-3 sm:mt-6 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">
+                Showing {usersStartIndex + 1}–{Math.min(usersEndIndex, filteredUsers.length)} of{" "}
+                {filteredUsers.length}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-2 sm:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setUsersPage(p => Math.max(1, p - 1))}
+                  onClick={() => setUsersPage((p) => Math.max(1, p - 1))}
                   disabled={usersPage === 1}
                 >
                   Previous
                 </Button>
-                <span className="text-sm">
+                <span className="text-xs sm:text-sm">
                   Page {usersPage} of {totalUsersPages}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setUsersPage(p => Math.min(totalUsersPages, p + 1))}
+                  onClick={() => setUsersPage((p) => Math.min(totalUsersPages, p + 1))}
                   disabled={usersPage === totalUsersPages}
                 >
                   Next
@@ -2244,7 +2301,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
         </TabsContent>
 
-        <TabsContent value="discount-trail" className="space-y-6">
+        <TabsContent value="discount-trail" className="mt-0 space-y-3 sm:space-y-6">
           <DiscountTrailPanel
             entries={discountTrailEntries}
             loading={discountTrailLoading}
@@ -2258,42 +2315,46 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
           />
         </TabsContent>
 
-        <TabsContent value="commissions" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5" />
+        <TabsContent value="commissions" className="mt-0 space-y-3 sm:space-y-6">
+          <Card className="min-w-0 overflow-hidden">
+            <CardHeader className="p-3 sm:p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                    <DollarSign className="h-4 w-4 sm:h-5 sm:w-5" />
                     Commission Management
                   </CardTitle>
-                  <CardDescription>View and manage commission payments to agents</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">
+                    View and manage commission payments to agents
+                  </CardDescription>
                 </div>
-                <div className="flex gap-2">
-                  <Badge variant="secondary" className="text-yellow-600 bg-yellow-100 text-xs sm:text-base font-semibold px-3 py-1 sm:px-4 sm:py-2">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  <Badge variant="secondary" className="bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold text-yellow-600 sm:px-4 sm:py-2 sm:text-base">
                     Pending: ${pendingCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0).toFixed(2)}
                   </Badge>
-                  <Badge variant="default" className="text-green-600 bg-green-100 text-xs sm:text-base font-semibold px-3 py-1 sm:px-4 sm:py-2">
+                  <Badge variant="default" className="bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-600 sm:px-4 sm:py-2 sm:text-base">
                     Paid: ${paidCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0).toFixed(2)}
                   </Badge>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <Tabs value={commissionTab} onValueChange={(value) => {
                 setCommissionTab(value as "pending" | "paid");
                 setCommissionPage(1);
               }} className="w-full">
-                <TabsList className="grid grid-cols-2 w-full mb-6">
-                  <TabsTrigger value="pending" className="flex items-center justify-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Pending Commissions
-                    <Badge variant="secondary" className="text-xs">{pendingCommissions.length}</Badge>
+                <TabsList className="mb-3 grid h-9 w-full grid-cols-2 gap-0.5 p-0.5 sm:mb-6 sm:h-10 sm:p-1">
+                  <TabsTrigger value="pending" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                    <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="sm:hidden">Pending</span>
+                    <span className="hidden sm:inline">Pending Commissions</span>
+                    <Badge variant="secondary" className="text-[9px] sm:text-xs">{pendingCommissions.length}</Badge>
                   </TabsTrigger>
-                  <TabsTrigger value="paid" className="flex items-center justify-center gap-2">
-                    <CheckCircle className="h-4 w-4" />
-                    Paid Commissions
-                    <Badge variant="secondary" className="text-xs">{paidCommissions.length}</Badge>
+                  <TabsTrigger value="paid" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                    <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span className="sm:hidden">Paid</span>
+                    <span className="hidden sm:inline">Paid Commissions</span>
+                    <Badge variant="secondary" className="text-[9px] sm:text-xs">{paidCommissions.length}</Badge>
                   </TabsTrigger>
                 </TabsList>
 

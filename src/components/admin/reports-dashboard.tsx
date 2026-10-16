@@ -71,20 +71,28 @@ import {
 } from "@/components/ui/table";
 import { getUserRoles } from "@/lib/permissions";
 
-const REPORT_TABS: { value: AdminReportType; label: string; icon: React.ReactNode }[] = [
-  { value: "full", label: "Full Report", icon: <Layers className="h-4 w-4" /> },
-  { value: "overview", label: "Overview", icon: <BarChart3 className="h-4 w-4" /> },
-  { value: "inbound", label: "Inbound", icon: <ArrowDownToLine className="h-4 w-4" /> },
-  { value: "outbound", label: "Outbound", icon: <ArrowUpFromLine className="h-4 w-4" /> },
-  { value: "returns", label: "Returns", icon: <RotateCcw className="h-4 w-4" /> },
-  { value: "dispose", label: "Dispose", icon: <Trash2 className="h-4 w-4" /> },
-  { value: "financial", label: "Financial", icon: <Wallet className="h-4 w-4" /> },
-  { value: "commission", label: "Commission", icon: <Coins className="h-4 w-4" /> },
-  { value: "client_activity", label: "Client Activity", icon: <Activity className="h-4 w-4" /> },
-  { value: "operations", label: "Operations", icon: <Package className="h-4 w-4" /> },
-  { value: "comparison", label: "Compare", icon: <GitCompare className="h-4 w-4" /> },
-  { value: "audit", label: "Audit", icon: <ScrollText className="h-4 w-4" /> },
+const REPORT_TABS: {
+  value: AdminReportType;
+  label: string;
+  shortLabel: string;
+  icon: React.ReactNode;
+}[] = [
+  { value: "full", label: "Full Report", shortLabel: "Full", icon: <Layers className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "overview", label: "Overview", shortLabel: "Over", icon: <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "inbound", label: "Inbound", shortLabel: "In", icon: <ArrowDownToLine className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "outbound", label: "Outbound", shortLabel: "Out", icon: <ArrowUpFromLine className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "returns", label: "Returns", shortLabel: "Rtn", icon: <RotateCcw className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "dispose", label: "Dispose", shortLabel: "Disp", icon: <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "financial", label: "Financial", shortLabel: "$", icon: <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "commission", label: "Commission", shortLabel: "Comm", icon: <Coins className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "client_activity", label: "Client Activity", shortLabel: "Client", icon: <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "operations", label: "Operations", shortLabel: "Ops", icon: <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "comparison", label: "Compare", shortLabel: "Cmp", icon: <GitCompare className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
+  { value: "audit", label: "Audit", shortLabel: "Audit", icon: <ScrollText className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> },
 ];
+
+const reportTabTriggerClass =
+  "gap-0.5 rounded-md px-1.5 py-1.5 text-[10px] font-medium sm:gap-1.5 sm:px-2.5 sm:py-2 sm:text-xs";
 
 interface ReportsDashboardProps {
   users: UserProfile[];
@@ -370,20 +378,20 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
   } satisfies ChartConfig;
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-3 sm:space-y-6">
       {loading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-[280px]" />
-          <Skeleton className="h-[280px]" />
+        <div className="grid gap-2 sm:gap-4 lg:grid-cols-2">
+          <Skeleton className="h-[200px] sm:h-[280px]" />
+          <Skeleton className="h-[200px] sm:h-[280px]" />
         </div>
       ) : summary ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardContent className="p-5">
-              <h4 className="font-semibold mb-3">
-                {summary.period.allTime ? "Monthly Revenue Trend (last 24 months)" : "Revenue Trend"}
+        <div className="grid gap-2 sm:gap-4 lg:grid-cols-2">
+          <Card className="min-w-0 overflow-hidden">
+            <CardContent className="p-3 sm:p-5">
+              <h4 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">
+                {summary.period.allTime ? "Monthly Revenue (24 mo)" : "Revenue Trend"}
               </h4>
-              <ChartContainer config={revenueChartConfig} className="h-[240px] w-full">
+              <ChartContainer config={revenueChartConfig} className="h-[180px] w-full sm:h-[240px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={summary.charts.revenueByDay}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -396,12 +404,12 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               </ChartContainer>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-5">
-              <h4 className="font-semibold mb-3">
-                {summary.period.allTime ? "Monthly Activity Trend (last 24 months)" : "Activity Trend"}
+          <Card className="min-w-0 overflow-hidden">
+            <CardContent className="p-3 sm:p-5">
+              <h4 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">
+                {summary.period.allTime ? "Monthly Activity (24 mo)" : "Activity Trend"}
               </h4>
-              <ChartContainer config={activityChartConfig} className="h-[240px] w-full">
+              <ChartContainer config={activityChartConfig} className="h-[180px] w-full sm:h-[240px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={summary.charts.activityByDay}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -420,13 +428,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         </div>
       ) : null}
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardContent className="p-5 space-y-4">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold">Report Filters</h3>
-              <p className="text-sm text-muted-foreground">
-                Pick a date range to filter by period, or leave dates empty for all-time totals. Select one client for a custom client report. Use Period B below for side-by-side comparison.
+      <Card className="min-w-0 border-slate-200 shadow-sm">
+        <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-5">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between sm:gap-4">
+            <div className="min-w-0 space-y-1">
+              <h3 className="text-base font-semibold sm:text-lg">Report Filters</h3>
+              <p className="text-xs text-muted-foreground sm:text-sm">
+                Set Period A for the range (empty = all-time). Pick one client for a client report. Period B enables comparison.
               </p>
               {!hasDateRange && (
                 <p className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-2">
@@ -439,16 +447,19 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => applyPreset("this_month")}>
-                This month
+            <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+              <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={() => applyPreset("this_month")}>
+                <span className="sm:hidden">This mo</span>
+                <span className="hidden sm:inline">This month</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => applyPreset("last_month")}>
-                Last month
+              <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={() => applyPreset("last_month")}>
+                <span className="sm:hidden">Last mo</span>
+                <span className="hidden sm:inline">Last month</span>
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8 text-xs sm:h-9 sm:text-sm"
                 onClick={() => {
                   setFromDate(undefined);
                   setToDate(undefined);
@@ -456,32 +467,34 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
               >
                 All time
               </Button>
-              <Button variant="outline" size="sm" onClick={() => void loadSummary()} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+              <Button variant="outline" size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={() => void loadSummary()} disabled={loading}>
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Refresh"}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
+                className="h-8 text-xs sm:h-9 sm:text-sm"
                 onClick={() => void handleExport("csv", reportTab)}
                 disabled={exportingCsv || loading}
                 title={`Export ${moduleLabel(reportTab)} as CSV`}
               >
-                {exportingCsv ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-                {moduleLabel(reportTab)} CSV
+                {exportingCsv ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />}
+                CSV
               </Button>
               <Button
                 size="sm"
+                className="h-8 text-xs sm:h-9 sm:text-sm"
                 onClick={() => void handleExport("pdf", reportTab)}
                 disabled={exportingPdf || loading}
                 title={`Export ${moduleLabel(reportTab)} as PDF`}
               >
-                {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileText className="h-4 w-4 mr-1" />}
-                {moduleLabel(reportTab)} PDF
+                {exportingPdf ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FileText className="mr-1 h-3.5 w-3.5" />}
+                PDF
               </Button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center">
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground">Period A (primary)</p>
               <DateRangePicker
@@ -539,16 +552,16 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white">
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Send className="h-5 w-5 text-emerald-600" />
-              <h4 className="font-semibold">Client Statement</h4>
-              <Badge variant="outline" className="text-xs">Share with client</Badge>
+      <div className="grid gap-2 sm:gap-4 lg:grid-cols-2">
+        <Card className="min-w-0 border-emerald-200 bg-gradient-to-br from-emerald-50/50 to-white">
+          <CardContent className="space-y-2 p-3 sm:space-y-3 sm:p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Send className="h-4 w-4 text-emerald-600 sm:h-5 sm:w-5" />
+              <h4 className="text-sm font-semibold sm:text-base">Client Statement</h4>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">Share with client</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Client-safe PDF or CSV: what they invested, services PrepCorex delivered, invoices, and activity — no internal audit or commission data.
+            <p className="text-xs text-muted-foreground sm:text-sm">
+              Client-safe PDF/CSV: investment, services, invoices, and activity — no audit or commission data.
             </p>
             {clientId === "all" ? (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -581,15 +594,15 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
           </CardContent>
         </Card>
 
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50/50 to-white">
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <Handshake className="h-5 w-5 text-violet-600" />
-              <h4 className="font-semibold">Commission Agent Statement</h4>
-              <Badge variant="outline" className="text-xs">Share with agent</Badge>
+        <Card className="min-w-0 border-violet-200 bg-gradient-to-br from-violet-50/50 to-white">
+          <CardContent className="space-y-2 p-3 sm:space-y-3 sm:p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Handshake className="h-4 w-4 text-violet-600 sm:h-5 sm:w-5" />
+              <h4 className="text-sm font-semibold sm:text-base">Agent Statement</h4>
+              <Badge variant="outline" className="text-[10px] sm:text-xs">Share with agent</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Partner statement with tier, earnings, referred clients, and commission breakdown per invoice.
+            <p className="text-xs text-muted-foreground sm:text-sm">
+              Tier, earnings, referred clients, and commission breakdown per invoice.
             </p>
             {summary?.referringAgent && clientId !== "all" && (
               <p className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-md px-3 py-2">
@@ -632,13 +645,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
       </div>
 
       {agentStatement && agentId !== "none" && (
-        <Card className="border-violet-100">
-          <CardContent className="p-5">
-            <h4 className="font-semibold mb-3 flex items-center gap-2">
+        <Card className="min-w-0 border-violet-100">
+          <CardContent className="p-3 sm:p-5">
+            <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold sm:mb-3 sm:text-base">
               <Handshake className="h-4 w-4 text-violet-600" />
               Agent Preview — {agentStatement.agent.name}
             </h4>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-5">
               <MiniStat label="Tier" value={`${agentStatement.agent.tier} · ${agentStatement.agent.rate}%`} />
               <MiniStat label="Earned" value={`$${agentStatement.earnings.totalEarned.toFixed(2)}`} accent="text-violet-700" />
               <MiniStat label="Pending" value={`$${agentStatement.earnings.totalPending.toFixed(2)}`} accent="text-amber-700" />
@@ -660,7 +673,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
         </div>
       ) : summary ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-6">
             <KpiCard
               icon={<ArrowDownToLine className="h-5 w-5" />}
               label="Lifetime Inbound"
@@ -705,7 +718,7 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
             <KpiCard
               icon={<Coins className="h-5 w-5" />}
               label="Commissions"
@@ -734,13 +747,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             />
           </div>
 
-          <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-violet-50/50">
-            <CardContent className="p-5">
-              <h4 className="font-semibold text-slate-900 mb-1">Client Value Exchange</h4>
-              <p className="text-sm text-muted-foreground mb-4">
-                What the client gives PrepCorex vs. what we fulfill — use this view when reviewing client growth and partnership value.
+          <Card className="min-w-0 border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-violet-50/50">
+            <CardContent className="p-3 sm:p-5">
+              <h4 className="mb-1 text-sm font-semibold text-slate-900 sm:text-base">Client Value Exchange</h4>
+              <p className="mb-3 text-xs text-muted-foreground sm:mb-4 sm:text-sm">
+                What the client gives vs. what we fulfill — partnership value at a glance.
               </p>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
                 <ValueTile title="They give us" items={[
                   { label: "Billed", value: `$${summary.financial.totalBilled.toFixed(2)}` },
                   { label: "Paid", value: `$${summary.financial.totalPaid.toFixed(2)}` },
@@ -765,12 +778,13 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
             </CardContent>
           </Card>
 
-          <Tabs value={reportTab} onValueChange={(v) => setReportTab(v as AdminReportType)}>
-            <TabsList className="flex flex-wrap h-auto gap-1">
+          <Tabs value={reportTab} onValueChange={(v) => setReportTab(v as AdminReportType)} className="min-w-0">
+            <TabsList className="grid h-auto w-full grid-cols-4 gap-0.5 p-1 sm:flex sm:flex-wrap sm:gap-1">
               {REPORT_TABS.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+                <TabsTrigger key={tab.value} value={tab.value} className={reportTabTriggerClass}>
                   {tab.icon}
-                  {tab.label}
+                  <span className="sm:hidden">{tab.shortLabel}</span>
+                  <span className="hidden sm:inline">{tab.label}</span>
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -783,10 +797,10 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                 exportingCsv={exportingCsv}
                 exportingPdf={exportingPdf}
               />
-              <Card className="border-slate-200">
-                <CardContent className="p-5">
-                  <h4 className="font-semibold mb-3">Full Report Summary</h4>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <Card className="min-w-0 border-slate-200">
+                <CardContent className="p-3 sm:p-5">
+                  <h4 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">Full Report Summary</h4>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-6">
                     <MiniStat label="Lifetime Inbound" value={String(summary.clientActivity.lifetimeInboundReceived)} accent="text-purple-700" />
                     <MiniStat label="Stock On Hand" value={String(summary.clientActivity.currentStockOnHand)} accent="text-violet-700" />
                     <MiniStat label="Units Shipped" value={String(summary.clientActivity.unitsShipped)} accent="text-blue-700" />
@@ -981,12 +995,12 @@ export function ReportsDashboard({ users }: ReportsDashboardProps) {
                 exportingCsv={exportingCsv}
                 exportingPdf={exportingPdf}
               />
-              <div className="grid gap-3 sm:grid-cols-4 mb-4">
+              <div className="mb-3 grid grid-cols-2 gap-2 sm:mb-4 sm:grid-cols-4 sm:gap-3">
                 {summary.charts.requestMix.map((m) => (
                   <Card key={m.type}>
-                    <CardContent className="p-4 text-center">
-                      <p className="text-2xl font-bold">{m.count}</p>
-                      <p className="text-xs text-muted-foreground">{m.type}</p>
+                    <CardContent className="p-3 text-center sm:p-4">
+                      <p className="text-xl font-bold sm:text-2xl">{m.count}</p>
+                      <p className="text-[10px] text-muted-foreground sm:text-xs">{m.type}</p>
                     </CardContent>
                   </Card>
                 ))}
@@ -1081,19 +1095,18 @@ function ReportExportBar({
   exportingPdf: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-      <p className="text-sm text-muted-foreground">
-        Download <span className="font-medium text-foreground">{moduleLabel(reportType)}</span> only — not the full
-        combined report.
+    <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:px-4 sm:py-3">
+      <p className="text-xs text-muted-foreground sm:text-sm">
+        Export <span className="font-medium text-foreground">{moduleLabel(reportType)}</span> only.
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={onExportCsv} disabled={exportingCsv || exportingPdf}>
-          {exportingCsv ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileSpreadsheet className="h-4 w-4 mr-1" />}
-          {moduleLabel(reportType)} CSV
+      <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+        <Button size="sm" variant="outline" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={onExportCsv} disabled={exportingCsv || exportingPdf}>
+          {exportingCsv ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="mr-1 h-3.5 w-3.5" />}
+          CSV
         </Button>
-        <Button size="sm" onClick={onExportPdf} disabled={exportingCsv || exportingPdf}>
-          {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <FileText className="h-4 w-4 mr-1" />}
-          {moduleLabel(reportType)} PDF
+        <Button size="sm" className="h-8 text-xs sm:h-9 sm:text-sm" onClick={onExportPdf} disabled={exportingCsv || exportingPdf}>
+          {exportingPdf ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FileText className="mr-1 h-3.5 w-3.5" />}
+          PDF
         </Button>
       </div>
     </div>
@@ -1128,10 +1141,10 @@ function ModuleReportPanel({
         exportingCsv={exportingCsv}
         exportingPdf={exportingPdf}
       />
-      <Card>
-        <CardContent className="p-5">
-          <h4 className="font-semibold mb-3">{title}</h4>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="min-w-0 overflow-hidden">
+        <CardContent className="p-3 sm:p-5">
+          <h4 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">{title}</h4>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-4">
             {stats.map((stat) => (
               <MiniStat key={stat.label} label={stat.label} value={stat.value} />
             ))}
@@ -1157,20 +1170,20 @@ function ModuleReportPanel({
 function ComparisonPanel({ comparison }: { comparison: AdminReportComparisonSummary }) {
   return (
     <div className="space-y-4">
-      <Card className="border-indigo-100">
-        <CardContent className="p-5">
-          <h4 className="font-semibold mb-1 flex items-center gap-2">
+      <Card className="min-w-0 border-indigo-100">
+        <CardContent className="p-3 sm:p-5">
+          <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold sm:text-base">
             <GitCompare className="h-4 w-4 text-indigo-600" />
             Period Comparison
           </h4>
-          <p className="text-sm text-muted-foreground mb-4">
+          <p className="mb-3 text-xs text-muted-foreground sm:mb-4 sm:text-sm">
             {comparison.scope.allClients
               ? "All clients"
               : comparison.scope.clientName || comparison.scope.clientId}{" "}
-            · Period A: <span className="font-medium text-foreground">{comparison.periodA.label}</span> vs Period B:{" "}
+            · A: <span className="font-medium text-foreground">{comparison.periodA.label}</span> vs B:{" "}
             <span className="font-medium text-foreground">{comparison.periodB.label}</span>
           </p>
-          <div className="rounded-md border overflow-x-auto">
+          <div className="hidden overflow-x-auto rounded-md border sm:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1203,6 +1216,36 @@ function ComparisonPanel({ comparison }: { comparison: AdminReportComparisonSumm
               </TableBody>
             </Table>
           </div>
+          <div className="space-y-2 sm:hidden">
+            {comparison.metrics.map((m) => (
+              <div key={m.label} className="rounded-lg border bg-muted/30 p-3 text-xs">
+                <p className="mb-2 font-semibold text-foreground">{m.label}</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Period A</span>
+                    <span className="font-medium">
+                      {m.format === "currency" ? `$${m.periodA.toFixed(2)}` : m.periodA.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Period B</span>
+                    <span className="font-medium">
+                      {m.format === "currency" ? `$${m.periodB.toFixed(2)}` : m.periodB.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2 border-t pt-1">
+                    <span className="text-muted-foreground">Change</span>
+                    <span className={`font-medium ${m.delta >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {m.format === "currency"
+                        ? `${m.delta >= 0 ? "+" : ""}$${m.delta.toFixed(2)}`
+                        : `${m.delta >= 0 ? "+" : ""}${m.delta.toLocaleString()}`}
+                      {m.deltaPct !== null ? ` (${formatGrowth(m.deltaPct)})` : ""}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -1225,20 +1268,20 @@ function KpiCard({
   accent?: string;
 }) {
   return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="rounded-full bg-slate-100 p-2 text-slate-600">{icon}</div>
+    <Card className="min-w-0 overflow-hidden">
+      <CardContent className="p-3 sm:p-5">
+        <div className="flex items-start justify-between gap-1">
+          <div className="rounded-full bg-slate-100 p-1.5 text-slate-600 sm:p-2 [&>svg]:h-4 [&>svg]:w-4 sm:[&>svg]:h-5 sm:[&>svg]:w-5">{icon}</div>
           {growth !== undefined && growth !== null && (
-            <Badge variant="outline" className={growth >= 0 ? "text-emerald-700" : "text-red-600"}>
-              {growth >= 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
+            <Badge variant="outline" className={`h-5 px-1 text-[10px] sm:h-auto sm:px-2.5 sm:text-xs ${growth >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+              {growth >= 0 ? <TrendingUp className="mr-0.5 h-2.5 w-2.5 sm:mr-1 sm:h-3 sm:w-3" /> : <TrendingDown className="mr-0.5 h-2.5 w-2.5 sm:mr-1 sm:h-3 sm:w-3" />}
               {formatGrowth(growth)}
             </Badge>
           )}
         </div>
-        <p className="text-xs uppercase tracking-wide text-muted-foreground mt-3">{label}</p>
-        <p className={`text-2xl font-bold ${accent || ""}`}>{value}</p>
-        <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+        <p className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground sm:mt-3 sm:text-xs">{label}</p>
+        <p className={`text-lg font-bold sm:text-2xl ${accent || ""}`}>{value}</p>
+        <p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground sm:mt-1 sm:line-clamp-none sm:text-xs">{sub}</p>
       </CardContent>
     </Card>
   );
@@ -1252,12 +1295,12 @@ function ValueTile({
   items: { label: string; value: string }[];
 }) {
   return (
-    <div className="rounded-lg border bg-white p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 mb-2">{title}</p>
+    <div className="rounded-lg border bg-white p-2.5 sm:p-3">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 sm:mb-2 sm:text-xs">{title}</p>
       {items.map((item) => (
-        <div key={item.label} className="flex justify-between text-sm py-0.5">
+        <div key={item.label} className="flex justify-between gap-1 py-0.5 text-xs sm:text-sm">
           <span className="text-muted-foreground">{item.label}</span>
-          <span className="font-medium">{item.value}</span>
+          <span className="font-medium text-right">{item.value}</span>
         </div>
       ))}
     </div>
@@ -1274,34 +1317,48 @@ function DetailTable({
   rows: string[][];
 }) {
   return (
-    <Card>
-      <CardContent className="p-5">
-        <h4 className="font-semibold mb-3">{title}</h4>
+    <Card className="min-w-0 overflow-hidden">
+      <CardContent className="p-3 sm:p-5">
+        <h4 className="mb-2 text-sm font-semibold sm:mb-3 sm:text-base">{title}</h4>
         {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No records in this period.</p>
+          <p className="py-4 text-center text-xs text-muted-foreground sm:py-6 sm:text-sm">No records in this period.</p>
         ) : (
-          <div className="rounded-md border overflow-x-auto max-h-[420px] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {headers.map((h) => (
-                    <TableHead key={h}>{h}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row, i) => (
-                  <TableRow key={i}>
-                    {row.map((cell, j) => (
-                      <TableCell key={j} className="text-sm">
-                        {cell}
-                      </TableCell>
+          <>
+            <div className="hidden max-h-[420px] overflow-x-auto overflow-y-auto rounded-md border sm:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {headers.map((h) => (
+                      <TableHead key={h}>{h}</TableHead>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row, i) => (
+                    <TableRow key={i}>
+                      {row.map((cell, j) => (
+                        <TableCell key={j} className="text-sm">
+                          {cell}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="max-h-[420px] space-y-2 overflow-y-auto sm:hidden">
+              {rows.map((row, i) => (
+                <div key={i} className="rounded-lg border bg-muted/30 p-2.5">
+                  {headers.map((h, j) => (
+                    <div key={j} className="flex justify-between gap-2 py-0.5 text-xs">
+                      <span className="shrink-0 text-muted-foreground">{h}</span>
+                      <span className="break-all text-right font-medium">{row[j]}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -1324,9 +1381,9 @@ function MiniStat({
   accent?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-white px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={`text-sm font-bold ${accent || "text-slate-900"}`}>{value}</p>
+    <div className="min-w-0 rounded-lg border bg-white px-2 py-1.5 sm:px-3 sm:py-2">
+      <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground sm:text-[10px]">{label}</p>
+      <p className={`truncate text-xs font-bold sm:text-sm ${accent || "text-slate-900"}`}>{value}</p>
     </div>
   );
 }

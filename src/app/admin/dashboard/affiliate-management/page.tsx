@@ -32,25 +32,25 @@ export default function AdminAffiliateManagementPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <Card className="border-2 shadow-xl overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-700 text-white pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
-                <Handshake className="h-6 w-6" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden border-2 shadow-xl">
+        <CardHeader className="bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-700 pb-3 text-white sm:pb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-2xl">
+                <Handshake className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
                 Affiliate Management
               </CardTitle>
-              <CardDescription className="text-violet-100 mt-2">
-                Monitor commission agents, referred clients, earnings breakdown, and audit history
+              <CardDescription className="mt-1 text-xs text-violet-100 sm:mt-2 sm:text-sm">
+                Agents, referrals, earnings &amp; audit
               </CardDescription>
             </div>
-            <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm sm:flex">
               <Handshake className="h-7 w-7 text-white" />
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-3 sm:p-6">
           <AffiliateManagementDashboard users={users} />
         </CardContent>
       </Card>

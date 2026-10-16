@@ -107,24 +107,24 @@ export function RolesPermissionsLogsTab() {
     toDate;
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-      <CardHeader className="border-b bg-muted/20 pb-6">
-        <CardTitle className="flex items-center gap-3 text-xl">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-500/15 text-slate-700 dark:text-slate-300">
-            <ScrollText className="h-5 w-5" />
+    <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+      <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+        <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-500/15 text-slate-700 dark:text-slate-300 sm:h-10 sm:w-10 sm:rounded-xl">
+            <ScrollText className="h-4 w-4 sm:h-5 sm:w-5" />
           </span>
           Roles &amp; Permissions logs
         </CardTitle>
-        <CardDescription className="text-base">
-          Audit trail for role/feature changes, location assign/remove, edits, and default warehouse changes.
+        <CardDescription className="text-xs sm:text-sm">
+          Audit trail for roles, features, and location changes.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5 pt-6">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Action</Label>
+      <CardContent className="space-y-3 p-3 pt-3 sm:space-y-5 sm:p-6 sm:pt-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="col-span-2 space-y-1 sm:col-span-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">Action</Label>
             <Select value={actionFilter} onValueChange={setActionFilter}>
-              <SelectTrigger className="h-10 rounded-xl">
+              <SelectTrigger className="h-9 rounded-lg sm:h-10 sm:rounded-xl">
                 <SelectValue placeholder="All actions" />
               </SelectTrigger>
               <SelectContent>
@@ -137,101 +137,101 @@ export function RolesPermissionsLogsTab() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Admin / actor</Label>
+          <div className="space-y-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">Admin / actor</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={actorSearch}
                 onChange={(e) => setActorSearch(e.target.value)}
-                placeholder="Name, email, uid…"
-                className="h-10 rounded-xl pl-9"
+                placeholder="Name, email…"
+                className="h-9 rounded-lg pl-9 sm:h-10 sm:rounded-xl"
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Target user</Label>
+          <div className="space-y-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">Target user</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={targetSearch}
                 onChange={(e) => setTargetSearch(e.target.value)}
-                placeholder="Client id, name…"
-                className="h-10 rounded-xl pl-9"
+                placeholder="Client id…"
+                className="h-9 rounded-lg pl-9 sm:h-10 sm:rounded-xl"
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Location</Label>
+          <div className="col-span-2 space-y-1 sm:col-span-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">Location</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={locationSearch}
                 onChange={(e) => setLocationSearch(e.target.value)}
-                placeholder="Warehouse name…"
-                className="h-10 rounded-xl pl-9"
+                placeholder="Warehouse…"
+                className="h-9 rounded-lg pl-9 sm:h-10 sm:rounded-xl"
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">From</Label>
+          <div className="space-y-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">From</Label>
             <Input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="h-10 rounded-xl"
+              className="h-9 rounded-lg sm:h-10 sm:rounded-xl"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">To</Label>
+          <div className="space-y-1 sm:space-y-1.5">
+            <Label className="text-[10px] font-medium text-muted-foreground sm:text-xs">To</Label>
             <Input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="h-10 rounded-xl"
+              className="h-9 rounded-lg sm:h-10 sm:rounded-xl"
             />
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            Showing {filtered.length} of {sorted.length} event{sorted.length !== 1 ? "s" : ""}
+          <p className="text-xs text-muted-foreground sm:text-sm">
+            {filtered.length} of {sorted.length} event{sorted.length !== 1 ? "s" : ""}
           </p>
           {hasFilters ? (
-            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={clearFilters}>
+            <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg sm:rounded-xl" onClick={clearFilters}>
               <FilterX className="mr-1.5 h-4 w-4" />
-              Clear filters
+              Clear
             </Button>
           ) : null}
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 py-10 text-muted-foreground">
+          <div className="flex items-center gap-2 py-8 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading logs…
           </div>
         ) : filtered.length === 0 ? (
-          <p className="rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/10 py-10 text-center text-sm text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/10 py-8 text-center text-xs text-muted-foreground sm:rounded-xl sm:border-2 sm:py-10 sm:text-sm">
             {sorted.length === 0
               ? "No roles & permissions activity logged yet."
               : "No events match the current filters."}
           </p>
         ) : (
-          <ul className="max-h-[560px] space-y-2 overflow-y-auto overscroll-contain pr-1">
+          <ul className="max-h-[min(560px,60dvh)] space-y-1.5 overflow-y-auto overscroll-contain pr-1 sm:space-y-2">
             {filtered.map((ev) => (
               <li
                 key={ev.id}
-                className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm"
+                className="rounded-lg border border-border/60 bg-card px-2.5 py-2 shadow-sm sm:rounded-xl sm:px-4 sm:py-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary" className="font-medium">
+                  <div className="min-w-0 space-y-0.5 sm:space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium sm:h-6 sm:text-xs">
                         {ROLES_PERMISSIONS_AUDIT_ACTION_LABELS[ev.action] ?? ev.action}
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{formatWhen(ev.createdAt)}</span>
+                      <span className="text-[10px] text-muted-foreground sm:text-xs">{formatWhen(ev.createdAt)}</span>
                     </div>
-                    <p className="text-sm font-medium text-foreground">{ev.description}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs font-medium text-foreground sm:text-sm">{ev.description}</p>
+                    <p className="text-[11px] text-muted-foreground sm:text-xs">
                       By{" "}
                       {ev.actorName || ev.actorEmail || ev.actorUid || "Unknown admin"}
                       {ev.actorEmail && ev.actorName ? ` (${ev.actorEmail})` : ""}

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -433,19 +432,21 @@ export function MemberManagement({
     })();
 
     return (
-      <div className="rounded-lg border bg-card px-3 py-3 sm:px-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0 flex items-start gap-3">
-            <Avatar className="h-10 w-10 flex-shrink-0">
+      <div className="rounded-md border bg-card px-2.5 py-2 sm:px-3 sm:py-2.5">
+        <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <Avatar className="h-8 w-8 shrink-0 sm:h-9 sm:w-9">
               <AvatarImage src={getAvatarSrc()} />
-              <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+              <AvatarFallback className="text-[10px] sm:text-xs">{getInitials(user.name)}</AvatarFallback>
             </Avatar>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-semibold text-sm sm:text-base truncate">{formatUserDisplayName(user, { showEmail: false })}</h3>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
+                <h3 className="min-w-0 max-w-full break-words text-xs font-semibold sm:truncate sm:text-sm">
+                  {formatUserDisplayName(user, { showEmail: false })}
+                </h3>
                 <Badge
                   variant={statusBadge.variant}
-                  className={`text-[10px] sm:text-xs ${statusBadge.className}`}
+                  className={`h-5 shrink-0 px-1.5 text-[10px] ${statusBadge.className}`}
                 >
                   {statusBadge.label}
                 </Badge>
@@ -455,7 +456,7 @@ export function MemberManagement({
                   return (
                     <Badge
                       variant="outline"
-                      className="text-[10px] sm:text-xs bg-sky-50 text-sky-800 border-sky-200"
+                      className="hidden h-5 shrink-0 px-1.5 text-[10px] bg-sky-50 text-sky-800 border-sky-200 sm:inline-flex"
                       title={
                         asDateValue(user.createdAt)
                           ? `Created ${formatDate(user.createdAt)}`
@@ -472,43 +473,48 @@ export function MemberManagement({
                   (user.emailVerificationDeferredByAdmin ? (
                     <Badge
                       variant="outline"
-                      className="text-[10px] sm:text-xs bg-amber-50 text-amber-900 border-amber-200"
+                      className="h-5 shrink-0 px-1.5 text-[10px] bg-amber-50 text-amber-900 border-amber-200"
                       title="Admin allowed login without email verification"
                     >
-                      Email verify deferred
+                      <span className="sm:hidden">Defer</span>
+                      <span className="hidden sm:inline">Email verify deferred</span>
                     </Badge>
                   ) : (
                     <Badge
                       variant="outline"
-                      className="text-[10px] sm:text-xs bg-orange-50 text-orange-900 border-orange-200"
+                      className="h-5 shrink-0 px-1.5 text-[10px] bg-orange-50 text-orange-900 border-orange-200"
                       title="Blocked until email is verified"
                     >
-                      Email unverified
+                      <span className="sm:hidden">Unverified</span>
+                      <span className="hidden sm:inline">Email unverified</span>
                     </Badge>
                   ))}
               </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
-                <span className="truncate">{user.email}</span>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground sm:text-xs">
+                <span className="min-w-0 max-w-full break-all sm:truncate">{user.email}</span>
                 {user.phone && (
-                  <span className="inline-flex items-center gap-1">
+                  <span className="hidden items-center gap-1 sm:inline-flex">
                     <Phone className="h-3 w-3" />
                     {user.phone}
                   </span>
                 )}
-                {user.companyName && <span className="truncate">Company: {user.companyName}</span>}
+                {user.companyName && (
+                  <span className="hidden truncate sm:inline">· {user.companyName}</span>
+                )}
+                {user.clientId && (
+                  <span className="shrink-0 font-mono text-[10px] sm:text-[11px]">· {user.clientId}</span>
+                )}
               </div>
               {isAdmin && (user.status === "approved" || !user.status) && (
-                <div className="mt-1.5 text-[11px] sm:text-xs text-muted-foreground">
-                  <span className="font-medium">Login:</span>{" "}
-                  <span className="font-mono">{user.email}</span>{" "}
-                  <span className="font-medium">| Password:</span>{" "}
+                <div className="mt-0.5 hidden text-[10px] text-muted-foreground sm:block sm:text-[11px]">
+                  <span className="font-medium">Pw:</span>{" "}
                   <span className="font-mono">{user.password || "Not stored"}</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 lg:shrink-0">
+          <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-1.5 sm:border-0 sm:pt-0 sm:justify-end">
           <Tooltip>
             <TooltipTrigger asChild>
                 <Dialog
@@ -524,20 +530,21 @@ export function MemberManagement({
                     <Button 
                       variant="outline" 
                       size="icon" 
+                      className="h-8 w-8"
                       onClick={() => {
                         setIsUserDialogOpen(true);
                         setIsUserEditMode(false);
                       }}
                     >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-3.5 w-3.5" />
                   </Button>
                 </DialogTrigger>
-                  <DialogContent className="max-w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <DialogTitle>{isUserEditMode ? "Edit User" : "User Details"}</DialogTitle>
-                      <DialogDescription>
+                  <DialogContent className="h-[100dvh] w-[calc(100%-1.5rem)] max-w-2xl overflow-y-auto p-4 sm:h-auto sm:max-h-[90vh] sm:p-6">
+                    <DialogHeader className="text-left">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <DialogTitle className="text-base sm:text-lg">{isUserEditMode ? "Edit User" : "User Details"}</DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">
                             {isUserEditMode ? "Update user information." : "Complete information about this user."}
                       </DialogDescription>
                         </div>
@@ -550,10 +557,10 @@ export function MemberManagement({
                               e.stopPropagation();
                               setIsUserEditMode(true);
                             }}
-                            className="ml-auto"
+                            className="w-full sm:ml-auto sm:w-auto"
                             type="button"
                           >
-                            <Edit className="h-4 w-4 mr-2" />
+                            <Edit className="mr-2 h-4 w-4" />
                             Edit
                           </Button>
                         )}
@@ -569,19 +576,21 @@ export function MemberManagement({
                         onCancel={() => setIsUserEditMode(false)}
                       />
                     ) : isAdmin ? (
-                      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "details" | "roles" | "audit")} className="w-full">
-                        <TabsList className="grid w-full grid-cols-3">
-                          <TabsTrigger value="details" className="flex items-center gap-2">
-                            <User className="h-4 w-4" />
+                      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "details" | "roles" | "audit")} className="w-full min-w-0">
+                        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 p-1">
+                          <TabsTrigger value="details" className="gap-1 px-1.5 py-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                            <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             Details
                           </TabsTrigger>
-                          <TabsTrigger value="roles" className="flex items-center gap-2">
-                            <Shield className="h-4 w-4" />
-                            Roles & Features
+                          <TabsTrigger value="roles" className="gap-1 px-1.5 py-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                            <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            <span className="sm:hidden">Roles</span>
+                            <span className="hidden sm:inline">Roles & Features</span>
                           </TabsTrigger>
-                          <TabsTrigger value="audit" className="flex items-center gap-2">
-                            <ScrollText className="h-4 w-4" />
-                            Audit Trail
+                          <TabsTrigger value="audit" className="gap-1 px-1.5 py-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                            <ScrollText className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            <span className="sm:hidden">Audit</span>
+                            <span className="hidden sm:inline">Audit Trail</span>
                           </TabsTrigger>
                         </TabsList>
                         <TabsContent value="details" className="mt-4">
@@ -600,7 +609,7 @@ export function MemberManagement({
                       {/* Personal Information */}
                       <div className="space-y-3">
                         <h4 className="font-semibold text-sm border-b pb-1">Personal Information</h4>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 sm:gap-4">
                           <div>
                             <span className="font-medium">Role:</span>
                             <p className="text-muted-foreground capitalize">{user.role}</p>
@@ -727,7 +736,7 @@ export function MemberManagement({
                                 <p className="text-muted-foreground">{user.address}</p>
                               </div>
                             )}
-                            <div className="grid grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                               {user.city && (
                                 <div>
                                   <span className="font-medium">City:</span>
@@ -798,9 +807,9 @@ export function MemberManagement({
                       variant="default"
                       size="icon"
                       onClick={() => handleApproveUser(user)}
-                      className="bg-green-600 hover:bg-green-700"
+                      className="h-8 w-8 bg-green-600 hover:bg-green-700"
                     >
-                      <UserCheck className="h-4 w-4" />
+                      <UserCheck className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -825,11 +834,11 @@ export function MemberManagement({
                         }
                         className={
                           user.emailVerificationDeferredByAdmin
-                            ? "text-amber-800 border-amber-200 hover:bg-amber-50"
-                            : "text-sky-800 border-sky-200 hover:bg-sky-50"
+                            ? "h-8 w-8 text-amber-800 border-amber-200 hover:bg-amber-50"
+                            : "h-8 w-8 text-sky-800 border-sky-200 hover:bg-sky-50"
                         }
                       >
-                        <MailCheck className="h-4 w-4" />
+                        <MailCheck className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -850,9 +859,9 @@ export function MemberManagement({
                         size="icon"
                         disabled={isActionLoading}
                         onClick={() => void handleAccountStatusChange(user, "lock", "User locked")}
-                        className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                        className="h-8 w-8 text-amber-700 border-amber-200 hover:bg-amber-50"
                       >
-                        <Lock className="h-4 w-4" />
+                        <Lock className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -866,9 +875,9 @@ export function MemberManagement({
                         size="icon"
                         disabled={isActionLoading}
                         onClick={() => void handleAccountStatusChange(user, "disable", "User disabled")}
-                        className="text-red-700 border-red-200 hover:bg-red-50"
+                        className="h-8 w-8 text-red-700 border-red-200 hover:bg-red-50"
                       >
-                        <ShieldBan className="h-4 w-4" />
+                        <ShieldBan className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -884,10 +893,11 @@ export function MemberManagement({
               <Button 
                 variant="destructive" 
                     size="icon"
+                className="h-8 w-8"
                 disabled={isActionLoading}
                 onClick={() => handleDeleteUser(user)}
               >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
               </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -906,9 +916,9 @@ export function MemberManagement({
                   size="icon"
                   disabled={isActionLoading}
                   onClick={() => void handleAccountStatusChange(user, "unlock", "User unlocked")}
-                  className="text-green-700 border-green-200 hover:bg-green-50"
+                  className="h-8 w-8 text-green-700 border-green-200 hover:bg-green-50"
                 >
-                  <ShieldCheck className="h-4 w-4" />
+                  <ShieldCheck className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -925,9 +935,9 @@ export function MemberManagement({
                   size="icon"
                   disabled={isActionLoading}
                   onClick={() => void handleAccountStatusChange(user, "enable", "User re-enabled")}
-                  className="text-green-700 border-green-200 hover:bg-green-50"
+                  className="h-8 w-8 text-green-700 border-green-200 hover:bg-green-50"
                 >
-                  <ShieldCheck className="h-4 w-4" />
+                  <ShieldCheck className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -943,9 +953,9 @@ export function MemberManagement({
                   variant="outline"
                   size="icon"
                   onClick={() => handleRestoreUser(user)}
-                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                  className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                 >
-                  <RotateCcw className="h-4 w-4" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -961,65 +971,51 @@ export function MemberManagement({
 
   if (usersLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Member Management</CardTitle>
-          <CardDescription>Loading members...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
-              <div key={i} className="h-48 bg-muted animate-pulse rounded-lg" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-1.5">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="h-14 animate-pulse rounded-md bg-muted" />
+        ))}
+      </div>
     );
   }
 
+  const isSearchControlled = controlledSearchQuery !== undefined;
+
   return (
     <TooltipProvider>
-      <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <User className="h-5 w-5" />
-          Member Management
-        </CardTitle>
-        <CardDescription>
-          Manage user approvals and view member details.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {/* Search Bar, approval date filter, and Sort */}
-        <div className="mb-6 flex flex-col gap-3">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, email, phone, or client ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-              {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                  onClick={() => setSearchQuery("")}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div className="min-w-0">
+        {/* Filters — skip duplicate search when parent page search is controlled */}
+        <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+            {!isSearchControlled && (
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, email, phone, or client ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 pl-10"
+                />
+                {searchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 transform p-0"
+                    onClick={() => setSearchQuery("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
               <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="date"
                   value={approvedOnDate}
                   onChange={(e) => setApprovedOnDate(e.target.value)}
-                  className="pl-10 w-full sm:w-[180px]"
+                  className="h-9 w-full pl-10 sm:w-[170px]"
                   aria-label="Filter by approval date"
                   title="Filter by approval date"
                 />
@@ -1029,16 +1025,16 @@ export function MemberManagement({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-10 px-2"
+                  className="h-9 px-2"
                   onClick={() => setApprovedOnDate("")}
                 >
-                  <X className="h-3.5 w-3.5 mr-1" />
-                  Clear date
+                  <X className="mr-1 h-3.5 w-3.5" />
+                  Clear
                 </Button>
               ) : null}
               <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as "a-z" | "z-a")}>
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <ArrowUpDown className="h-4 w-4 mr-2" />
+                <SelectTrigger className="h-9 w-full sm:w-[150px]">
+                  <ArrowUpDown className="mr-2 h-4 w-4" />
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1049,8 +1045,8 @@ export function MemberManagement({
             </div>
           </div>
           {approvedOnDate ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-950 flex flex-wrap items-center gap-2">
-              <UserCheck className="h-4 w-4 shrink-0" />
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/70 px-2.5 py-1.5 text-xs text-emerald-950 sm:text-sm">
+              <UserCheck className="h-3.5 w-3.5 shrink-0" />
               <span>
                 <strong>{approvedOnDateCount}</strong> user
                 {approvedOnDateCount === 1 ? "" : "s"} approved on{" "}
@@ -1065,75 +1061,73 @@ export function MemberManagement({
                 </strong>
               </span>
               {filteredUsers.length !== approvedOnDateCount ? (
-                <span className="text-emerald-800/80 text-xs">
-                  · {filteredUsers.length} match current search
+                <span className="text-[11px] text-emerald-800/80">
+                  · {filteredUsers.length} match search
                 </span>
               ) : null}
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Pick a date to see how many users were approved that day.
-            </p>
-          )}
+          ) : null}
         </div>
         
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full gap-1 sm:gap-0">
-            <TabsTrigger value="pending" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-              <XCircle className="h-4 w-4" />
-              <span>Pending</span>
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">{pendingUsers.length}</Badge>
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0">
+          <TabsList className="mb-3 grid h-auto w-full grid-cols-5 gap-0.5 p-1">
+            <TabsTrigger value="pending" className="flex-col gap-0.5 px-0.5 py-1.5 text-[9px] leading-tight sm:flex-row sm:gap-1 sm:px-2 sm:text-xs">
+              <span className="sm:hidden">Pend</span>
+              <span className="hidden sm:inline">Pending</span>
+              <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 text-[9px] sm:h-5 sm:text-[10px]">{pendingUsers.length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="approved" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-              <CheckCircle className="h-4 w-4" />
-              <span>Approved</span>
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">{approvedUsers.length}</Badge>
+            <TabsTrigger value="approved" className="flex-col gap-0.5 px-0.5 py-1.5 text-[9px] leading-tight sm:flex-row sm:gap-1 sm:px-2 sm:text-xs">
+              <span className="sm:hidden">Appr</span>
+              <span className="hidden sm:inline">Approved</span>
+              <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 text-[9px] sm:h-5 sm:text-[10px]">{approvedUsers.length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="locked" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-              <Lock className="h-4 w-4" />
-              <span>Locked</span>
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">{lockedUsers.length}</Badge>
+            <TabsTrigger value="locked" className="flex-col gap-0.5 px-0.5 py-1.5 text-[9px] leading-tight sm:flex-row sm:gap-1 sm:px-2 sm:text-xs">
+              <span className="sm:hidden">Lock</span>
+              <span className="hidden sm:inline">Locked</span>
+              <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 text-[9px] sm:h-5 sm:text-[10px]">{lockedUsers.length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="disabled" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-              <ShieldBan className="h-4 w-4" />
-              <span>Disabled</span>
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">{disabledUsers.length}</Badge>
+            <TabsTrigger value="disabled" className="flex-col gap-0.5 px-0.5 py-1.5 text-[9px] leading-tight sm:flex-row sm:gap-1 sm:px-2 sm:text-xs">
+              <span className="sm:hidden">Off</span>
+              <span className="hidden sm:inline">Disabled</span>
+              <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 text-[9px] sm:h-5 sm:text-[10px]">{disabledUsers.length}</Badge>
             </TabsTrigger>
-            <TabsTrigger value="deleted" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-              <Trash2 className="h-4 w-4" />
-              <span>Deleted</span>
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">{deletedUsers.length}</Badge>
+            <TabsTrigger value="deleted" className="flex-col gap-0.5 px-0.5 py-1.5 text-[9px] leading-tight sm:flex-row sm:gap-1 sm:px-2 sm:text-xs">
+              <span className="sm:hidden">Del</span>
+              <span className="hidden sm:inline">Deleted</span>
+              <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 text-[9px] sm:h-5 sm:text-[10px]">{deletedUsers.length}</Badge>
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="pending" className="mt-6">
+          <TabsContent value="pending" className="mt-0 pb-16 sm:pb-0">
             {pendingUsers.length > 0 ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `pending-user-${index}`} user={user} tabKind="pending" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                    <div className="text-xs text-muted-foreground sm:text-sm">
+                      {startIndex + 1}–{Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length}
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-8 flex-1 sm:flex-none"
                         onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
                       >
-                        Previous
+                        Prev
                       </Button>
-                      <span className="text-sm">
-                        Page {currentPage} of {totalPages}
+                      <span className="shrink-0 text-xs sm:text-sm">
+                        {currentPage}/{totalPages}
                       </span>
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-8 flex-1 sm:flex-none"
                         onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
                       >
@@ -1144,174 +1138,137 @@ export function MemberManagement({
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <XCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Pending Members</h3>
-                <p className="text-muted-foreground">
+              <div className="py-6 text-center">
+                <XCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <h3 className="mb-1 text-sm font-semibold">No Pending Members</h3>
+                <p className="text-xs text-muted-foreground">
                   All users have been processed.
                 </p>
               </div>
             )}
           </TabsContent>
           
-          <TabsContent value="approved" className="mt-6">
+          <TabsContent value="approved" className="mt-0 pb-16 sm:pb-0">
             {approvedUsers.length > 0 ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `user-${index}`} user={user} tabKind="approved" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                    <div className="text-xs text-muted-foreground sm:text-sm">
+                      {startIndex + 1}–{Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                      >
-                        Next
-                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                      <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                     </div>
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Approved Members</h3>
-                <p className="text-muted-foreground">
-                  No users have been approved yet.
-                </p>
+              <div className="py-6 text-center">
+                <CheckCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <h3 className="mb-1 text-sm font-semibold">No Approved Members</h3>
+                <p className="text-xs text-muted-foreground">No users have been approved yet.</p>
               </div>
             )}
           </TabsContent>
 
-          <TabsContent value="locked" className="mt-6">
+          <TabsContent value="locked" className="mt-0 pb-16 sm:pb-0">
             {lockedUsers.length > 0 ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `locked-user-${index}`} user={user} tabKind="locked" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                    <div className="text-xs text-muted-foreground sm:text-sm">
+                      {startIndex + 1}–{Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
-                      <span className="text-sm">Page {currentPage} of {totalPages}</span>
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                      <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                     </div>
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <Lock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Locked Members</h3>
-                <p className="text-muted-foreground">Client accounts locked for inactivity or by an admin will appear here.</p>
+              <div className="py-6 text-center">
+                <Lock className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <h3 className="mb-1 text-sm font-semibold">No Locked Members</h3>
+                <p className="text-xs text-muted-foreground">Locked client accounts will appear here.</p>
               </div>
             )}
           </TabsContent>
 
-          <TabsContent value="disabled" className="mt-6">
+          <TabsContent value="disabled" className="mt-0 pb-16 sm:pb-0">
             {disabledUsers.length > 0 ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `disabled-user-${index}`} user={user} tabKind="disabled" showActions={!viewOnly} showRestore={false} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                    <div className="text-xs text-muted-foreground sm:text-sm">
+                      {startIndex + 1}–{Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
-                      <span className="text-sm">Page {currentPage} of {totalPages}</span>
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                      <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                     </div>
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <ShieldBan className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Disabled Members</h3>
-                <p className="text-muted-foreground">Client accounts disabled for inactivity or by an admin will appear here.</p>
+              <div className="py-6 text-center">
+                <ShieldBan className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <h3 className="mb-1 text-sm font-semibold">No Disabled Members</h3>
+                <p className="text-xs text-muted-foreground">Disabled client accounts will appear here.</p>
               </div>
             )}
           </TabsContent>
           
-          <TabsContent value="deleted" className="mt-6">
+          <TabsContent value="deleted" className="mt-0 pb-16 sm:pb-0">
             {deletedUsers.length > 0 ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {paginatedUsers.map((user, index) => (
                     <UserCard key={user.uid || `deleted-user-${index}`} user={user} tabKind="deleted" showActions={false} showRestore={!viewOnly} isAdmin={!viewOnly && adminUser?.role === "admin"} />
                   ))}
                 </div>
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1} to {Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length} users
+                  <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                    <div className="text-xs text-muted-foreground sm:text-sm">
+                      {startIndex + 1}–{Math.min(endIndex, currentTabUsers.length)} of {currentTabUsers.length}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                      >
-                        Next
-                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                      <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                      <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                     </div>
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-center py-8">
-                <Trash2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Deleted Members</h3>
-                <p className="text-muted-foreground">
-                  No users have been deleted yet.
-                </p>
+              <div className="py-6 text-center">
+                <Trash2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                <h3 className="mb-1 text-sm font-semibold">No Deleted Members</h3>
+                <p className="text-xs text-muted-foreground">No users have been deleted yet.</p>
               </div>
             )}
           </TabsContent>
         </Tabs>
-      </CardContent>
-    </Card>
+      </div>
     </TooltipProvider>
   );
 }

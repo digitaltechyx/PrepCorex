@@ -125,9 +125,15 @@ export function WipeUserDataDialog({ user, onCompleted }: Props) {
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5 text-destructive border-destructive/30">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 text-destructive border-destructive/30"
+          title="Clean data"
+        >
           <Eraser className="h-3.5 w-3.5" />
-          Clean data
+          <span className="sr-only">Clean data</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">

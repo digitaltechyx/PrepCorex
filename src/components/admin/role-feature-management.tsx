@@ -530,38 +530,38 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     hasOpsWarehouseChanges;
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-3 sm:space-y-6">
       {/* Roles Section */}
-      <Card>
-        <CardHeader>
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="p-3 sm:p-6">
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            <CardTitle>User Roles</CardTitle>
+            <Shield className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
+            <CardTitle className="text-base sm:text-lg">User Roles</CardTitle>
           </div>
-          <CardDescription>
-            Assign one or multiple roles to this user. Users with multiple roles will have access to all corresponding dashboards.
+          <CardDescription className="text-xs sm:text-sm">
+            Multiple roles unlock all matching dashboards.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-2 p-3 pt-0 sm:space-y-3 sm:p-6 sm:pt-0">
           {ALL_ROLES.map((role) => {
             const isSelected = selectedRoles.includes(role);
             return (
               <div
                 key={role}
-                className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                className="flex items-start gap-2.5 rounded-lg border p-2.5 hover:bg-accent/50 sm:gap-3 sm:p-4"
               >
                 <Checkbox
                   id={`role-${role}`}
                   checked={isSelected}
                   onCheckedChange={() => handleRoleToggle(role)}
-                  className="mt-1"
+                  className="mt-0.5"
                 />
-                <div className="flex-1 space-y-1">
+                <div className="min-w-0 flex-1 space-y-0.5 sm:space-y-1">
                   <Label
                     htmlFor={`role-${role}`}
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                    className="cursor-pointer text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 sm:text-sm"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                       {role === "user"
                         ? "Client/User"
                         : role === "commission_agent"
@@ -570,28 +570,28 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                             ? "Warehouse Operator"
                             : "Sub Admin"}
                       {isSelected && (
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px] sm:text-xs">
                           Active
                         </Badge>
                       )}
                     </div>
                   </Label>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground sm:text-xs">
                     {role === "user"
-                      ? "Access to client dashboard with inventory management, shipments, and invoices"
+                      ? "Client dashboard: inventory, shipments, invoices"
                       : role === "commission_agent"
-                        ? "Access to affiliate dashboard with referral code, clients, and commissions"
+                        ? "Affiliate dashboard: referrals & commissions"
                         : role === "warehouse_operator"
-                          ? "Floor app at /warehouse-ops — assign warehouses and ops features below"
-                          : "Access to admin dashboard with limited features (select features below)"}
+                          ? "Floor app /warehouse-ops — assign warehouses below"
+                          : "Admin panel with limited features (select below)"}
                   </p>
                 </div>
               </div>
             );
           })}
           {selectedRoles.length === 0 && (
-            <p className="text-sm text-muted-foreground italic">
-              User must have at least one role. Select a role to continue.
+            <p className="text-xs italic text-muted-foreground sm:text-sm">
+              User must have at least one role.
             </p>
           )}
         </CardContent>
@@ -599,18 +599,17 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
 
       {/* Client: warehouse locations (assign / unassign) */}
       {selectedRoles.includes("user") && (
-        <Card>
-          <CardHeader>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="p-3 sm:p-6">
             <div className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-primary" />
-              <CardTitle>Client warehouse locations</CardTitle>
+              <MapPin className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
+              <CardTitle className="text-base sm:text-lg">Client warehouse locations</CardTitle>
             </div>
-            <CardDescription>
-              Choose which warehouses this client may use in the app. Uncheck to remove access to a location. The
-              system default inbound warehouse is always kept when you save if one is configured.
+            <CardDescription className="text-xs sm:text-sm">
+              Choose which warehouses this client may use. Default inbound is kept on save when configured.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3 p-3 pt-0 sm:space-y-4 sm:p-6 sm:pt-0">
             {activeLocations.length > 6 && (
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -659,17 +658,17 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
 
       {/* Sub Admin: Locations & Assigned Users */}
       {selectedRoles.includes("sub_admin") && (
-        <Card>
-          <CardHeader>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="p-3 sm:p-6">
             <div className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-primary" />
-              <CardTitle>Sub Admin: Locations & Assigned Users</CardTitle>
+              <MapPin className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
+              <CardTitle className="text-base sm:text-lg">Sub Admin: Locations & Users</CardTitle>
             </div>
-            <CardDescription>
-              Select which locations this sub admin manages, then assign users. Sub admin will only see data for assigned users (and users who have the selected locations).
+            <CardDescription className="text-xs sm:text-sm">
+              Locations this sub admin manages, then assigned users.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-4 p-3 pt-0 sm:space-y-6 sm:p-6 sm:pt-0">
             <div>
               <Label className="text-sm font-medium">Managed locations</Label>
               <p className="text-xs text-muted-foreground mb-2">Sub admin can manage users who have any of these locations.</p>
@@ -878,7 +877,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                   return (
                     <div
                       key={feature.value}
-                      className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                      className="flex items-start gap-2.5 rounded-lg border p-2.5 hover:bg-accent/50 sm:gap-3 sm:p-4"
                     >
                       <Checkbox
                         id={`feature-${feature.value}`}
@@ -971,7 +970,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                   return (
                     <div
                       key={feature.value}
-                      className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                      className="flex items-start gap-2.5 rounded-lg border p-2.5 hover:bg-accent/50 sm:gap-3 sm:p-4"
                     >
                       <Checkbox
                         id={`feature-${feature.value}`}
@@ -1013,7 +1012,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                   return (
                     <div
                       key={feature.value}
-                      className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors border-primary/20"
+                      className="flex items-start gap-2.5 rounded-lg border border-primary/20 p-2.5 hover:bg-accent/50 sm:gap-3 sm:p-4"
                     >
                       <Checkbox
                         id={`feature-${feature.value}`}
@@ -1078,7 +1077,7 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
                   return (
                     <div
                       key={feature.value}
-                      className="flex items-start space-x-3 p-4 border rounded-lg border-orange-200/50"
+                      className="flex items-start gap-2.5 rounded-lg border border-orange-200/50 p-2.5 sm:gap-3 sm:p-4"
                     >
                       <Checkbox
                         id={`ops-feature-${feature.value}`}
@@ -1127,30 +1126,30 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       </Card>
 
       {/* Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Only show reset for users who have the client (user) role — resets them to client + default 8 features. Hidden for admin, and for commission-agent-only or sub-admin-only. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
         {!selectedRoles.includes("admin") && selectedRoles.includes("user") && (
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={() => setShowResetConfirm(true)}
             disabled={isLoading}
-            className="gap-2"
+            className="w-full gap-2 sm:w-auto"
           >
             <RotateCcw className="h-4 w-4" />
-            Reset to default access
+            Reset to default
           </Button>
         )}
         {selectedRoles.includes("admin") && (
-          <p className="text-sm text-muted-foreground">Super admin has full access; reset is not available.</p>
+          <p className="text-xs text-muted-foreground sm:text-sm">Super admin has full access; reset is not available.</p>
         )}
         {!selectedRoles.includes("admin") && !selectedRoles.includes("user") && (
-          <p className="text-sm text-muted-foreground">Reset to default is only for users with Client/User role.</p>
+          <p className="text-xs text-muted-foreground sm:text-sm">Reset is only for Client/User role.</p>
         )}
         <Button
           onClick={handleSave}
           disabled={isLoading || selectedRoles.length === 0 || !hasChanges}
-          className="min-w-[120px]"
+          className="w-full min-w-[120px] sm:ml-auto sm:w-auto"
         >
           {isLoading ? (
             <>
@@ -1164,16 +1163,16 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
       </div>
 
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
+        <AlertDialogContent className="w-[calc(100%-1.5rem)] max-w-lg">
+          <AlertDialogHeader className="text-left">
             <AlertDialogTitle>Reset to default access?</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-xs sm:text-sm">
               This will set this user to <strong>Client/User</strong> role only and grant only the <strong>default 8 features</strong> (Inventory, Outbound Shipment, Shipped Orders, My Pricing, Invoices, Restock Summary, Modification Logs, Deleted Logs). Any other roles (e.g. Commission Agent, Sub Admin) and extra features will be removed. The user may need to log out and back in to see changes.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetToDefaultAccess} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetToDefaultAccess} className="w-full bg-destructive text-destructive-foreground hover:bg-destructive/90 sm:w-auto">
               Reset access
             </AlertDialogAction>
           </AlertDialogFooter>

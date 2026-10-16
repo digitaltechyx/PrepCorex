@@ -110,47 +110,51 @@ export function DiscountTrailPanel({
   }, [searchTerm, dateFilter, typeFilter, startDate, endDate, userFilter]);
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-emerald-900">
-              Total discounts (all time)
+    <div className="min-w-0 space-y-3 sm:space-y-4">
+      <div className="grid grid-cols-2 gap-1.5 sm:gap-4">
+        <Card className="min-w-0 overflow-hidden border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white">
+          <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-emerald-900 sm:text-sm">
+              Total discounts
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-emerald-900 tabular-nums">
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+            <p className="text-base font-bold tabular-nums text-emerald-900 sm:text-3xl">
               ${totalDiscountAll.toFixed(2)}
             </p>
-            <p className="text-xs text-emerald-700 mt-1">{entries.length} discount record(s)</p>
+            <p className="mt-0.5 text-[10px] text-emerald-700 sm:mt-1 sm:text-xs">
+              {entries.length} record(s)
+            </p>
           </CardContent>
         </Card>
-        <Card className="border-violet-200 bg-gradient-to-br from-violet-50/80 to-white">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-violet-900">
+        <Card className="min-w-0 overflow-hidden border-violet-200 bg-gradient-to-br from-violet-50/80 to-white">
+          <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-violet-900 sm:text-sm">
               Filtered total
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-violet-900 tabular-nums">
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+            <p className="text-base font-bold tabular-nums text-violet-900 sm:text-3xl">
               ${totalDiscountFiltered.toFixed(2)}
             </p>
-            <p className="text-xs text-violet-700 mt-1">{filtered.length} matching record(s)</p>
+            <p className="mt-0.5 text-[10px] text-violet-700 sm:mt-1 sm:text-xs">
+              {filtered.length} matching
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="p-3 pb-2 sm:p-6 sm:pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
             <Tag className="h-4 w-4" />
             Discount trail
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
             Every discount applied by admin, with date and amount saved.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3 p-3 pt-0 sm:space-y-4 sm:p-6 sm:pt-0">
           <div className="flex flex-col lg:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

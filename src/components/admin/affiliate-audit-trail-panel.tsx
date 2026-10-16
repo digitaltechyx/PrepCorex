@@ -157,44 +157,59 @@ export function AffiliateAuditTrailPanel({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h4 className="font-semibold text-sm flex items-center gap-2">
-            <ScrollText className="h-4 w-4" />
+    <div className="min-w-0 space-y-3 sm:space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h4 className="flex items-center gap-2 text-sm font-semibold">
+            <ScrollText className="h-4 w-4 shrink-0" />
             Affiliate Audit Trail
           </h4>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-0.5 text-[11px] text-muted-foreground sm:mt-1 sm:text-xs">
             {agentId
-              ? `Commission events, approvals, and referrals for ${agentName || "this agent"}.`
-              : "Network-wide affiliate program activity."}
-            {hasDateRange ? " Showing selected date range." : " Showing all time."}
+              ? `Events for ${agentName || "this agent"}.`
+              : "Network-wide affiliate activity."}
+            {hasDateRange ? " Filtered range." : " All time."}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           {showDatePicker && (
             <DateRangePicker
               fromDate={fromDate}
               toDate={toDate}
               setFromDate={setFromDate}
               setToDate={setToDate}
-              className="h-9 min-w-[220px] text-sm"
+              className="h-9 w-full min-w-0 text-sm sm:min-w-[200px] sm:w-auto"
             />
           )}
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadEvents()} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            <span className="ml-2 hidden sm:inline">Refresh</span>
-          </Button>
-          <Button type="button" size="sm" onClick={() => void handleDownload()} disabled={downloading || loading}>
-            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            <span className="ml-2">Download CSV</span>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none"
+              onClick={() => void loadEvents()}
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              <span className="ml-2 sm:inline">Refresh</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 flex-1 sm:flex-none"
+              onClick={() => void handleDownload()}
+              disabled={downloading || loading}
+            >
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <span className="ml-2">CSV</span>
+            </Button>
+          </div>
         </div>
       </div>
 
       {!showDatePicker && (
-        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <Calendar className="h-3.5 w-3.5" />
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">
+          <Calendar className="h-3.5 w-3.5 shrink-0" />
           {hasDateRange && fromDate && toDate
             ? `Filtered: ${format(fromDate, "MMM d, yyyy")} – ${format(toDate, "MMM d, yyyy")}`
             : "All time (use the date picker above to filter)"}
@@ -202,53 +217,83 @@ export function AffiliateAuditTrailPanel({
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-10 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        <div className="flex items-center justify-center py-8 text-muted-foreground">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Loading audit events…
         </div>
       ) : events.length === 0 ? (
-        <div className="rounded-md border border-dashed py-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-md border border-dashed py-8 text-center text-sm text-muted-foreground">
           No affiliate audit events for this period.
         </div>
       ) : (
-        <div className="rounded-md border max-h-[420px] overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                {!agentId && <TableHead>Agent</TableHead>}
-                <TableHead>Event</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Performed By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((event) => (
-                <TableRow key={event.id}>
-                  <TableCell className="text-xs whitespace-nowrap">
+        <>
+          <div className="max-h-[min(420px,55dvh)] space-y-1.5 overflow-y-auto sm:hidden">
+            {events.map((event) => (
+              <div key={event.id} className="rounded-md border px-2.5 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <Badge
+                    variant={getAffiliateAuditEventBadgeVariant(event.type)}
+                    className="h-5 shrink-0 px-1.5 text-[10px]"
+                  >
+                    {getAffiliateAuditEventLabel(event.type)}
+                  </Badge>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
                     {formatDateTime(event.occurredAt)}
-                  </TableCell>
-                  {!agentId && (
-                    <TableCell className="text-sm font-medium">
-                      {event.agentName || event.agentId}
-                    </TableCell>
-                  )}
-                  <TableCell>
-                    <Badge variant={getAffiliateAuditEventBadgeVariant(event.type)}>
-                      {getAffiliateAuditEventLabel(event.type)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm max-w-[280px]">
-                    <p>{event.description || event.action || "—"}</p>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {event.performedByName || event.performedByUid || "System"}
-                  </TableCell>
+                  </span>
+                </div>
+                {!agentId && (
+                  <p className="mt-1 truncate text-xs font-medium">
+                    {event.agentName || event.agentId}
+                  </p>
+                )}
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  {event.description || event.action || "—"}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  By {event.performedByName || event.performedByUid || "System"}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="hidden max-h-[420px] overflow-auto rounded-md border sm:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  {!agentId && <TableHead>Agent</TableHead>}
+                  <TableHead>Event</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Performed By</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {events.map((event) => (
+                  <TableRow key={event.id}>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {formatDateTime(event.occurredAt)}
+                    </TableCell>
+                    {!agentId && (
+                      <TableCell className="text-sm font-medium">
+                        {event.agentName || event.agentId}
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Badge variant={getAffiliateAuditEventBadgeVariant(event.type)}>
+                        {getAffiliateAuditEventLabel(event.type)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[280px] text-sm">
+                      <p>{event.description || event.action || "—"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {event.performedByName || event.performedByUid || "System"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );

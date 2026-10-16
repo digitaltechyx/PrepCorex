@@ -385,6 +385,8 @@ type BuyLabelsFormProps = {
    * product dropdown (required for Shopify quick-fulfill handoff).
    */
   enableClientInventoryPicker?: boolean;
+  /** Tighter spacing when embedded in admin Buy Labels. */
+  compactLayout?: boolean;
 };
 
 export function BuyLabelsForm({
@@ -396,7 +398,16 @@ export function BuyLabelsForm({
   shopifyOrderContext = null,
   clientOptions = [],
   enableClientInventoryPicker = false,
+  compactLayout = false,
 }: BuyLabelsFormProps = {}) {
+  const rootGap = compactLayout ? "space-y-3 sm:space-y-6" : "space-y-6";
+  const formGap = compactLayout ? "space-y-3 sm:space-y-6" : "space-y-6";
+  const sectionGap = compactLayout ? "space-y-3 sm:space-y-4" : "space-y-4";
+  const sectionTitle = compactLayout
+    ? "text-base font-semibold sm:text-lg"
+    : "text-lg font-semibold";
+  const sectionTitleWrap = compactLayout ? "mb-2 sm:mb-4" : "mb-4";
+  const blockTop = compactLayout ? "mt-4 space-y-3 pt-4 sm:mt-6 sm:space-y-4 sm:pt-6" : "mt-6 space-y-4 pt-6";
   const { userProfile, user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -1655,7 +1666,7 @@ export function BuyLabelsForm({
   };
 
   return (
-    <div className="space-y-6">
+    <div className={`min-w-0 ${rootGap}`}>
       {shopifyOrderContext ? (
         <Card className="border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20">
           <CardHeader className="pb-3">
@@ -1833,15 +1844,15 @@ export function BuyLabelsForm({
         />
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-          <CardTitle className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5" />
+      <Card className="min-w-0 overflow-hidden border-0 shadow-none">
+        <CardHeader className={compactLayout ? "p-0 pb-3 sm:pb-4" : undefined}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <div className="min-w-0">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <ShoppingCart className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             Purchase Shipping Label
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
                 Enter shipment details to get shipping rates and purchase a label, or import multiple
                 labels from CSV.
           </CardDescription>
@@ -1850,7 +1861,7 @@ export function BuyLabelsForm({
               <Button
                 type="button"
                 variant="outline"
-                className="shrink-0"
+                className="h-9 w-full shrink-0 sm:h-10 sm:w-auto"
                 onClick={() => setBulkImportOpen(true)}
               >
                 <Upload className="mr-2 h-4 w-4" />
@@ -1859,14 +1870,14 @@ export function BuyLabelsForm({
             ) : null}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className={compactLayout ? "p-0" : undefined}>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleGetRates)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(handleGetRates)} className={formGap}>
               {/* From Address */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <MapPin className="h-5 w-5 text-blue-600" />
-                  <h3 className="text-lg font-semibold">From Address</h3>
+              <div className={sectionGap}>
+                <div className={`flex items-center gap-2 ${sectionTitleWrap}`}>
+                  <MapPin className="h-4 w-4 shrink-0 text-blue-600 sm:h-5 sm:w-5" />
+                  <h3 className={sectionTitle}>From Address</h3>
                 </div>
                 {locationOptions.length > 0 && (
                   <div className="grid gap-4 md:grid-cols-2">
@@ -2040,10 +2051,10 @@ export function BuyLabelsForm({
               </div>
 
               {/* To Address */}
-              <div className="space-y-4 pt-4 border-t">
-                <div className="flex items-center gap-2 mb-4">
-                  <MapPin className="h-5 w-5 text-green-600" />
-                  <h3 className="text-lg font-semibold">To Address</h3>
+              <div className={`${sectionGap} border-t pt-3 sm:pt-4`}>
+                <div className={`flex items-center gap-2 ${sectionTitleWrap}`}>
+                  <MapPin className="h-4 w-4 shrink-0 text-green-600 sm:h-5 sm:w-5" />
+                  <h3 className={sectionTitle}>To Address</h3>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
@@ -2195,10 +2206,10 @@ export function BuyLabelsForm({
               </div>
 
               {/* Parcel Details */}
-              <div className="space-y-6 pt-4 border-t">
-                <div className="flex items-center gap-2 mb-4">
-                  <Package className="h-5 w-5 text-orange-600" />
-                  <h3 className="text-lg font-semibold">Packaging Details</h3>
+              <div className={`${formGap} border-t pt-3 sm:pt-4`}>
+                <div className={`flex items-center gap-2 ${sectionTitleWrap}`}>
+                  <Package className="h-4 w-4 shrink-0 text-orange-600 sm:h-5 sm:w-5" />
+                  <h3 className={sectionTitle}>Packaging Details</h3>
                 </div>
 
                 <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
@@ -2731,9 +2742,9 @@ export function BuyLabelsForm({
 
           {/* Rates Selection */}
           {rates.length > 0 && (
-            <div className="mt-6 space-y-4 pt-6 border-t">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
+            <div className={`${blockTop} border-t`}>
+              <h3 className={`${sectionTitle} flex items-center gap-2`}>
+                <CreditCard className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
                 PrepCorex Shipping Rates
               </h3>
               <div className="space-y-2">
@@ -2747,9 +2758,9 @@ export function BuyLabelsForm({
                     }`}
                     onClick={() => setSelectedRate(rate)}
                   >
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
                           <p className="font-semibold">{getRateDisplay(rate).provider}</p>
                           <p className="text-sm text-muted-foreground">
                             {getRateDisplay(rate).service}
@@ -2769,8 +2780,8 @@ export function BuyLabelsForm({
                             </p>
                           ) : null}
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-lg">
+                        <div className="text-left sm:text-right">
+                          <p className="text-base font-bold sm:text-lg">
                             ${parseFloat(rate.amount).toFixed(2)}
                           </p>
                           <p className="text-xs text-muted-foreground uppercase">
@@ -2805,6 +2816,7 @@ export function BuyLabelsForm({
                     onClick={handleAddToCart}
                     variant="outline"
                     size="lg"
+                    className="w-full"
                   >
                     {editingCartItemId ? (
                       <>
@@ -2822,6 +2834,7 @@ export function BuyLabelsForm({
                     onClick={handlePurchaseLabel}
                     disabled={loading || Boolean(editingCartItemId)}
                     size="lg"
+                    className="w-full"
                   >
                     {loading ? (
                       <>
@@ -2847,10 +2860,10 @@ export function BuyLabelsForm({
           )}
 
           {cartItems.length > 0 && (
-            <div className="mt-6 space-y-4 pt-6 border-t">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5" />
+            <div className={`${blockTop} border-t`}>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className={`${sectionTitle} flex min-w-0 items-center gap-2`}>
+                  <ShoppingCart className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
                   Label Cart ({cartItems.length})
                 </h3>
                 <Button

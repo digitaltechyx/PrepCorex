@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -290,84 +289,75 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
     };
 
     return (
-      <Card className="hover:shadow-md transition-shadow h-full flex flex-col">
-        <CardContent className="p-4 flex flex-col h-full">
-          <div className="flex items-start gap-3 mb-3">
-            <Avatar className="h-12 w-12 flex-shrink-0">
+      <div className="rounded-md border bg-card px-2.5 py-2 sm:px-3 sm:py-2.5">
+        <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <Avatar className="h-8 w-8 shrink-0 sm:h-9 sm:w-9">
               <AvatarImage src={`https://avatar.vercel.sh/${agent.email}.png`} />
-              <AvatarFallback>{getInitials(agent.name)}</AvatarFallback>
+              <AvatarFallback className="text-[10px] sm:text-xs">{getInitials(agent.name)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <h3 className="font-semibold text-base truncate">{agent.name}</h3>
-              <p className="text-sm text-muted-foreground truncate">{agent.email}</p>
+              <div className="flex min-w-0 flex-wrap items-center gap-1 sm:gap-1.5">
+                <h3 className="min-w-0 max-w-full break-words text-xs font-semibold sm:truncate sm:text-sm">
+                  {agent.name}
+                </h3>
+                <Badge
+                  variant={
+                    agent.status === "approved" || !agent.status
+                      ? "default"
+                      : agent.status === "deleted"
+                        ? "destructive"
+                        : "secondary"
+                  }
+                  className="h-5 shrink-0 px-1.5 text-[10px]"
+                >
+                  {agent.status === "approved" || !agent.status
+                    ? "Approved"
+                    : agent.status === "deleted"
+                      ? "Deleted"
+                      : "Pending"}
+                </Badge>
+                {agent.referralCode && (
+                  <button
+                    type="button"
+                    onClick={copyReferralCode}
+                    className="inline-flex shrink-0 items-center gap-1 rounded border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] hover:bg-muted"
+                    title="Copy referral code"
+                  >
+                    {agent.referralCode}
+                    {copiedCode ? (
+                      <Check className="h-3 w-3 text-green-600" />
+                    ) : (
+                      <Copy className="h-3 w-3 text-muted-foreground" />
+                    )}
+                  </button>
+                )}
+              </div>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground sm:text-xs">
+                <span className="min-w-0 max-w-full break-all sm:truncate">{agent.email}</span>
+                {agent.phone && (
+                  <span className="hidden items-center gap-1 sm:inline-flex">
+                    <Phone className="h-3 w-3" />
+                    {agent.phone}
+                  </span>
+                )}
+              </div>
               {isAdmin && (agent.status === "approved" || !agent.status) && (
-                <div className="mt-1.5 text-[11px] sm:text-xs text-muted-foreground">
-                  <span className="font-medium">Login:</span>{" "}
-                  <span className="font-mono break-all">{agent.email}</span>{" "}
-                  <span className="font-medium">| Password:</span>{" "}
+                <div className="mt-0.5 hidden text-[10px] text-muted-foreground sm:block sm:text-[11px]">
+                  <span className="font-medium">Pw:</span>{" "}
                   <span className="font-mono">{agent.password || "Not stored"}</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-center flex-wrap gap-2 mb-3">
-            <Badge 
-              variant={
-                agent.status === "approved" || !agent.status ? "default" : 
-                agent.status === "deleted" ? "destructive" : "secondary"
-              }
-              className="text-xs"
-            >
-              {agent.status === "approved" || !agent.status ? "Approved" : 
-               agent.status === "deleted" ? "Deleted" : "Pending"}
-            </Badge>
-            {agent.phone && (
-              <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                <Phone className="h-3 w-3" />
-                {agent.phone}
-              </span>
-            )}
-          </div>
-
-          {agent.referralCode && (
-            <div className="mb-3 p-2 bg-muted rounded-md">
-              <div className="text-xs font-medium text-muted-foreground mb-1">Referral Code:</div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-mono font-semibold">{agent.referralCode}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={copyReferralCode}
-                    >
-                      {copiedCode ? (
-                        <Check className="h-3 w-3 text-green-600" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Copy referral code</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 mt-auto">
+          <div className="flex flex-wrap items-center gap-1 border-t border-border/60 pt-1.5 sm:border-0 sm:pt-0 sm:justify-end">
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DialogTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      size="icon"
-                    >
-                      <Eye className="h-4 w-4" />
+                    <Button variant="outline" size="icon" className="h-8 w-8">
+                      <Eye className="h-3.5 w-3.5" />
                     </Button>
                   </DialogTrigger>
                 </TooltipTrigger>
@@ -375,7 +365,7 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                   <p>View Details</p>
                 </TooltipContent>
               </Tooltip>
-              <DialogContent className="max-w-full sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto">
+              <DialogContent className="h-[100dvh] w-[calc(100%-1.5rem)] max-w-2xl overflow-y-auto p-4 sm:h-auto sm:max-h-[90vh] sm:p-6">
                 <DialogHeader>
                   <DialogTitle>Agent Details</DialogTitle>
                   <DialogDescription>Complete information about this commission agent.</DialogDescription>
@@ -532,9 +522,9 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                           variant="default"
                           size="icon"
                           onClick={() => handleApproveAgent(agent)}
-                          className="bg-green-600 hover:bg-green-700"
+                          className="h-8 w-8 bg-green-600 hover:bg-green-700"
                         >
-                          <UserCheck className="h-4 w-4" />
+                          <UserCheck className="h-3.5 w-3.5" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -546,9 +536,10 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                         <Button
                           variant="destructive"
                           size="icon"
+                          className="h-8 w-8"
                           onClick={() => handleRejectAgent(agent)}
                         >
-                          <XCircle className="h-4 w-4" />
+                          <XCircle className="h-3.5 w-3.5" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -563,9 +554,10 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                       <Button
                         variant="destructive"
                         size="icon"
+                        className="h-8 w-8"
                         onClick={() => handleRejectAgent(agent)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -583,9 +575,9 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
                     variant="outline"
                     size="icon"
                     onClick={() => handleRestoreAgent(agent)}
-                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                    className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
                   >
-                    <RotateCcw className="h-4 w-4" />
+                    <RotateCcw className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -594,56 +586,38 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
               </Tooltip>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   };
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Commission Agents</CardTitle>
-          <CardDescription>Loading agents...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="h-48 bg-muted animate-pulse rounded-lg" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-1.5">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="h-14 animate-pulse rounded-md bg-muted" />
+        ))}
+      </div>
     );
   }
 
   return (
     <TooltipProvider>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Commission Agents
-          </CardTitle>
-          <CardDescription>
-            Manage commission agent applications and approvals.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-6 flex flex-col sm:flex-row gap-3">
+      <div className="min-w-0">
+          <div className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
               <Input
-                placeholder="Search agents by name, email, phone, or referral code..."
+                placeholder="Search agents…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="h-9 pl-10"
               />
               {searchQuery && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 transform p-0"
                   onClick={() => setSearchQuery("")}
                 >
                   <X className="h-3 w-3" />
@@ -651,8 +625,8 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
               )}
             </div>
             <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as "a-z" | "z-a")}>
-              <SelectTrigger className="w-full sm:w-[180px]">
-                <ArrowUpDown className="h-4 w-4 mr-2" />
+              <SelectTrigger className="h-9 w-full sm:w-[150px]">
+                <ArrowUpDown className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Sort by" />
               </SelectTrigger>
               <SelectContent>
@@ -662,171 +636,116 @@ export function CommissionAgentsManagement({ adminUser, usersOverride }: Commiss
             </Select>
           </div>
           
-          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="grid grid-cols-3 w-full gap-1 sm:gap-0">
-              <TabsTrigger value="pending" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-                <XCircle className="h-4 w-4" />
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full min-w-0">
+            <TabsList className="mb-3 grid h-auto w-full grid-cols-3 gap-1 p-1">
+              <TabsTrigger value="pending" className="gap-0.5 px-1.5 py-1.5 text-[10px] sm:gap-1 sm:px-2 sm:text-xs">
+                <XCircle className="hidden h-3.5 w-3.5 sm:block" />
                 <span>Pending</span>
-                <Badge variant="secondary" className="text-[10px] sm:text-xs">{pendingAgents.length}</Badge>
+                <Badge variant="secondary" className="h-4 px-1 text-[9px] sm:h-5 sm:text-[10px]">{pendingAgents.length}</Badge>
               </TabsTrigger>
-              <TabsTrigger value="approved" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-                <CheckCircle className="h-4 w-4" />
+              <TabsTrigger value="approved" className="gap-0.5 px-1.5 py-1.5 text-[10px] sm:gap-1 sm:px-2 sm:text-xs">
+                <CheckCircle className="hidden h-3.5 w-3.5 sm:block" />
                 <span>Approved</span>
-                <Badge variant="secondary" className="text-[10px] sm:text-xs">{approvedAgents.length}</Badge>
+                <Badge variant="secondary" className="h-4 px-1 text-[9px] sm:h-5 sm:text-[10px]">{approvedAgents.length}</Badge>
               </TabsTrigger>
-              <TabsTrigger value="deleted" className="flex items-center justify-center gap-1 px-2 py-2 text-xs sm:text-sm">
-                <Trash2 className="h-4 w-4" />
+              <TabsTrigger value="deleted" className="gap-0.5 px-1.5 py-1.5 text-[10px] sm:gap-1 sm:px-2 sm:text-xs">
+                <Trash2 className="hidden h-3.5 w-3.5 sm:block" />
                 <span>Deleted</span>
-                <Badge variant="secondary" className="text-[10px] sm:text-xs">{deletedAgents.length}</Badge>
+                <Badge variant="secondary" className="h-4 px-1 text-[9px] sm:h-5 sm:text-[10px]">{deletedAgents.length}</Badge>
               </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="pending" className="mt-6">
+            <TabsContent value="pending" className="mt-0">
               {pendingAgents.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
                     {paginatedAgents.map((agent, index) => (
                       <AgentCard key={agent.uid || `pending-agent-${index}`} agent={agent} showActions={true} />
                     ))}
                   </div>
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                      <div className="text-sm text-muted-foreground">
-                        Showing {startIndex + 1} to {Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length} agents
+                    <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                      <div className="text-xs text-muted-foreground sm:text-sm">
+                        {startIndex + 1}–{Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                          disabled={currentPage === 1}
-                        >
-                          Previous
-                        </Button>
-                        <span className="text-sm">
-                          Page {currentPage} of {totalPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </Button>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                        <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                       </div>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="text-center py-8">
-                  <XCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Pending Agents</h3>
-                  <p className="text-muted-foreground">
-                    All commission agent applications have been processed.
-                  </p>
+                <div className="py-6 text-center">
+                  <XCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <h3 className="mb-1 text-sm font-semibold">No Pending Agents</h3>
+                  <p className="text-xs text-muted-foreground">All applications have been processed.</p>
                 </div>
               )}
             </TabsContent>
             
-            <TabsContent value="approved" className="mt-6">
+            <TabsContent value="approved" className="mt-0">
               {approvedAgents.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
                     {paginatedAgents.map((agent, index) => (
                       <AgentCard key={agent.uid || `agent-${index}`} agent={agent} showActions={true} />
                     ))}
                   </div>
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                      <div className="text-sm text-muted-foreground">
-                        Showing {startIndex + 1} to {Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length} agents
+                    <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                      <div className="text-xs text-muted-foreground sm:text-sm">
+                        {startIndex + 1}–{Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                          disabled={currentPage === 1}
-                        >
-                          Previous
-                        </Button>
-                        <span className="text-sm">
-                          Page {currentPage} of {totalPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </Button>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                        <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                       </div>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="text-center py-8">
-                  <CheckCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Approved Agents</h3>
-                  <p className="text-muted-foreground">
-                    No commission agents have been approved yet.
-                  </p>
+                <div className="py-6 text-center">
+                  <CheckCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <h3 className="mb-1 text-sm font-semibold">No Approved Agents</h3>
+                  <p className="text-xs text-muted-foreground">No commission agents have been approved yet.</p>
                 </div>
               )}
             </TabsContent>
 
-            <TabsContent value="deleted" className="mt-6">
+            <TabsContent value="deleted" className="mt-0">
               {deletedAgents.length > 0 ? (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
                     {paginatedAgents.map((agent, index) => (
                       <AgentCard key={agent.uid || `deleted-agent-${index}`} agent={agent} showActions={false} />
                     ))}
                   </div>
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-6 pt-4 border-t">
-                      <div className="text-sm text-muted-foreground">
-                        Showing {startIndex + 1} to {Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length} agents
+                    <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                      <div className="text-xs text-muted-foreground sm:text-sm">
+                        {startIndex + 1}–{Math.min(endIndex, currentTabAgents.length)} of {currentTabAgents.length}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                          disabled={currentPage === 1}
-                        >
-                          Previous
-                        </Button>
-                        <span className="text-sm">
-                          Page {currentPage} of {totalPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </Button>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
+                        <span className="shrink-0 text-xs sm:text-sm">{currentPage}/{totalPages}</span>
+                        <Button variant="outline" size="sm" className="h-8 flex-1 sm:flex-none" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
                       </div>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="text-center py-8">
-                  <Trash2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Deleted Agents</h3>
-                  <p className="text-muted-foreground">
-                    No commission agents have been deleted.
-                  </p>
+                <div className="py-6 text-center">
+                  <Trash2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <h3 className="mb-1 text-sm font-semibold">No Deleted Agents</h3>
+                  <p className="text-xs text-muted-foreground">No commission agents have been deleted.</p>
                 </div>
               )}
             </TabsContent>
           </Tabs>
-        </CardContent>
-      </Card>
+      </div>
     </TooltipProvider>
   );
 }

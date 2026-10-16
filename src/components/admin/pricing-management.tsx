@@ -1375,15 +1375,15 @@ export function PricingManagement({ users }: PricingManagementProps) {
   }, [selectableUsers, selectedUserId]);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-3 sm:space-y-6">
       {/* Profile selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="p-3 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <Users className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             Pricing Profiles
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
             Edit rates for each pricing profile. Assign profiles to users from user management.
           </CardDescription>
           <div className="pt-2">
@@ -1391,6 +1391,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
               type="button"
               variant="outline"
               size="sm"
+              className="h-8 w-full sm:w-auto"
               disabled={isMigratingProfiles}
               onClick={() => void runPricingProfileMigration()}
             >
@@ -1405,20 +1406,24 @@ export function PricingManagement({ users }: PricingManagementProps) {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
+        <CardContent className="space-y-3 p-3 pt-0 sm:space-y-4 sm:p-6 sm:pt-0">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {GLOBAL_PRICING_PROFILES.map((profile) => (
-            <Button
+              <Button
                 key={profile.id}
-              type="button"
+                type="button"
+                size="sm"
+                className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                 variant={selectedProfileSlug === profile.id ? "default" : "outline"}
                 onClick={() => setSelectedProfileSlug(profile.id)}
-            >
+              >
                 {profile.label}
-            </Button>
+              </Button>
             ))}
             <Button
               type="button"
+              size="sm"
+              className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
               variant={editingCustomProfile ? "default" : "outline"}
               onClick={() => setSelectedProfileSlug(CUSTOM_PRICING_PROFILE_OPTION.id)}
             >
@@ -1427,66 +1432,68 @@ export function PricingManagement({ users }: PricingManagementProps) {
           </div>
 
           {editingCustomProfile && (
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-                <Label className="text-sm font-medium mb-2 block">User for custom profile</Label>
-              <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <Label className="mb-1.5 block text-xs font-medium sm:mb-2 sm:text-sm">
+                  User for custom profile
+                </Label>
+                <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+                  <DialogContent className="w-[calc(100%-1.5rem)] max-w-md p-4 sm:p-6">
+                    <DialogHeader className="text-left">
                       <DialogTitle>Select user</DialogTitle>
-                      <DialogDescription>
+                      <DialogDescription className="text-xs sm:text-sm">
                         Choose a user to edit their custom rates. Assignment is a separate step —
                         use &quot;Assign Custom pricing&quot; after selecting them.
                       </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 mt-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search users..."
-                        value={userSearchQuery}
-                        onChange={(e) => setUserSearchQuery(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                    <div className="max-h-[400px] overflow-y-auto space-y-1">
-                      {filteredUsers.map((user) => (
-                        <Button
-                          key={user.uid}
-                          variant="ghost"
-                          className="w-full justify-start"
-                          onClick={() => handleUserSelect(user)}
-                        >
-                          <div className="flex flex-col items-start">
-                              <span className="font-medium">
+                    </DialogHeader>
+                    <div className="mt-4 space-y-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
+                        <Input
+                          placeholder="Search users..."
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <div className="max-h-[400px] space-y-1 overflow-y-auto">
+                        {filteredUsers.map((user) => (
+                          <Button
+                            key={user.uid}
+                            variant="ghost"
+                            className="w-full justify-start"
+                            onClick={() => handleUserSelect(user)}
+                          >
+                            <div className="flex min-w-0 flex-col items-start">
+                              <span className="truncate font-medium">
                                 {formatUserDisplayName(user, { showEmail: false })}
                               </span>
-                            <span className="text-xs text-muted-foreground">{user.email}</span>
-                          </div>
-                        </Button>
-                      ))}
+                              <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-              <Button
-                variant="outline"
-                className="w-full justify-between"
-                onClick={() => setUserDialogOpen(true)}
-              >
-                <span>
-                  {selectedUser
-                    ? formatUserDisplayName(selectedUser, { showEmail: true })
-                    : "Select a user"}
-                </span>
-                <ChevronsUpDown className="h-4 w-4 opacity-50" />
-              </Button>
+                  </DialogContent>
+                </Dialog>
+                <Button
+                  variant="outline"
+                  className="h-10 w-full justify-between"
+                  onClick={() => setUserDialogOpen(true)}
+                >
+                  <span className="truncate">
+                    {selectedUser
+                      ? formatUserDisplayName(selectedUser, { showEmail: true })
+                      : "Select a user"}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </div>
             </div>
-          </div>
           )}
 
           {!editingCustomProfile && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground sm:text-sm">
               Editing the <span className="font-medium">{getPricingProfileLabel(selectedProfileSlug)}</span>{" "}
               profile. Changes apply to all users assigned to this profile.
             </p>
@@ -1495,13 +1502,13 @@ export function PricingManagement({ users }: PricingManagementProps) {
       </Card>
 
       {(editingCustomProfile || Boolean(effectiveProfileId)) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="p-3 sm:p-6">
+            <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
               <UserPlus className="h-4 w-4" />
               Assign users to this profile
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-xs sm:text-sm">
               {editingCustomProfile
                 ? `${usersOnCurrentProfile.length} client user(s) currently on Custom.`
                 : effectiveProfileId
@@ -1509,14 +1516,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   : "Select a profile to manage assignments."}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-3 pt-0 sm:p-6 sm:pt-0">
             {usersOnCurrentProfile.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
                 {usersOnCurrentProfile.slice(0, 8).map((user) => (
                   <button
                     key={user.uid}
                     type="button"
-                    className="rounded-full border bg-muted px-3 py-1 text-xs hover:bg-muted/80"
+                    className="max-w-full truncate rounded-full border bg-muted px-2.5 py-1 text-[11px] hover:bg-muted/80 sm:px-3 sm:text-xs"
                     onClick={() => {
                       if (editingCustomProfile) {
                         handleUserSelect(user);
@@ -1527,7 +1534,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   </button>
                 ))}
                 {usersOnCurrentProfile.length > 8 && (
-                  <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                  <span className="rounded-full border px-2.5 py-1 text-[11px] text-muted-foreground sm:px-3 sm:text-xs">
                     +{usersOnCurrentProfile.length - 8} more
                   </span>
                 )}
@@ -1537,7 +1544,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
             )}
 
             {!editingCustomProfile && effectiveProfileId ? (
-              <Button type="button" variant="outline" size="sm" onClick={openAssignDialog}>
+              <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={openAssignDialog}>
                 <UserPlus className="mr-2 h-4 w-4" />
                 Assign users to {getPricingProfileLabel(selectedProfileSlug)}
               </Button>
@@ -1547,7 +1554,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
               <div className="space-y-2 rounded-md border bg-muted/20 p-3">
                 {selectedUser ? (
                   <>
-                    <p className="text-sm">
+                    <p className="text-xs sm:text-sm">
                       <span className="font-medium text-foreground">
                         {formatUserDisplayName(selectedUser, { showEmail: true })}
                       </span>{" "}
@@ -1558,6 +1565,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                     <Button
                       type="button"
                       size="sm"
+                      className="w-full sm:w-auto"
                       disabled={isAssigningProfile || selectedUserHasCustomAssigned}
                       onClick={() => void assignCustomProfileToSelectedUser()}
                     >
@@ -1588,14 +1596,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
       )}
 
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Assign {getPricingProfileLabel(selectedProfileSlug)} profile</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90vh]">
+          <DialogHeader className="shrink-0 border-b p-4 text-left sm:p-6">
+            <DialogTitle className="text-base sm:text-lg">
+              Assign {getPricingProfileLabel(selectedProfileSlug)} profile
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               Selected users will use this profile&apos;s pricing tables and what&apos;s included text.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 sm:space-y-4 sm:p-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -1605,14 +1615,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 className="pl-10"
               />
             </div>
-            <div className="max-h-[320px] space-y-1 overflow-y-auto">
+            <div className="max-h-[min(320px,50dvh)] space-y-1 overflow-y-auto sm:max-h-[320px]">
               {assignDialogUsers.map((user) => {
                 const checked = selectedAssignUserIds.includes(user.uid);
                 const currentProfile = getPricingProfileLabel(resolveUserPricingProfileId(user));
                 return (
                   <label
                     key={user.uid}
-                    className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-muted/50"
+                    className="flex cursor-pointer items-start gap-3 rounded-md border p-2.5 hover:bg-muted/50 sm:p-3"
                   >
                     <Checkbox
                       checked={checked}
@@ -1625,57 +1635,62 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       }}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm">
+                      <div className="truncate text-sm font-medium">
                         {formatUserDisplayName(user, { showEmail: false })}
                       </div>
-                      <div className="text-xs text-muted-foreground">{user.email}</div>
+                      <div className="truncate text-xs text-muted-foreground">{user.email}</div>
                       <div className="text-xs text-muted-foreground">Current: {currentProfile}</div>
                     </div>
                   </label>
                 );
               })}
             </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setAssignDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                disabled={isAssigningProfile || selectedAssignUserIds.length === 0}
-                onClick={() => void assignUsersToProfile(selectedAssignUserIds, selectedProfileSlug)}
-              >
-                {isAssigningProfile ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Assigning...
-                  </>
-                ) : (
-                  `Assign ${selectedAssignUserIds.length} user(s)`
-                )}
-              </Button>
-            </div>
+          </div>
+          <div className="flex shrink-0 flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end sm:p-6 sm:pt-4">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setAssignDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="w-full sm:w-auto"
+              disabled={isAssigningProfile || selectedAssignUserIds.length === 0}
+              onClick={() => void assignUsersToProfile(selectedAssignUserIds, selectedProfileSlug)}
+            >
+              {isAssigningProfile ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Assigning...
+                </>
+              ) : (
+                `Assign ${selectedAssignUserIds.length} user(s)`
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Pricing Form */}
       {effectiveProfileId && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="p-3 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="text-base sm:text-lg">
                   {editingCustomProfile
                     ? `Custom pricing — ${selectedUser?.name ?? "select user"}`
                     : `${getPricingProfileLabel(selectedProfileSlug)} profile rates`}
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="mt-1 text-xs sm:text-sm">
                   {editingCustomProfile
                     ? "Edit this user’s custom rates below. Use Assign Custom pricing to put them on this plan — selecting a user alone does not assign them."
                     : "Enter rates for each service. Only filled rates will be saved."}
                 </CardDescription>
               </div>
-              <Button onClick={handleSave} disabled={isSaving || pricingLoading}>
+              <Button
+                className="w-full shrink-0 sm:w-auto"
+                onClick={handleSave}
+                disabled={isSaving || pricingLoading}
+              >
                 {isSaving ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1690,7 +1705,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
               </Button>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {pricingLoading ? (
               <div className="space-y-4">
                 <Skeleton className="h-12 w-full" />
@@ -1698,71 +1713,74 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 <Skeleton className="h-12 w-full" />
               </div>
             ) : (
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value)} className="w-full">
-                <div className="overflow-x-auto mb-4">
-                  <TabsList className="inline-flex min-w-full w-auto h-auto p-1 bg-muted rounded-lg">
+              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value)} className="w-full min-w-0">
+                <TabsList className="mb-3 grid h-auto w-full grid-cols-2 gap-1 bg-muted p-1 sm:mb-4 sm:grid-cols-3 lg:grid-cols-4 xl:inline-flex xl:min-w-full xl:w-auto xl:grid-cols-none">
                     <TabsTrigger 
                       value="FBA/WFS/TFS" 
-                      className="data-[state=active]:bg-blue-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-blue-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
                       FBA/WFS/TFS
                     </TabsTrigger>
                     <TabsTrigger 
                       value="DTC/FBM" 
-                      className="data-[state=active]:bg-purple-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-purple-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
                       DTC/FBM
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Storage" 
-                      className="data-[state=active]:bg-green-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-green-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
                       Storage
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Box Forwarding" 
-                      className="data-[state=active]:bg-orange-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-orange-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
-                      Carton Forwarding
+                      <span className="sm:hidden">Cartons</span>
+                      <span className="hidden sm:inline">Carton Forwarding</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Pallet Forwarding" 
-                      className="data-[state=active]:bg-red-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-red-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
-                      Pallet Forwarding
+                      <span className="sm:hidden">Pallets</span>
+                      <span className="hidden sm:inline">Pallet Forwarding</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Container Handling" 
-                      className="data-[state=active]:bg-teal-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-teal-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                     >
-                      Container Handling
+                      <span className="sm:hidden">Containers</span>
+                      <span className="hidden sm:inline">Container Handling</span>
                     </TabsTrigger>
                     <TabsTrigger 
                       value="Additional Services" 
-                      className="data-[state=active]:bg-pink-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                      className="px-2 py-1.5 text-[11px] data-[state=active]:bg-pink-500 data-[state=active]:text-white sm:col-span-2 sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap lg:col-span-1"
                     >
-                      Additional Services
+                      <span className="sm:hidden">Add-ons</span>
+                      <span className="hidden sm:inline">Additional Services</span>
                     </TabsTrigger>
                     {editingCustomProfile && customUserId ? (
                       <TabsTrigger
                         value="Product Rates"
-                        className="data-[state=active]:bg-amber-500 data-[state=active]:text-white whitespace-nowrap px-4 py-2"
+                        className="px-2 py-1.5 text-[11px] data-[state=active]:bg-amber-500 data-[state=active]:text-white sm:px-3 sm:py-2 sm:text-sm sm:whitespace-nowrap"
                       >
-                        Product Rates
+                        <span className="sm:hidden">Products</span>
+                        <span className="hidden sm:inline">Product Rates</span>
                       </TabsTrigger>
                     ) : null}
-                  </TabsList>
-                </div>
+                </TabsList>
                 
-                <TabsContent value="FBA/WFS/TFS" className="mt-4">
-                  <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
-                        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
-                      <CardTitle className="text-xl text-blue-700">Standard units</CardTitle>
+                <TabsContent value="FBA/WFS/TFS" className="mt-4 min-w-0">
+                  <Card className="overflow-hidden rounded-xl border border-slate-200 bg-white/90 shadow-sm sm:rounded-2xl">
+                        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 p-3 pb-2 sm:p-6 sm:pb-3">
+                      <CardTitle className="text-base text-blue-700 sm:text-xl">Standard units</CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-5 p-5 text-sm">
-                          <div className="grid grid-cols-2 gap-3 border-b pb-4">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                        <CardContent className="space-y-4 p-3 text-sm sm:space-y-5 sm:p-5">
+                          <div className="grid grid-cols-2 gap-2 border-b pb-3 sm:gap-3 sm:pb-4">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">Monthly Volume</div>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">Your Price</div>
                             {([
                               { pkg: "Starter", range: "1-999", label: "1-999 units" },
                               { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
@@ -1778,7 +1796,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
                               return (
                             <div key={`Standard-${tier.range}`} className="contents">
-                                  <div className="text-[15px]">{tier.label}</div>
+                                  <div className="text-xs sm:text-[15px]">{tier.label}</div>
                                   <div>
                                     <Input
                                       type="text"
@@ -1822,17 +1840,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       </Card>
                 </TabsContent>
 
-                <TabsContent value="DTC/FBM" className="mt-4">
-                  <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
-                    <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 pb-3">
-                      <CardTitle className="text-xl text-violet-700">DTC/FBM Fulfillment Plan</CardTitle>
+                <TabsContent value="DTC/FBM" className="mt-4 min-w-0">
+                  <Card className="overflow-hidden rounded-xl border border-slate-200 bg-white/90 shadow-sm sm:rounded-2xl">
+                    <CardHeader className="border-b bg-gradient-to-r from-violet-50 to-indigo-50 p-3 pb-2 sm:p-6 sm:pb-3">
+                      <CardTitle className="text-base text-violet-700 sm:text-xl">DTC/FBM Fulfillment Plan</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-5 p-5 text-sm">
-                      <div className="relative overflow-hidden rounded-lg border border-amber-300/80 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100 px-3 py-2.5 text-sm text-amber-900 shadow-sm">
+                    <CardContent className="space-y-4 p-3 text-sm sm:space-y-5 sm:p-5">
+                      <div className="relative overflow-hidden rounded-lg border border-amber-300/80 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100 px-3 py-2.5 text-xs text-amber-900 shadow-sm sm:text-sm">
                         <div className="pointer-events-none absolute -left-10 top-0 h-full w-1/3 -skew-x-12 bg-white/40 blur-sm animate-pulse" />
                         <div className="relative flex items-start gap-2">
                           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 animate-pulse" />
-                          <div className="space-y-0.5">
+                          <div className="min-w-0 space-y-0.5">
                             <div className="font-medium">
                               Example notice: You are currently in <span className="font-semibold">25-49 orders/day</span>{" "}
                               {"->"}
@@ -1846,9 +1864,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 border-b pb-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume (Daily)</div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                      <div className="grid grid-cols-2 gap-2 border-b pb-3 sm:gap-3 sm:pb-4">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">Volume (Daily)</div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">Your Price</div>
                         {([
                           { pkg: "Tier 1", range: "1-10", label: "1-10" },
                           { pkg: "Tier 2", range: "11-24", label: "11-24" },
@@ -1865,7 +1883,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                           const standardRow = standardIndex >= 0 ? pricingRows[standardIndex] : null;
                           return (
                             <div key={tier.range} className="contents">
-                              <div className="text-[15px]">{tier.label}</div>
+                              <div className="text-xs sm:text-[15px]">{tier.label}</div>
                               <div>
                                 <Input
                                   type="text"
@@ -1886,7 +1904,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                       handleRateChange(standardIndex, "");
                                     }
                                   }}
-                                  className="h-8 w-28"
+                                  className="h-8 w-full max-w-[7rem]"
                                 />
                               </div>
                             </div>
@@ -1911,30 +1929,31 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="Storage" className="mt-4">
+                <TabsContent value="Storage" className="mt-4 min-w-0">
                   {storagePricingLoading ? (
                     <div className="space-y-4">
                       <Skeleton className="h-12 w-full" />
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="rounded-lg border bg-muted/50 p-3 sm:p-4">
                         <div className="space-y-4">
                           <div>
-                            <Label className="text-sm font-medium mb-2 block">
+                            <Label className="mb-2 block text-sm font-medium">
                               Storage Type
                             </Label>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                               <Input
                                 value="Pallet Base Storage"
                                 readOnly
-                                className="w-64 bg-muted"
+                                className="w-full bg-muted sm:w-64"
                               />
                               <Button
                                 onClick={handleSaveStorageType}
                                 disabled={isSavingStorageType}
                                 size="sm"
                                 variant="outline"
+                                className="w-full shrink-0 sm:w-auto"
                               >
                                 {isSavingStorageType ? (
                                   <>
@@ -2144,7 +2163,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               <Button 
                                 onClick={handleSaveStorage} 
                                 disabled={isSaving || storagePricingLoading}
-                                className="w-48"
+                                className="w-full sm:w-48"
                               >
                                 {isSaving ? (
                                   <>
@@ -2166,17 +2185,17 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="Box Forwarding" className="mt-4">
+                <TabsContent value="Box Forwarding" className="mt-4 min-w-0">
                   {boxForwardingPricingLoading ? (
                     <div className="space-y-4">
                       <Skeleton className="h-12 w-full" />
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="rounded-lg border bg-muted/50 p-3 sm:p-4">
                         <div className="space-y-4">
                           <div>
-                            <Label className="text-sm font-medium mb-2 block">
+                            <Label className="mb-2 block text-sm font-medium">
                               Price per Box ($)
                             </Label>
                             <Input
@@ -2186,16 +2205,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               placeholder="0.00"
                               value={boxForwardingPrice}
                               onChange={(e) => setBoxForwardingPrice(e.target.value)}
-                              className="w-48"
+                              className="w-full sm:w-48"
                             />
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               This amount will be charged per box when user ships boxes.
                             </p>
                           </div>
                           <Button 
                             onClick={handleSaveBoxForwarding} 
                             disabled={isSaving || boxForwardingPricingLoading}
-                            className="w-auto min-w-fit whitespace-nowrap"
+                            className="w-full sm:w-auto"
                           >
                             {isSaving ? (
                               <>
@@ -2215,11 +2234,10 @@ export function PricingManagement({ users }: PricingManagementProps) {
                   )}
                 </TabsContent>
 
-                <TabsContent value="Pallet Forwarding" className="mt-4">
-                  <div className="space-y-6">
-                    {/* Pallet Forwarding Section */}
-                    <div className="p-4 border rounded-lg bg-muted/50">
-                      <h3 className="text-lg font-semibold mb-4">Pallet Forwarding</h3>
+                <TabsContent value="Pallet Forwarding" className="mt-4 min-w-0">
+                  <div className="space-y-4 sm:space-y-6">
+                    <div className="rounded-lg border bg-muted/50 p-3 sm:p-4">
+                      <h3 className="mb-3 text-base font-semibold sm:mb-4 sm:text-lg">Pallet Forwarding</h3>
                       {palletForwardingPricingLoading ? (
                         <div className="space-y-4">
                           <Skeleton className="h-12 w-full" />
@@ -2227,7 +2245,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                       ) : (
                         <div className="space-y-4">
                           <div>
-                            <Label className="text-sm font-medium mb-2 block">
+                            <Label className="mb-2 block text-sm font-medium">
                               Price per Pallet ($)
                             </Label>
                             <Input
@@ -2237,16 +2255,16 @@ export function PricingManagement({ users }: PricingManagementProps) {
                               placeholder="0.00"
                               value={palletForwardingPrice}
                               onChange={(e) => setPalletForwardingPrice(e.target.value)}
-                              className="w-48"
+                              className="w-full sm:w-48"
                             />
-                            <p className="text-xs text-muted-foreground mt-1">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               This amount will be charged per pallet when user ships pallets (forwarding).
                             </p>
                           </div>
                           <Button 
                             onClick={handleSavePalletForwarding} 
                             disabled={isSaving || palletForwardingPricingLoading}
-                            className="w-auto min-w-fit whitespace-nowrap"
+                            className="w-full sm:w-auto"
                           >
                             {isSaving ? (
                               <>
@@ -2263,85 +2281,128 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         </div>
                       )}
                     </div>
-
                   </div>
                 </TabsContent>
 
-                <TabsContent value="Container Handling" className="mt-4">
-                    <div className="p-4 border rounded-lg bg-muted/50">
-                    <h3 className="text-lg font-semibold mb-2">Container Handling Pricing</h3>
-                    <p className="text-xs text-muted-foreground mb-4">
+                <TabsContent value="Container Handling" className="mt-4 min-w-0">
+                  <div className="rounded-lg border bg-muted/50 p-3 sm:p-4">
+                    <h3 className="mb-1 text-base font-semibold sm:mb-2 sm:text-lg">Container Handling Pricing</h3>
+                    <p className="mb-3 text-xs text-muted-foreground sm:mb-4">
                       Set the price charged per container when a user adds container handling inventory.
                     </p>
-                      {containerHandlingPricingLoading ? (
-                        <div className="space-y-4">
+                    {containerHandlingPricingLoading ? (
+                      <div className="space-y-4">
                         <Skeleton className="h-12 w-full" />
                         <Skeleton className="h-12 w-full" />
-                          <Skeleton className="h-12 w-full" />
+                        <Skeleton className="h-12 w-full" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2 md:hidden">
+                          {CONTAINER_SIZE_OPTIONS.map((size) => {
+                            const row = containerPrices[size];
+                            return (
+                              <div key={size} className="rounded-lg border bg-background p-3 space-y-2">
+                                <div className="text-sm font-semibold">{size}</div>
+                                <Label className="text-xs text-muted-foreground">Price per Container ($)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  value={row.price}
+                                  onChange={(e) =>
+                                    setContainerPrices((prev) => ({
+                                      ...prev,
+                                      [size]: { ...prev[size], price: e.target.value },
+                                    }))
+                                  }
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() =>
+                                    handleSaveContainerHandling(size, row.price, row.pricingId)
+                                  }
+                                  disabled={isSaving || containerHandlingPricingLoading}
+                                >
+                                  {isSaving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Save className="mr-1.5 h-4 w-4" />
+                                      Save
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            );
+                          })}
                         </div>
-                      ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="border-b bg-muted">
-                              <th className="text-left p-2 text-sm font-medium">Container Size</th>
-                              <th className="text-left p-2 text-sm font-medium">Price per Container ($)</th>
-                              <th className="text-left p-2 text-sm font-medium w-32">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {CONTAINER_SIZE_OPTIONS.map((size) => {
-                              const row = containerPrices[size];
-                              return (
-                                <tr key={size} className="border-b hover:bg-muted/30">
-                                  <td className="p-2 text-sm font-medium">{size}</td>
-                                  <td className="p-2">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                                      value={row.price}
-                                      onChange={(e) =>
-                                        setContainerPrices((prev) => ({
-                                          ...prev,
-                                          [size]: { ...prev[size], price: e.target.value },
-                                        }))
-                                      }
-                                      className="max-w-[180px]"
-                                    />
-                                  </td>
-                                  <td className="p-2">
-                          <Button 
-                                      type="button"
-                                      size="sm"
-                                      onClick={() =>
-                                        handleSaveContainerHandling(size, row.price, row.pricingId)
-                                      }
-                            disabled={isSaving || containerHandlingPricingLoading}
-                          >
-                            {isSaving ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <>
-                                          <Save className="mr-1.5 h-4 w-4" />
-                                          Save
-                              </>
-                            )}
-                          </Button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                        <div className="hidden overflow-x-auto md:block">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="border-b bg-muted">
+                                <th className="p-2 text-left text-sm font-medium">Container Size</th>
+                                <th className="p-2 text-left text-sm font-medium">Price per Container ($)</th>
+                                <th className="w-32 p-2 text-left text-sm font-medium">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {CONTAINER_SIZE_OPTIONS.map((size) => {
+                                const row = containerPrices[size];
+                                return (
+                                  <tr key={size} className="border-b hover:bg-muted/30">
+                                    <td className="p-2 text-sm font-medium">{size}</td>
+                                    <td className="p-2">
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        value={row.price}
+                                        onChange={(e) =>
+                                          setContainerPrices((prev) => ({
+                                            ...prev,
+                                            [size]: { ...prev[size], price: e.target.value },
+                                          }))
+                                        }
+                                        className="max-w-[180px]"
+                                      />
+                                    </td>
+                                    <td className="p-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() =>
+                                          handleSaveContainerHandling(size, row.price, row.pricingId)
+                                        }
+                                        disabled={isSaving || containerHandlingPricingLoading}
+                                      >
+                                        {isSaving ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <>
+                                            <Save className="mr-1.5 h-4 w-4" />
+                                            Save
+                                          </>
+                                        )}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
-                      )}
+                      </>
+                    )}
                   </div>
                 </TabsContent>
 
-                <TabsContent value="Additional Services" className="mt-4">
-                  <div className="space-y-6">
+                <TabsContent value="Additional Services" className="mt-4 min-w-0">
+                  <div className="space-y-4 sm:space-y-6">
                     {additionalServicesPricingLoading ? (
                       <div className="space-y-4">
                         <Skeleton className="h-12 w-full" />
@@ -2349,19 +2410,20 @@ export function PricingManagement({ users }: PricingManagementProps) {
                         <Skeleton className="h-12 w-full" />
                       </div>
                     ) : (
-                      <div className="p-4 border rounded-lg bg-muted/50">
+                      <div className="rounded-lg border bg-muted/50 p-3 sm:p-4">
                         <div className="space-y-4">
                           <p className="text-xs text-muted-foreground">
                             Edit all rates in the catalog. Bubble Wrap, Sticker Removal, and Warning Labels stay aligned
                             with legacy billing fields when you save.
                           </p>
                           <div>
-                            <div className="mb-3 flex items-center justify-between">
+                            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <h4 className="text-sm font-semibold">Service Catalog (Shipment Dropdown)</h4>
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
+                                className="w-full sm:w-auto"
                                 onClick={() => {
                                   const next = additionalServiceItems.length + 1;
                                   setAdditionalServiceItems((prev) => [
@@ -2439,7 +2501,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                           <Button 
                             onClick={handleSaveAdditionalServices} 
                             disabled={isSaving || additionalServicesPricingLoading}
-                            className="w-auto min-w-fit whitespace-nowrap"
+                            className="w-full sm:w-auto"
                           >
                             {isSaving ? (
                               <>

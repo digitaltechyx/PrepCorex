@@ -482,48 +482,47 @@ export function AssignLocationTab() {
   };
 
   return (
-    <div className="space-y-8">
-      <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-        <CardHeader className="border-b bg-muted/20 pb-6">
-          <CardTitle className="flex items-center gap-3 text-xl">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              <MapPin className="h-5 w-5" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+        <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+          <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 sm:h-10 sm:w-10 sm:rounded-xl">
+              <MapPin className="h-4 w-4 sm:h-5 sm:w-5" />
             </span>
             Active locations
           </CardTitle>
-          <CardDescription className="text-base">
-            Edit warehouse details, set the system default inbound location, or remove a site. New warehouses are
-            created under Admin → Warehouses.
+          <CardDescription className="text-xs sm:text-sm">
+            Edit, set default inbound, or remove. New sites: Admin → Warehouses.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-5 pt-6">
-          <div className="flex flex-col gap-3 rounded-xl border-2 border-violet-200 bg-violet-50/80 p-4 dark:border-violet-900 dark:bg-violet-950/30 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex gap-3">
-              <Warehouse className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Add a new warehouse site</p>
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                  Use Admin → Warehouses to create the location, address, and bin layout in one step.
+        <CardContent className="space-y-3 p-3 pt-3 sm:space-y-5 sm:p-6 sm:pt-4">
+          <div className="flex flex-col gap-2 rounded-lg border border-violet-200 bg-violet-50/80 p-3 dark:border-violet-900 dark:bg-violet-950/30 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:rounded-xl sm:border-2 sm:p-4">
+            <div className="flex gap-2 sm:gap-3">
+              <Warehouse className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 sm:h-5 sm:w-5" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-foreground sm:text-sm">Add a new warehouse site</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-sm">
+                  Create location, address, and bins under Warehouses.
                 </p>
               </div>
             </div>
-            <Button asChild className="shrink-0 rounded-xl">
+            <Button asChild size="sm" className="w-full shrink-0 rounded-lg sm:w-auto sm:rounded-xl">
               <Link href="/admin/dashboard/warehouses">Open Warehouses</Link>
             </Button>
           </div>
 
           {defaultLocationId ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100">
-              Default inbound warehouse:{" "}
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100 sm:rounded-xl sm:px-4 sm:py-3 sm:text-sm">
+              Default inbound:{" "}
               <span className="font-semibold">
                 {formatWarehouseDisplayName(
                   activeLocations.find((l) => l.id === defaultLocationId)?.name ?? "—"
                 )}
               </span>
-              . New clients keep this location when roles are saved. Use the star on any location to change it.
+              . Star a location to change it.
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-amber-300/80 bg-amber-50/50 px-4 py-3 text-sm text-amber-900">
+            <div className="rounded-lg border border-dashed border-amber-300/80 bg-amber-50/50 px-3 py-2 text-xs text-amber-900 sm:rounded-xl sm:px-4 sm:py-3 sm:text-sm">
               No default inbound warehouse is set. Click the star on a location to choose one.
             </div>
           )}
@@ -578,45 +577,44 @@ export function AssignLocationTab() {
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden rounded-2xl border-2 shadow-sm">
-        <CardHeader className="border-b bg-muted/20 pb-6">
-          <CardTitle className="flex items-center gap-3 text-xl">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-              <MapPin className="h-5 w-5" />
+      <Card className="min-w-0 overflow-hidden rounded-xl border shadow-sm sm:rounded-2xl sm:border-2">
+        <CardHeader className="border-b bg-muted/20 p-3 sm:p-6 sm:pb-4">
+          <CardTitle className="flex items-center gap-2 text-base sm:gap-3 sm:text-xl">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary sm:h-10 sm:w-10 sm:rounded-xl">
+              <MapPin className="h-4 w-4 sm:h-5 sm:w-5" />
             </span>
             Assign locations to users
           </CardTitle>
-          <CardDescription className="text-base">
-            Select users and locations. Use Assign to add warehouses to each user&apos;s list, or Remove from users
-            to take warehouses away.
+          <CardDescription className="text-xs sm:text-sm">
+            Select users and locations, then Assign or Remove.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6 pt-6">
+        <CardContent className="space-y-3 p-3 pt-3 sm:space-y-6 sm:p-6 sm:pt-4">
           {activeLocations.length === 0 ? (
-            <p className="rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/10 py-8 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-dashed border-muted-foreground/30 bg-muted/10 py-6 text-center text-xs text-muted-foreground sm:rounded-xl sm:border-2 sm:py-8 sm:text-sm">
               Add at least one location first.
             </p>
           ) : (
             <>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="space-y-2">
+              <div className="grid gap-3 lg:grid-cols-2 lg:gap-6">
+                <div className="space-y-1.5 sm:space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <Label className="text-sm font-semibold">Users</Label>
-                    <span className="text-xs text-muted-foreground">
-                      {selectedUserIds.size} selected · {filteredAssignableUsers.length} shown
+                    <Label className="text-xs font-semibold sm:text-sm">Users</Label>
+                    <span className="text-[10px] text-muted-foreground sm:text-xs">
+                      {selectedUserIds.size} sel · {filteredAssignableUsers.length}
                     </span>
                   </div>
-                  <div className="rounded-xl border-2 border-border/60 bg-muted/5">
+                  <div className="rounded-lg border border-border/60 bg-muted/5 sm:rounded-xl sm:border-2">
                     <div className="relative border-b">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
-                        placeholder="Search users..."
+                        placeholder="Search users…"
                         value={userSearch}
                         onChange={(e) => setUserSearch(e.target.value)}
-                        className="h-10 rounded-t-xl rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0"
+                        className="h-9 rounded-t-lg rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0 sm:h-10 sm:rounded-t-xl"
                       />
                     </div>
-                    <div className="max-h-[320px] space-y-1 overflow-y-auto overscroll-contain p-2">
+                    <div className="max-h-[240px] space-y-1 overflow-y-auto overscroll-contain p-1.5 sm:max-h-[320px] sm:p-2">
                       {filteredAssignableUsers.length === 0 ? (
                         <p className="py-6 text-center text-sm text-muted-foreground">
                           No users match your search.
@@ -626,12 +624,19 @@ export function AssignLocationTab() {
                           const checked = selectedUserIds.has(u.uid!);
                           const locCount = normalizeUserLocationIds(u.locations).length;
                           return (
-                            <button
+                            <div
                               key={u.uid}
-                              type="button"
+                              role="button"
+                              tabIndex={0}
                               onClick={() => toggleUser(u.uid!)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  toggleUser(u.uid!);
+                                }
+                              }}
                               className={cn(
-                                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                                "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                                 checked ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-muted/60"
                               )}
                             >
@@ -649,7 +654,7 @@ export function AssignLocationTab() {
                                   {locCount} loc
                                 </Badge>
                               ) : null}
-                            </button>
+                            </div>
                           );
                         })
                       )}
@@ -657,13 +662,13 @@ export function AssignLocationTab() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5 sm:space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <Label className="text-sm font-semibold">Locations to assign</Label>
-                    <span className="text-xs text-muted-foreground">
-                      {selectedLocationIds.size} selected · {filteredLocations.length} shown
+                    <Label className="text-xs font-semibold sm:text-sm">Locations</Label>
+                    <span className="text-[10px] text-muted-foreground sm:text-xs">
+                      {selectedLocationIds.size} sel · {filteredLocations.length}
                       {assignedLocationMeta.any.size > 0
-                        ? ` · ${assignedLocationMeta.any.size} already assigned`
+                        ? ` · ${assignedLocationMeta.any.size} assigned`
                         : ""}
                     </span>
                   </div>
@@ -677,17 +682,17 @@ export function AssignLocationTab() {
                       Select a user to see which locations they already have.
                     </p>
                   )}
-                  <div className="rounded-xl border-2 border-border/60 bg-muted/5">
+                  <div className="rounded-lg border border-border/60 bg-muted/5 sm:rounded-xl sm:border-2">
                     <div className="relative border-b">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
-                        placeholder="Search locations..."
+                        placeholder="Search locations…"
                         value={locationSearch}
                         onChange={(e) => setLocationSearch(e.target.value)}
-                        className="h-10 rounded-t-xl rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0"
+                        className="h-9 rounded-t-lg rounded-b-none border-0 bg-transparent pl-9 pr-3 focus-visible:ring-0 sm:h-10 sm:rounded-t-xl"
                       />
                     </div>
-                    <div className="max-h-[320px] space-y-1 overflow-y-auto overscroll-contain p-2">
+                    <div className="max-h-[240px] space-y-1 overflow-y-auto overscroll-contain p-1.5 sm:max-h-[320px] sm:p-2">
                       {filteredLocations.length === 0 ? (
                         <p className="py-6 text-center text-sm text-muted-foreground">
                           No locations match your search.
@@ -701,12 +706,19 @@ export function AssignLocationTab() {
                             assignedLocationMeta.selectedCount > 1 &&
                             assignedLocationMeta.all.has(loc.id);
                           return (
-                            <button
+                            <div
                               key={loc.id}
-                              type="button"
+                              role="button"
+                              tabIndex={0}
                               onClick={() => toggleLocation(loc.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  toggleLocation(loc.id);
+                                }
+                              }}
                               className={cn(
-                                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
+                                "flex w-full cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors",
                                 checked
                                   ? "bg-primary/10 ring-1 ring-primary/30"
                                   : isAssigned
@@ -741,7 +753,7 @@ export function AssignLocationTab() {
                                   Default
                                 </Badge>
                               ) : null}
-                            </button>
+                            </div>
                           );
                         })
                       )}
@@ -750,16 +762,17 @@ export function AssignLocationTab() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
                 <Button
                   onClick={handleAssignLocationsToUsers}
                   disabled={
                     assigning || unassigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0
                   }
-                  className="h-11 rounded-xl px-6 font-semibold"
+                  className="h-9 w-full rounded-lg font-semibold sm:h-11 sm:w-auto sm:rounded-xl sm:px-6"
                 >
                   {assigning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Assign locations to selected users
+                  <span className="sm:hidden">Assign to users</span>
+                  <span className="hidden sm:inline">Assign locations to selected users</span>
                 </Button>
                 <Button
                   type="button"
@@ -768,10 +781,11 @@ export function AssignLocationTab() {
                   disabled={
                     unassigning || assigning || selectedUserIds.size === 0 || selectedLocationIds.size === 0
                   }
-                  className="h-11 rounded-xl border-destructive/40 px-6 font-semibold text-destructive hover:bg-destructive/10"
+                  className="h-9 w-full rounded-lg border-destructive/40 font-semibold text-destructive hover:bg-destructive/10 sm:h-11 sm:w-auto sm:rounded-xl sm:px-6"
                 >
                   {unassigning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Remove selected locations from users
+                  <span className="sm:hidden">Remove from users</span>
+                  <span className="hidden sm:inline">Remove selected locations from users</span>
                 </Button>
               </div>
             </>
@@ -788,77 +802,80 @@ export function AssignLocationTab() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit location</DialogTitle>
-            <DialogDescription>
-              Update the display name and address fields for this warehouse site.
+        <DialogContent className="flex max-h-[100dvh] w-[calc(100%-1.5rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[90vh]">
+          <DialogHeader className="shrink-0 border-b p-4 text-left sm:p-6">
+            <DialogTitle className="text-base sm:text-lg">Edit location</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
+              Update name and address for this warehouse site.
             </DialogDescription>
           </DialogHeader>
-          {editForm ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-loc-name">Name</Label>
-                <Input
-                  id="edit-loc-name"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                />
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+            {editForm ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="edit-loc-name">Name</Label>
+                  <Input
+                    id="edit-loc-name"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-loc-country">Country</Label>
+                  <Input
+                    id="edit-loc-country"
+                    value={editForm.country}
+                    onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-loc-state">State / Province</Label>
+                  <Input
+                    id="edit-loc-state"
+                    value={editForm.stateOrProvince}
+                    onChange={(e) => setEditForm({ ...editForm, stateOrProvince: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="edit-loc-street1">Street 1</Label>
+                  <Input
+                    id="edit-loc-street1"
+                    value={editForm.street1}
+                    onChange={(e) => setEditForm({ ...editForm, street1: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="edit-loc-street2">Street 2</Label>
+                  <Input
+                    id="edit-loc-street2"
+                    value={editForm.street2}
+                    onChange={(e) => setEditForm({ ...editForm, street2: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-loc-city">City</Label>
+                  <Input
+                    id="edit-loc-city"
+                    value={editForm.city}
+                    onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-loc-zip">ZIP</Label>
+                  <Input
+                    id="edit-loc-zip"
+                    value={editForm.zip}
+                    onChange={(e) => setEditForm({ ...editForm, zip: e.target.value })}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-loc-country">Country</Label>
-                <Input
-                  id="edit-loc-country"
-                  value={editForm.country}
-                  onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-loc-state">State / Province</Label>
-                <Input
-                  id="edit-loc-state"
-                  value={editForm.stateOrProvince}
-                  onChange={(e) => setEditForm({ ...editForm, stateOrProvince: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-loc-street1">Street 1</Label>
-                <Input
-                  id="edit-loc-street1"
-                  value={editForm.street1}
-                  onChange={(e) => setEditForm({ ...editForm, street1: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-loc-street2">Street 2</Label>
-                <Input
-                  id="edit-loc-street2"
-                  value={editForm.street2}
-                  onChange={(e) => setEditForm({ ...editForm, street2: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-loc-city">City</Label>
-                <Input
-                  id="edit-loc-city"
-                  value={editForm.city}
-                  onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-loc-zip">ZIP</Label>
-                <Input
-                  id="edit-loc-zip"
-                  value={editForm.zip}
-                  onChange={(e) => setEditForm({ ...editForm, zip: e.target.value })}
-                />
-              </div>
-            </div>
-          ) : null}
-          <DialogFooter>
+            ) : null}
+          </div>
+          <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:p-6 sm:pt-4">
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => {
                 setEditingLoc(null);
                 setEditForm(null);
@@ -866,7 +883,7 @@ export function AssignLocationTab() {
             >
               Cancel
             </Button>
-            <Button type="button" onClick={handleSaveEdit} disabled={savingEdit}>
+            <Button type="button" className="w-full sm:w-auto" onClick={handleSaveEdit} disabled={savingEdit}>
               {savingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Save changes
             </Button>
@@ -875,17 +892,17 @@ export function AssignLocationTab() {
       </Dialog>
 
       <AlertDialog open={!!confirmRemoveId} onOpenChange={(open) => !open && setConfirmRemoveId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
+        <AlertDialogContent className="w-[calc(100%-1.5rem)] max-w-lg">
+          <AlertDialogHeader className="text-left">
             <AlertDialogTitle>Remove location?</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-xs sm:text-sm">
               This will delete the location. Users who had this location will no longer have it. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground"
+              className="w-full bg-destructive text-destructive-foreground sm:w-auto"
               onClick={() => confirmRemoveId && handleRemoveLocation(confirmRemoveId)}
             >
               Remove
