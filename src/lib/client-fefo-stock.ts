@@ -64,9 +64,10 @@ function addBatchQty(target: Map<string, number>, expiry: string, quantity: numb
  * and approved inbound requests.
  *
  * When stored batch totals exceed on-hand quantity (legacy ships that did not
- * reduce expiryBatches), leftover units are kept on the *newest* expiry dates —
- * i.e. FEFO already consumed the earliest lots. Live outbound now updates
- * expiryBatches directly, so totals usually match quantity.
+ * reduce expiryBatches), on-hand units are attributed earliest-expiry-first
+ * (true FEFO). That keeps every lot that still has share of stock visible —
+ * newest-first used to wipe earlier dates off the FEFO tab entirely.
+ * Live outbound now updates expiryBatches directly, so totals usually match.
  */
 export function buildClientFefoStockRows(
   inventoryDocs: RawClientInventoryDoc[],
@@ -201,12 +202,15 @@ export function buildClientFefoStockRows(
       fallbackNeeded -= quantity;
     }
 
-    // Newest expiry first so surplus (shipped) is attributed to earliest FEFO lots.
+    // Earliest expiry first (FEFO): assign on-hand qty across lots so every
+    // remaining date stays visible. Newest-first dropped earlier lots when
+    // stored batch totals exceeded quantity.
     for (const [expiry, batchQuantity] of Array.from(candidates).sort(([a], [b]) =>
-      b.localeCompare(a)
+      a.localeCompare(b)
     )) {
       if (remaining <= 0) break;
       const quantity = Math.min(remaining, batchQuantity);
+      if (quantity <= 0) continue;
       rows.push({
         key: `${group.key}|${expiry}`,
         sku: group.sku,
