@@ -63,11 +63,11 @@ function addBatchQty(target: Map<string, number>, expiry: string, quantity: numb
  * Reconstructs current FEFO batches from the user's own inventory, receive logs,
  * and approved inbound requests.
  *
- * When stored batch totals exceed on-hand quantity (legacy ships that did not
- * reduce expiryBatches), on-hand units are attributed earliest-expiry-first
- * (true FEFO). That keeps every lot that still has share of stock visible —
- * newest-first used to wipe earlier dates off the FEFO tab entirely.
- * Live outbound now updates expiryBatches directly, so totals usually match.
+ * Every stored expiry lot with qty > 0 becomes its own FEFO row (same dates as
+ * the Inventory “Expiry” column). We do not collapse lots to fit on-hand qty —
+ * clamping used to hide later (or earlier) dates when batch totals drifted from
+ * quantity after legacy ships. Live outbound updates expiryBatches so totals
+ * usually match; until then FEFO still lists every lot for visibility.
  */
 export function buildClientFefoStockRows(
   inventoryDocs: RawClientInventoryDoc[],
@@ -186,7 +186,6 @@ export function buildClientFefoStockRows(
 
   const rows: ClientFefoStockRow[] = [];
   for (const group of inventoryGroups.values()) {
-    let remaining = group.quantity;
     const candidates = new Map(group.batchCandidates);
     const candidateTotal = Array.from(candidates.values()).reduce(
       (sum, quantity) => sum + quantity,
@@ -202,14 +201,12 @@ export function buildClientFefoStockRows(
       fallbackNeeded -= quantity;
     }
 
-    // Earliest expiry first (FEFO): assign on-hand qty across lots so every
-    // remaining date stays visible. Newest-first dropped earlier lots when
-    // stored batch totals exceeded quantity.
+    // One row per expiry lot (earliest → latest). Keep stored lot qty so all
+    // dates stay visible even when batch totals exceed on-hand quantity.
     for (const [expiry, batchQuantity] of Array.from(candidates).sort(([a], [b]) =>
       a.localeCompare(b)
     )) {
-      if (remaining <= 0) break;
-      const quantity = Math.min(remaining, batchQuantity);
+      const quantity = Math.max(0, Math.floor(batchQuantity));
       if (quantity <= 0) continue;
       rows.push({
         key: `${group.key}|${expiry}`,
@@ -219,7 +216,6 @@ export function buildClientFefoStockRows(
         quantity,
         expired: expiry < currentDate,
       });
-      remaining -= quantity;
     }
   }
 
