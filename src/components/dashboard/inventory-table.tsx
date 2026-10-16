@@ -255,11 +255,18 @@ function formatOptionalDate(date: unknown) {
   return "N/A";
 }
 
-/** Prefer multi-lot expiryBatches; fall back to single expiryDate. */
+function formatExpiryLotLine(expiryLabel: string, quantity: number): string {
+  const qty = Math.max(0, Math.floor(quantity));
+  return `${expiryLabel} · ${qty} unit${qty === 1 ? "" : "s"}`;
+}
+
+/** Prefer multi-lot expiryBatches; fall back to single expiryDate + on-hand qty. */
 function formatInventoryExpiryLots(item: {
   expiryDate?: unknown;
+  quantity?: unknown;
   expiryBatches?: Array<{ expiry?: unknown; quantity?: unknown }>;
 }): { lines: string[]; hasLots: boolean } {
+  const onHandQty = Math.max(0, Math.floor(Number(item.quantity) || 0));
   const batches = Array.isArray(item.expiryBatches)
     ? item.expiryBatches
         .map((b) => {
@@ -275,13 +282,15 @@ function formatInventoryExpiryLots(item: {
   if (batches.length > 0) {
     return {
       hasLots: true,
-      lines: batches.map(
-        (b) => `${formatOptionalDate(b.expiry)} · ${b.quantity} unit${b.quantity === 1 ? "" : "s"}`
-      ),
+      lines: batches.map((b) => formatExpiryLotLine(formatOptionalDate(b.expiry), b.quantity)),
     };
   }
   if (item.expiryDate) {
-    return { hasLots: false, lines: [formatOptionalDate(item.expiryDate)] };
+    // Always include units so single-date rows match multi-lot formatting.
+    return {
+      hasLots: false,
+      lines: [formatExpiryLotLine(formatOptionalDate(item.expiryDate), onHandQty)],
+    };
   }
   return { hasLots: false, lines: [] };
 }
