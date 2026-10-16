@@ -272,35 +272,45 @@ export function InventoryHistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
-          <DialogTitle className="flex items-center gap-2 text-lg">
-            <History className="h-5 w-5" />
+      <DialogContent
+        className={cn(
+          "!flex !translate-x-0 !translate-y-0 left-0 top-0 h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 p-0",
+          "sm:left-[50%] sm:top-[50%] sm:!h-auto sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-5xl sm:!translate-x-[-50%] sm:!translate-y-[-50%] sm:rounded-lg sm:border"
+        )}
+      >
+        <DialogHeader className="shrink-0 space-y-1.5 border-b px-3 pb-2.5 pr-12 pt-3 text-left sm:space-y-1.5 sm:px-6 sm:pb-4 sm:pt-6">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <History className="h-5 w-5 shrink-0" />
             Stock history
           </DialogTitle>
-          <DialogDescription className="text-left space-y-1">
+          <DialogDescription className="space-y-0.5 text-left">
             {item ? (
               <>
-                <span className="font-medium text-foreground">{item.productName}</span>
+                <span className="block truncate font-medium text-foreground">
+                  {item.productName}
+                </span>
                 {item.sku ? (
-                  <span className="text-muted-foreground"> · SKU {item.sku}</span>
+                  <span className="block truncate text-muted-foreground">
+                    SKU {item.sku}
+                  </span>
                 ) : null}
-                <span className="block text-xs">
+                <span className="hidden text-xs sm:block">
                   Includes inbound, restocks, and shipments. Newest first; CSV uses filtered rows
                   (oldest → newest).
                 </span>
               </>
             ) : null}
           </DialogDescription>
-          <div className="flex flex-wrap items-center gap-2 pt-2">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
+              className="h-8 shrink-0 sm:h-9"
               disabled={!item || loading || filteredRows.length === 0}
               onClick={handleExport}
             >
-              <Download className="h-4 w-4 mr-1" />
+              <Download className="mr-1 h-4 w-4" />
               Export CSV
             </Button>
             {item ? (
@@ -309,8 +319,13 @@ export function InventoryHistoryDialog({
               </Badge>
             ) : null}
             {item && damagedOnHand > 0 ? (
-              <Badge variant="outline" className="text-xs border-amber-300 text-amber-900">
-                Damaged on hand: {damagedOnHand}
+              <Badge variant="outline" className="border-amber-300 text-xs text-amber-900">
+                Damaged: {damagedOnHand}
+              </Badge>
+            ) : null}
+            {!loading && rows.length > 0 ? (
+              <Badge variant="outline" className="text-xs">
+                {filteredRows.length}/{rows.length} events
               </Badge>
             ) : null}
             {item && headerVideoRequestId ? (
@@ -320,48 +335,52 @@ export function InventoryHistoryDialog({
                 triggerLabel="Watch receiving video"
               />
             ) : null}
-            {!loading && rows.length > 0 ? (
-              <Badge variant="outline" className="text-xs">
-                Showing {filteredRows.length} of {rows.length} events
-              </Badge>
-            ) : null}
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
-          <TabsList className="mx-6 mt-2 shrink-0 w-fit">
-            <TabsTrigger value="overview" className="text-xs">
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="inbound" className="text-xs gap-1">
-              <Package className="h-3.5 w-3.5" />
-              Inbound &amp; damage
-              {inboundLogs.length > 0 ? (
-                <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
-                  {inboundLogs.length}
-                </Badge>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="outbound" className="text-xs gap-1">
-              <Truck className="h-3.5 w-3.5" />
-              Outbound
-            </TabsTrigger>
-          </TabsList>
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          {/* Single scroll region: tabs + filters + records */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="sticky top-0 z-20 border-b bg-background px-3 pb-2 pt-2 sm:px-6">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-1 p-1 sm:inline-flex sm:w-fit sm:grid-cols-none">
+              <TabsTrigger value="overview" className="min-h-9 px-2 text-[11px] sm:text-xs">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="inbound" className="min-h-9 gap-1 px-2 text-[11px] sm:text-xs">
+                <Package className="hidden h-3.5 w-3.5 sm:block" />
+                <span className="sm:hidden">Inbound</span>
+                <span className="hidden sm:inline">Inbound &amp; damage</span>
+                {inboundLogs.length > 0 ? (
+                  <Badge variant="secondary" className="ml-0.5 h-4 px-1 text-[10px]">
+                    {inboundLogs.length}
+                  </Badge>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="outbound" className="min-h-9 gap-1 px-2 text-[11px] sm:text-xs">
+                <Truck className="hidden h-3.5 w-3.5 sm:block" />
+                Outbound
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
         {!loading && item && rows.length > 0 && activeTab !== "inbound" ? (
-          <div className="shrink-0 px-6 py-3 border-b bg-muted/40 space-y-3">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
+          <div className="space-y-2 border-b bg-muted/40 px-3 py-2.5 sm:space-y-3 sm:px-6 sm:py-3">
+            <div className="relative min-w-0 w-full sm:max-w-md">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search event, details, user…"
-                className="pl-8 h-9 text-sm bg-background"
+                className="h-9 bg-background pl-8 text-sm"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <Select value={eventType} onValueChange={setEventType}>
-                <SelectTrigger className="h-9 w-[160px] text-xs bg-background">
+                <SelectTrigger className="h-9 w-full bg-background text-xs sm:w-[160px]">
                   <SelectValue placeholder="Event type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -378,11 +397,11 @@ export function InventoryHistoryDialog({
                 toDate={toDate}
                 setFromDate={setFromDate}
                 setToDate={setToDate}
-                className="h-9 w-[220px] sm:w-[260px] text-xs bg-background"
+                className="h-9 w-full bg-background text-xs sm:w-[220px] md:w-[260px]"
               />
 
               <Select value={changeFilter} onValueChange={setChangeFilter}>
-                <SelectTrigger className="h-9 w-[140px] text-xs bg-background">
+                <SelectTrigger className="h-9 w-full bg-background text-xs sm:w-[140px]">
                   <SelectValue placeholder="Qty change" />
                 </SelectTrigger>
                 <SelectContent>
@@ -399,10 +418,10 @@ export function InventoryHistoryDialog({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-9 text-xs"
+                  className="h-9 w-full text-xs sm:w-auto"
                   onClick={clearFilters}
                 >
-                  <X className="h-3.5 w-3.5 mr-1" />
+                  <X className="mr-1 h-3.5 w-3.5" />
                   Clear filters
                 </Button>
               ) : null}
@@ -410,19 +429,19 @@ export function InventoryHistoryDialog({
           </div>
         ) : null}
 
-        <div className="flex-1 min-h-0 overflow-auto px-6 py-2">
-          <TabsContent value="overview" className="mt-0 h-full">
+        <div className="px-3 py-2 pb-6 sm:px-6">
+          <TabsContent value="overview" className="mt-0 focus-visible:outline-none">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin mr-2" />
+              <Loader2 className="mr-2 h-8 w-8 animate-spin" />
               Loading history…
             </div>
           ) : !item ? null : rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               No history found for this product yet.
             </p>
           ) : filteredRows.length === 0 ? (
-            <div className="py-12 text-center space-y-3">
+            <div className="space-y-3 py-12 text-center">
               <p className="text-sm text-muted-foreground">No events match your filters.</p>
               <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
                 Clear filters
@@ -433,22 +452,107 @@ export function InventoryHistoryDialog({
           )}
           </TabsContent>
 
-          <TabsContent value="inbound" className="mt-0">
+          <TabsContent value="inbound" className="mt-0 focus-visible:outline-none">
             {loading ? (
               <div className="flex items-center justify-center py-16 text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-8 w-8 animate-spin" />
                 Loading inbound logs…
               </div>
             ) : inboundLogs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
+              <p className="py-8 text-center text-sm text-muted-foreground">
                 No warehouse inbound / putaway sessions recorded yet. Stock appears here after
                 dock receive and putaway.
               </p>
             ) : (
               <div className="pb-4">
+                {/* Mobile cards */}
+                <div className="space-y-2 md:hidden">
+                  {inboundLogs.map((row) => {
+                    const rowRequestId = String(row.inventoryRequestId || "").trim();
+                    const linkedRequest = rowRequestId
+                      ? inboundRequestById.get(rowRequestId) ?? null
+                      : null;
+                    const requestedQty = linkedRequest ? getRequestedQuantity(linkedRequest) : null;
+                    const receivedTotal = linkedRequest
+                      ? getInboundRequestReceivedTotal(linkedRequest) || row.totalReceived
+                      : row.totalReceived;
+                    return (
+                      <div
+                        key={row.id}
+                        className="min-w-0 space-y-2 rounded-lg border bg-card p-3 text-xs"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="break-words font-medium">{formatInboundLogDate(row)}</span>
+                          <Badge variant="outline" className="shrink-0 text-[10px] font-normal capitalize">
+                            {row.eventType === "restock" ? "Restock" : "Initial inbound"}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 tabular-nums">
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Requested / received</p>
+                            <p
+                              className={cn(
+                                requestedQty != null &&
+                                  requestedQty > 0 &&
+                                  receivedTotal !== requestedQty &&
+                                  "font-medium text-amber-800"
+                              )}
+                            >
+                              {requestedQty != null && requestedQty > 0
+                                ? `${requestedQty} / ${receivedTotal}`
+                                : "—"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">This putaway</p>
+                            <p className="font-semibold">{row.totalReceived}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Sellable</p>
+                            <p className="font-medium text-emerald-700">
+                              {row.goodQty}
+                              {row.goodBinPath ? (
+                                <span className="font-normal text-muted-foreground">
+                                  {" "}
+                                  · {row.goodBinPath}
+                                </span>
+                              ) : null}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground">Damaged</p>
+                            {row.damagedQty > 0 ? (
+                              <p className="inline-flex flex-wrap items-center gap-1 font-medium text-amber-800">
+                                <AlertTriangle className="h-3 w-3 shrink-0" />
+                                {row.damagedQty}
+                                {row.damagedLocation ? (
+                                  <span className="font-normal text-muted-foreground">
+                                    · {row.damagedLocation}
+                                  </span>
+                                ) : null}
+                              </p>
+                            ) : (
+                              <p className="text-muted-foreground">0</p>
+                            )}
+                          </div>
+                        </div>
+                        {rowRequestId && recordedRequestIds.has(rowRequestId) ? (
+                          <InboundReceiveVideoDialog
+                            requestId={rowRequestId}
+                            clientUserId={userId}
+                            triggerLabel="Watch receiving video"
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block">
                 <Table containerClassName="overflow-visible">
                   <TableHeader>
-                    <TableRow className="hover:bg-transparent border-b-0">
+                    <TableRow className="border-b-0 hover:bg-transparent">
                       <TableHead className={cn(stickyHeadClass, "whitespace-nowrap")}>
                         Date &amp; Time
                       </TableHead>
@@ -476,19 +580,19 @@ export function InventoryHistoryDialog({
                         : row.totalReceived;
                       return (
                       <TableRow key={row.id}>
-                        <TableCell className="text-xs whitespace-nowrap py-2.5">
+                        <TableCell className="whitespace-nowrap py-2.5 text-xs">
                           {formatInboundLogDate(row)}
                         </TableCell>
-                        <TableCell className="text-xs py-2.5">
-                          <Badge variant="outline" className="text-[10px] capitalize font-normal">
+                        <TableCell className="py-2.5 text-xs">
+                          <Badge variant="outline" className="text-[10px] font-normal capitalize">
                             {row.eventType === "restock" ? "Restock" : "Initial inbound"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-right tabular-nums py-2.5">
+                        <TableCell className="py-2.5 text-right text-xs tabular-nums">
                           {requestedQty != null && requestedQty > 0 ? (
                             <span
                               className={cn(
-                                receivedTotal !== requestedQty && "text-amber-800 font-medium"
+                                receivedTotal !== requestedQty && "font-medium text-amber-800"
                               )}
                             >
                               {requestedQty} / {receivedTotal}
@@ -497,11 +601,11 @@ export function InventoryHistoryDialog({
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs text-right tabular-nums font-semibold py-2.5">
+                        <TableCell className="py-2.5 text-right text-xs font-semibold tabular-nums">
                           {row.totalReceived}
                         </TableCell>
-                        <TableCell className="text-xs py-2.5">
-                          <span className="text-emerald-700 font-medium tabular-nums">
+                        <TableCell className="py-2.5 text-xs">
+                          <span className="font-medium tabular-nums text-emerald-700">
                             {row.goodQty}
                           </span>
                           {row.goodBinPath ? (
@@ -511,11 +615,11 @@ export function InventoryHistoryDialog({
                             </span>
                           ) : null}
                         </TableCell>
-                        <TableCell className="text-xs py-2.5">
+                        <TableCell className="py-2.5 text-xs">
                           {row.damagedQty > 0 ? (
                             <span className="inline-flex flex-wrap items-center gap-1">
-                              <AlertTriangle className="h-3 w-3 text-amber-700 shrink-0" />
-                              <span className="text-amber-800 font-medium tabular-nums">
+                              <AlertTriangle className="h-3 w-3 shrink-0 text-amber-700" />
+                              <span className="font-medium tabular-nums text-amber-800">
                                 {row.damagedQty}
                               </span>
                               {row.damagedLocation ? (
@@ -528,7 +632,7 @@ export function InventoryHistoryDialog({
                             <span className="text-muted-foreground">0</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs py-2.5">
+                        <TableCell className="py-2.5 text-xs">
                           {rowRequestId && recordedRequestIds.has(rowRequestId) ? (
                             <InboundReceiveVideoDialog
                               requestId={rowRequestId}
@@ -544,18 +648,19 @@ export function InventoryHistoryDialog({
                     })}
                   </TableBody>
                 </Table>
+                </div>
               </div>
             )}
           </TabsContent>
 
-          <TabsContent value="outbound" className="mt-0">
+          <TabsContent value="outbound" className="mt-0 focus-visible:outline-none">
             {loading ? (
               <div className="flex items-center justify-center py-16 text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-8 w-8 animate-spin" />
                 Loading…
               </div>
             ) : outboundRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
+              <p className="py-8 text-center text-sm text-muted-foreground">
                 No outbound shipments recorded for this product.
               </p>
             ) : (
@@ -563,6 +668,7 @@ export function InventoryHistoryDialog({
             )}
           </TabsContent>
         </div>
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>
@@ -571,9 +677,69 @@ export function InventoryHistoryDialog({
 
 function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
   return (
+    <>
+      {/* Mobile event cards */}
+      <div className="space-y-2 pb-4 md:hidden">
+        {rows.map((r) => (
+          <div
+            key={`${r.seq}-${r.timestamp}-${r.event}`}
+            className="min-w-0 space-y-2 rounded-lg border bg-card p-3"
+          >
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono text-muted-foreground">#{r.seq}</p>
+                <p className="text-xs font-medium">
+                  {r.dateLabel}{" "}
+                  <span className="font-normal text-muted-foreground">{r.timeLabel}</span>
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "h-auto w-fit max-w-full whitespace-normal break-words px-2 py-0.5 text-left text-[10px] font-normal leading-snug",
+                  r.event === "Pack details change"
+                    ? "border-amber-200 bg-amber-100 text-amber-900"
+                    : EVENT_BADGE[r.eventType as InventoryHistoryEventType]
+                )}
+              >
+                {r.event}
+              </Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-center text-xs tabular-nums">
+              <div>
+                <p className="text-[10px] text-muted-foreground">Before</p>
+                <p>{formatQtyCell(r.qtyBefore)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground">Change</p>
+                <p
+                  className={cn(
+                    "font-medium",
+                    r.qtyChange != null && r.qtyChange > 0 && "text-emerald-700",
+                    r.qtyChange != null && r.qtyChange < 0 && "text-red-700"
+                  )}
+                >
+                  {formatChangeCell(r.qtyChange)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground">After</p>
+                <p className="font-semibold">{formatQtyCell(r.qtyAfter)}</p>
+              </div>
+            </div>
+            {r.details ? (
+              <p className="break-words text-xs text-muted-foreground">{r.details}</p>
+            ) : null}
+            <p className="truncate text-[11px] text-muted-foreground">By {r.user}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block">
             <Table containerClassName="overflow-visible">
               <TableHeader>
-                <TableRow className="hover:bg-transparent border-b-0">
+                <TableRow className="border-b-0 hover:bg-transparent">
                   <TableHead className={cn(stickyHeadClass, "w-10")}>#</TableHead>
                   <TableHead className={cn(stickyHeadClass, "whitespace-nowrap")}>Date</TableHead>
                   <TableHead className={cn(stickyHeadClass, "whitespace-nowrap")}>Time</TableHead>
@@ -588,49 +754,51 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={`${r.seq}-${r.timestamp}-${r.event}`}>
-                    <TableCell className="text-xs font-mono text-muted-foreground py-2">
+                    <TableCell className="py-2 font-mono text-xs text-muted-foreground">
                       {r.seq}
                     </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap py-2">{r.dateLabel}</TableCell>
-                    <TableCell className="text-xs whitespace-nowrap py-2">{r.timeLabel}</TableCell>
-                    <TableCell className="text-xs py-2">
+                    <TableCell className="whitespace-nowrap py-2 text-xs">{r.dateLabel}</TableCell>
+                    <TableCell className="whitespace-nowrap py-2 text-xs">{r.timeLabel}</TableCell>
+                    <TableCell className="py-2 text-xs">
                       <Badge
                         variant="outline"
                         className={cn(
-                          "font-normal text-[10px]",
+                          "text-[10px] font-normal",
                           r.event === "Pack details change"
-                            ? "bg-amber-100 text-amber-900 border-amber-200"
+                            ? "border-amber-200 bg-amber-100 text-amber-900"
                             : EVENT_BADGE[r.eventType as InventoryHistoryEventType]
                         )}
                       >
                         {r.event}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-right tabular-nums py-2">
+                    <TableCell className="py-2 text-right text-xs tabular-nums">
                       {formatQtyCell(r.qtyBefore)}
                     </TableCell>
                     <TableCell
                       className={cn(
-                        "text-xs text-right tabular-nums font-medium py-2",
+                        "py-2 text-right text-xs font-medium tabular-nums",
                         r.qtyChange != null && r.qtyChange > 0 && "text-emerald-700",
                         r.qtyChange != null && r.qtyChange < 0 && "text-red-700"
                       )}
                     >
                       {formatChangeCell(r.qtyChange)}
                     </TableCell>
-                    <TableCell className="text-xs text-right tabular-nums font-semibold py-2">
+                    <TableCell className="py-2 text-right text-xs font-semibold tabular-nums">
                       {formatQtyCell(r.qtyAfter)}
                     </TableCell>
                     <TableCell
-                      className="text-xs text-muted-foreground max-w-[280px] py-2 break-words"
+                      className="max-w-[280px] break-words py-2 text-xs text-muted-foreground"
                       title={r.details || undefined}
                     >
                       {r.details || "—"}
                     </TableCell>
-                    <TableCell className="text-xs whitespace-nowrap py-2">{r.user}</TableCell>
+                    <TableCell className="whitespace-nowrap py-2 text-xs">{r.user}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+      </div>
+    </>
   );
 }

@@ -1097,53 +1097,53 @@ export function InventoryRequestsManagement({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3 sm:space-y-4">
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-4">
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Pending</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pendingCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold sm:text-2xl">{pendingCount}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending receive</CardTitle>
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Pending receive</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{pendingReceiveCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold text-amber-600 sm:text-2xl">{pendingReceiveCount}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Complete</CardTitle>
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Complete</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{completeCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold text-green-600 sm:text-2xl">{completeCount}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Rejected</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{rejectedCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold text-red-600 sm:text-2xl">{rejectedCount}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Search + Filter */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex-1">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:gap-4">
+        <div className="min-w-0 flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search product, SKU, variant, identifier, or tracking..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
+              className="w-full pl-10"
             />
             {searchTerm && (
               <Button
@@ -1157,9 +1157,9 @@ export function InventoryRequestsManagement({
             )}
           </div>
         </div>
-        <div className="sm:w-56">
+        <div className="min-w-0 w-full sm:w-56">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -1207,7 +1207,177 @@ export function InventoryRequestsManagement({
             </div>
           ) : (
             <>
-              <Table>
+              <div className="space-y-1.5 md:hidden">
+                {paginatedRows.map((row) => {
+                  if (row.kind === "batch") {
+                    const batch = row.batch;
+                    const batchTrackings = trackingsForBatchId(batch.id, requests);
+                    return (
+                      <div
+                        key={row.id}
+                        className="min-w-0 rounded-lg border border-primary/20 bg-primary/5 p-2.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                                Batch
+                              </Badge>
+                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px] capitalize">
+                                {batch.status}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 truncate text-sm font-medium leading-tight">
+                              {batch.totalLines} item{batch.totalLines === 1 ? "" : "s"} ·{" "}
+                              {formatShipmentTypeLabel(batch.shipmentType)}
+                            </p>
+                            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                              {formatDate(batch.requestedAt)}
+                              {batchTrackings.length
+                                ? ` · ${formatTrackingNumbersDisplay(batchTrackings)}`
+                                : ""}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8 shrink-0 px-2.5 text-xs"
+                            onClick={() => setSelectedBatch(batch)}
+                          >
+                            Preview
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const request = row.request;
+                  const requestTrackings = resolveInboundTrackings(
+                    request as InventoryRequest & { trackingNumber?: string; carrier?: string }
+                  );
+                  const displayStatus = adminInboundRequestDisplayStatus(request);
+                  const label = adminInboundRequestStatusLabel(displayStatus);
+                  const qtyLabel = formatInboundQuantityDisplay({
+                    quantity: request.quantity,
+                    requestedQuantity: (request as any).requestedQuantity,
+                    receivedQuantity: (request as any).receivedQuantity,
+                    status: request.status,
+                  });
+                  const metaBits = [
+                    `Qty ${qtyLabel}`,
+                    request.receivingDate ? formatDate(request.receivingDate) : null,
+                    (request as any).expiryDate
+                      ? `Exp ${formatOptionalDate((request as any).expiryDate)}`
+                      : null,
+                    requestTrackings.length
+                      ? formatTrackingNumbersDisplay(requestTrackings)
+                      : null,
+                  ].filter(Boolean);
+                  return (
+                    <div key={row.id} className="min-w-0 rounded-lg border bg-card p-2.5">
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <InventoryTypePill type={request.inventoryType} />
+                            <Badge
+                              variant={
+                                displayStatus === "complete"
+                                  ? "default"
+                                  : displayStatus === "rejected"
+                                    ? "destructive"
+                                    : displayStatus === "pending_receive"
+                                      ? "outline"
+                                      : "secondary"
+                              }
+                              className={
+                                displayStatus === "pending_receive"
+                                  ? "h-5 shrink-0 border-amber-500/50 bg-amber-50 px-1.5 text-[10px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                                  : displayStatus === "complete"
+                                    ? "h-5 shrink-0 bg-emerald-600 px-1.5 text-[10px] hover:bg-emerald-600"
+                                    : "h-5 shrink-0 px-1.5 text-[10px]"
+                              }
+                            >
+                              {displayStatus === "pending" ? (
+                                <span className="inline-flex items-center gap-0.5">
+                                  <Clock className="h-3 w-3" />
+                                  {label}
+                                </span>
+                              ) : (
+                                label
+                              )}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 truncate text-sm font-medium leading-tight">
+                            {request.productName}
+                          </p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {(request as any).sku ? `SKU ${(request as any).sku}` : "No SKU"}
+                            {(request as any).variantLabel
+                              ? ` · ${(request as any).variantLabel}`
+                              : ""}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                            {metaBits.join(" · ")}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          {request.status === "pending" ? (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="h-8 px-2.5 text-xs"
+                              onClick={() => setSelectedRequest(request)}
+                            >
+                              <Eye className="mr-1 h-3.5 w-3.5" />
+                              Review
+                            </Button>
+                          ) : (
+                            <>
+                              {displayStatus === "pending_receive" ? (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="h-8 px-2.5 text-xs"
+                                  onClick={() => setSelectedRequest(request)}
+                                >
+                                  <PackageCheck className="mr-1 h-3.5 w-3.5" />
+                                  Receive
+                                </Button>
+                              ) : null}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-2.5 text-xs"
+                                onClick={() => setSelectedRequest(request)}
+                              >
+                                <Eye className="mr-1 h-3.5 w-3.5" />
+                                View
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {requestTrackings.length > 0 ? (
+                        <div className="mt-1.5">
+                          <InboundTrackingStatusCell
+                            trackings={requestTrackings}
+                            canAddTracking={false}
+                            onViewTracking={() =>
+                              setTrackingDetail({
+                                productName: request.productName || "Inbound request",
+                                trackings: requestTrackings,
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block">
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type</TableHead>
@@ -1444,14 +1614,15 @@ export function InventoryRequestsManagement({
                   })}
                 </TableBody>
               </Table>
+              </div>
               
               {/* Pagination Controls */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                <div className="flex flex-col gap-3 mt-4 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm text-muted-foreground">
                     Showing {startIndex + 1} to {Math.min(endIndex, inventoryTableRows.length)} of {inventoryTableRows.length} requests
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-2 sm:justify-end">
                     <Button
                       variant="outline"
                       size="sm"

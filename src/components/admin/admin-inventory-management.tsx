@@ -2592,37 +2592,49 @@ export function AdminInventoryManagement({
 
       {/* User Requests (per-user notifications) */}
       {activeSection === "user-requests" && (
-        <Card className="min-w-0 overflow-hidden">
-          <CardHeader className="px-3 py-3 sm:px-6 sm:py-4">
-            <CardTitle className="truncate text-base sm:text-lg">User Requests — {selectedUser.name}</CardTitle>
+        <Card className="min-w-0 overflow-hidden border-2 border-amber-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-amber-50 to-yellow-50 px-3 py-3 sm:px-6 sm:py-4">
+            <CardTitle className="truncate text-base sm:text-lg">
+              User Requests — {selectedUser.name}
+            </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
               Process this user&apos;s outbound, inbound, return, dispose, delete, and quarantine
-              requests. Each tab shows only this user&apos;s requests.
+              requests.
             </CardDescription>
           </CardHeader>
-          <CardContent className="px-3 sm:px-6">
+          <CardContent className="min-w-0 px-3 sm:px-6">
             <Tabs
               value={userRequestsTab}
               onValueChange={(v) => setUserRequestsTab(v as UserRequestsTab)}
               className="w-full min-w-0"
             >
-              <div className="-mx-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] sm:mx-0 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-                <TabsList className="inline-flex h-auto w-max min-w-full gap-1 bg-muted p-1 sm:grid sm:w-full sm:grid-cols-6 sm:gap-0">
-                  <TabsTrigger value="shipment" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Outbound</TabsTrigger>
-                  <TabsTrigger value="inventory" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Inbound</TabsTrigger>
-                  <TabsTrigger value="return" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Returns</TabsTrigger>
-                  <TabsTrigger value="dispose" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Dispose</TabsTrigger>
-                  <TabsTrigger value="delete" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Delete</TabsTrigger>
-                  <TabsTrigger value="quarantine" className="min-h-[40px] shrink-0 px-3 text-xs sm:text-sm">Quarantine</TabsTrigger>
-                </TabsList>
-              </div>
-              <TabsContent value="shipment" className="mt-4">
+              <TabsList className="grid h-auto w-full grid-cols-3 gap-0.5 bg-muted p-0.5 sm:grid-cols-6 sm:gap-1 sm:p-1">
+                <TabsTrigger value="shipment" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Outbound
+                </TabsTrigger>
+                <TabsTrigger value="inventory" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Inbound
+                </TabsTrigger>
+                <TabsTrigger value="return" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Returns
+                </TabsTrigger>
+                <TabsTrigger value="dispose" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Dispose
+                </TabsTrigger>
+                <TabsTrigger value="delete" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Delete
+                </TabsTrigger>
+                <TabsTrigger value="quarantine" className="min-h-8 px-1 text-[10px] sm:min-h-[40px] sm:px-3 sm:text-sm">
+                  Quarantine
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="shipment" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <ShipmentRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />
               </TabsContent>
-              <TabsContent value="inventory" className="mt-4">
+              <TabsContent value="inventory" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <InventoryRequestsManagement selectedUser={selectedUser} initialRequestId={initialRequestId} />
               </TabsContent>
-              <TabsContent value="return" className="mt-4">
+              <TabsContent value="return" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <ProductReturnsManagement
                   managedUsers={selectedUser ? [selectedUser] : []}
                   filterUserId={selectedUser?.uid}
@@ -2630,10 +2642,10 @@ export function AdminInventoryManagement({
                   pinActionableToTop
                 />
               </TabsContent>
-              <TabsContent value="dispose" className="mt-4">
+              <TabsContent value="dispose" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <DisposeRequestsManagement selectedUser={selectedUser} inventory={inventory} initialRequestId={initialRequestId} />
               </TabsContent>
-              <TabsContent value="delete" className="mt-4">
+              <TabsContent value="delete" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <DeleteRequestsManagement
                   selectedUser={selectedUser}
                   inventory={inventory}
@@ -2643,7 +2655,7 @@ export function AdminInventoryManagement({
                   }}
                 />
               </TabsContent>
-              <TabsContent value="quarantine" className="mt-4">
+              <TabsContent value="quarantine" className="mt-3 min-w-0 focus-visible:outline-none sm:mt-4">
                 <QuarantineRequestsManagement
                   selectedUser={selectedUser}
                   inventory={inventory}
@@ -2699,24 +2711,27 @@ export function AdminInventoryManagement({
       )}
 
       {activeSection === "move-inventory" && (
-        <Card className="border-2 border-emerald-200 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-emerald-50 to-emerald-100 border-b">
-            <CardTitle className="text-emerald-900 flex items-center gap-2">
-              <ArrowRight className="h-5 w-5" />
-              Relocate quantity (no putaway)
+        <Card className="min-w-0 overflow-hidden border-2 border-emerald-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-emerald-50 to-emerald-100 px-3 py-3 sm:px-6 sm:py-4">
+            <CardTitle className="flex items-center gap-2 text-base text-emerald-900 sm:text-lg">
+              <ArrowRight className="h-5 w-5 shrink-0" />
+              <span className="min-w-0">
+                <span className="sm:hidden">Qty relocate</span>
+                <span className="hidden sm:inline">Relocate quantity (no putaway)</span>
+              </span>
             </CardTitle>
-            <CardDescription className="text-emerald-700">
-              Adjusts this user&apos;s location quantities only — does not move warehouse labels or
-              create putaway work. For site-to-site moves with putaway, use{" "}
-              <a href="/admin/dashboard/internal-move" className="underline font-medium text-emerald-900">
+            <CardDescription className="text-xs text-emerald-700 sm:text-sm">
+              Adjusts this user&apos;s location quantities only — not warehouse labels or putaway.
+              Site-to-site with putaway:{" "}
+              <a href="/admin/dashboard/internal-move" className="font-medium text-emerald-900 underline">
                 Internal Move
               </a>
               .
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-6 space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
+          <CardContent className="min-w-0 space-y-4 p-3 sm:space-y-6 sm:p-6">
+            <div className="grid min-w-0 gap-3 sm:gap-4 md:grid-cols-2">
+              <div className="min-w-0 space-y-2 md:col-span-2">
                 <Label>Inventory Item</Label>
                 <Popover open={moveItemPickerOpen} onOpenChange={setMoveItemPickerOpen}>
                   <PopoverTrigger asChild>
@@ -2724,22 +2739,27 @@ export function AdminInventoryManagement({
                       variant="outline"
                       role="combobox"
                       aria-expanded={moveItemPickerOpen}
-                      className="w-full justify-between"
+                      className="h-auto min-h-10 w-full min-w-0 justify-between gap-2 px-3 py-2 text-left"
                     >
-                      {moveInventoryItemId
-                        ? (() => {
-                            const selected = movableInventory.find((item) => item.id === moveInventoryItemId);
-                            if (!selected) return "Select item to move";
-                            return `${selected.productName}${(selected as any).sku ? ` | SKU: ${(selected as any).sku}` : ""} | Qty: ${selected.quantity}`;
-                          })()
-                        : "Select item to move"}
-                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {moveInventoryItemId
+                          ? (() => {
+                              const selected = movableInventory.find((item) => item.id === moveInventoryItemId);
+                              if (!selected) return "Select item to move";
+                              return `${selected.productName}${(selected as any).sku ? ` | SKU: ${(selected as any).sku}` : ""} | Qty: ${selected.quantity}`;
+                            })()
+                          : "Select item to move"}
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                  <PopoverContent
+                    align="start"
+                    className="w-[min(100vw-2rem,var(--radix-popover-trigger-width))] max-w-[calc(100vw-2rem)] p-0"
+                  >
                     <div className="border-b p-2">
                       <Input
-                        placeholder="Search item by name or SKU..."
+                        placeholder="Search by name or SKU..."
                         value={moveItemSearchTerm}
                         onChange={(e) => setMoveItemSearchTerm(e.target.value)}
                         className="h-9"
@@ -2762,11 +2782,15 @@ export function AdminInventoryManagement({
                               setMoveInventoryItemId(item.id);
                               setMoveItemPickerOpen(false);
                             }}
-                            className={`w-full rounded-sm px-2 py-2 text-left text-sm hover:bg-accent ${
+                            className={`w-full min-w-0 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent ${
                               moveInventoryItemId === item.id ? "bg-accent" : ""
                             }`}
                           >
-                            {item.productName} {(item as any).sku ? `| SKU: ${(item as any).sku}` : ""} | Qty: {item.quantity}
+                            <span className="block truncate font-medium">{item.productName}</span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                              {(item as any).sku ? `SKU: ${(item as any).sku} · ` : ""}
+                              Qty: {item.quantity}
+                            </span>
                           </button>
                         ))}
                     </div>
@@ -2774,10 +2798,10 @@ export function AdminInventoryManagement({
                 </Popover>
               </div>
 
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label>From Location</Label>
                 <Select value={moveFromLocationId} onValueChange={setMoveFromLocationId}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select source" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2790,10 +2814,10 @@ export function AdminInventoryManagement({
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label>To Location</Label>
                 <Select value={moveToLocationId} onValueChange={setMoveToLocationId}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select destination" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2808,7 +2832,7 @@ export function AdminInventoryManagement({
                 </Select>
               </div>
 
-              <div className="space-y-2">
+              <div className="min-w-0 space-y-2">
                 <Label>Quantity</Label>
                 <Input
                   type="number"
@@ -2816,41 +2840,47 @@ export function AdminInventoryManagement({
                   max={selectedMoveItem?.quantity || 1}
                   value={moveQuantity}
                   onChange={(e) => setMoveQuantity(Math.max(1, Number.parseInt(e.target.value || "1", 10)))}
+                  className="w-full"
                 />
               </div>
 
-              <div className="space-y-2 md:col-span-2">
+              <div className="min-w-0 space-y-2 md:col-span-2">
                 <Label>Reason (optional)</Label>
                 <Input
                   placeholder="Overflow, balancing, capacity adjustment..."
                   value={moveReason}
                   onChange={(e) => setMoveReason(e.target.value)}
+                  className="w-full"
                 />
               </div>
             </div>
 
-            <div className="flex justify-end">
-              <Button onClick={handleMoveInventory} disabled={isMovingInventory || !moveInventoryItemId}>
+            <div className="flex justify-stretch sm:justify-end">
+              <Button
+                onClick={handleMoveInventory}
+                disabled={isMovingInventory || !moveInventoryItemId}
+                className="min-h-11 w-full sm:w-auto"
+              >
                 {isMovingInventory && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Relocate quantity
               </Button>
             </div>
 
-            <div className="space-y-3 border-t pt-4">
+            <div className="min-w-0 space-y-3 border-t pt-4">
               <h4 className="text-sm font-semibold">Recent Transfer Log</h4>
               {sortedTransferLogs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No internal transfers recorded yet.</p>
               ) : (
                 <div className="space-y-2">
                   {sortedTransferLogs.slice(0, 15).map((log) => (
-                    <div key={log.id} className="rounded-md border p-3 text-sm">
-                      <p className="font-medium">
+                    <div key={log.id} className="min-w-0 rounded-md border p-2.5 text-sm sm:p-3">
+                      <p className="break-words font-medium">
                         {log.productName} {(log as any).sku ? `(${(log as any).sku})` : ""} - {log.quantity} units
                       </p>
-                      <p className="text-muted-foreground">
+                      <p className="break-words text-muted-foreground">
                         {(log as any).fromLocationName || log.fromLocationId} → {(log as any).toLocationName || log.toLocationId}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
                         By {(log as any).movedBy || "Admin"} on {formatDate((log as any).movedAt)}
                         {(log as any).reason ? ` | Reason: ${(log as any).reason}` : ""}
                       </p>
@@ -3042,19 +3072,20 @@ export function AdminInventoryManagement({
 
       {/* Restock Summary (Conditional) */}
       {activeSection === "restock-history" && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <CardTitle>Restock Summary ({filteredRestockHistory.length})</CardTitle>
-                <CardDescription>
-                  View restock history for {selectedUser.name}. Use <strong>Correct</strong> on a row
-                  to fix qty, date, or expiry (no new entry).
+        <Card className="min-w-0 overflow-hidden border-2 border-green-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-green-50 to-emerald-50 px-3 py-3 sm:px-6 sm:py-4">
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="min-w-0">
+                <CardTitle className="text-base text-green-900 sm:text-lg">
+                  Restock Summary ({filteredRestockHistory.length})
+                </CardTitle>
+                <CardDescription className="text-xs text-green-700 sm:text-sm">
+                  History for {selectedUser.name}. Use Correct to fix qty/date/expiry.
                 </CardDescription>
               </div>
-              <div className="w-full sm:w-72">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="relative min-w-0 sm:col-span-2 lg:col-span-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Search product or restocked by..."
                     value={restockSearch}
@@ -3062,14 +3093,14 @@ export function AdminInventoryManagement({
                       setRestockSearch(e.target.value);
                       resetRestockHistoryPagination();
                     }}
-                    className="pl-10 pr-10"
+                    className="h-9 pl-10 pr-10"
                   />
                   {restockSearch && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                      className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
                       onClick={() => {
                         setRestockSearch("");
                         resetRestockHistoryPagination();
@@ -3079,14 +3110,15 @@ export function AdminInventoryManagement({
                     </Button>
                   )}
                 </div>
-              </div>
-              <div className="w-full sm:w-48">
-                <Select value={restockDateFilter} onValueChange={(value) => {
-                  setRestockDateFilter(value);
-                  resetRestockHistoryPagination();
-                }}>
-                  <SelectTrigger>
-                    <Filter className="h-4 w-4 mr-2" />
+                <Select
+                  value={restockDateFilter}
+                  onValueChange={(value) => {
+                    setRestockDateFilter(value);
+                    resetRestockHistoryPagination();
+                  }}
+                >
+                  <SelectTrigger className="h-9 w-full">
+                    <Filter className="mr-2 h-4 w-4 shrink-0" />
                     <SelectValue placeholder="Filter by date" />
                   </SelectTrigger>
                   <SelectContent>
@@ -3097,187 +3129,338 @@ export function AdminInventoryManagement({
                     <SelectItem value="year">This Year</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="w-full sm:w-[260px]">
-                <DateRangePicker
-                  fromDate={restockFromDate}
-                  toDate={restockToDate}
-                  setFromDate={(d) => {
-                    setRestockFromDate(d);
-                    resetRestockHistoryPagination();
-                  }}
-                  setToDate={(d) => {
-                    setRestockToDate(d);
-                    resetRestockHistoryPagination();
-                  }}
-                />
+                <div className="min-w-0 w-full">
+                  <DateRangePicker
+                    fromDate={restockFromDate}
+                    toDate={restockToDate}
+                    setFromDate={(d) => {
+                      setRestockFromDate(d);
+                      resetRestockHistoryPagination();
+                    }}
+                    setToDate={(d) => {
+                      setRestockToDate(d);
+                      resetRestockHistoryPagination();
+                    }}
+                    className="w-full"
+                  />
+                </div>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
             {restockHistoryLoading ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                  <div key={i} className="h-20 animate-pulse rounded-lg bg-muted sm:h-16" />
                 ))}
               </div>
             ) : filteredRestockHistory.length > 0 ? (
-              <div className="rounded-lg border border-green-200 bg-green-50/30 overflow-hidden">
-                <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                  <TableHeader className="bg-green-100/70">
-                    <TableRow>
-                      <TableHead className="min-w-[260px]">Product</TableHead>
-                      <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
-                      <TableHead className="min-w-[120px]">Expiry</TableHead>
-                      <TableHead className="min-w-[110px]">Previous</TableHead>
-                      <TableHead className="min-w-[120px]">New Total</TableHead>
-                      <TableHead className="min-w-[180px]">Restocked By</TableHead>
-                      <TableHead className="min-w-[150px]">Date</TableHead>
-                      <TableHead className="min-w-[140px]">Pictures</TableHead>
-                      <TableHead className="min-w-[200px]">Remarks</TableHead>
-                      <TableHead className="w-24 text-right">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedRestockHistory.map((item) => (
-                      <TableRow key={item.id} className="bg-white/70">
-                        <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
-                        <TableCell>
-                          <Badge className="bg-green-500 text-white text-[10px]">+{item.restockedQuantity}</Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-700 text-sm">
-                          {expiryBatchIso(item.expiryDate) || (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
-                        <TableCell className="font-semibold text-green-700">{item.newQuantity}</TableCell>
-                        <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
-                        <TableCell className="text-slate-700">
-                          <span className="inline-flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
+              <>
+                {/* Mobile cards */}
+                <div className="space-y-2 md:hidden">
+                  {paginatedRestockHistory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="min-w-0 space-y-2.5 rounded-lg border border-green-200 bg-green-50/40 p-3"
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm font-semibold text-slate-900">
+                            {item.productName}
+                          </p>
+                          <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <Calendar className="h-3 w-3 shrink-0" />
                             {formatDate(item.restockedAt)}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => openRestockImageViewer(item.imageUrls || [], `${item.productName} - ${formatDate(item.restockedAt)}`)}
-                              className="inline-flex items-center gap-2 hover:opacity-90"
-                              title="View pictures"
-                            >
-                              <span className="relative inline-flex">
-                                <img
-                                  src={item.imageUrls[0]}
-                                  alt="restock-pic"
-                                  className="h-9 w-9 rounded-md border object-cover"
-                                />
-                                {item.imageUrls.length > 1 && (
-                                  <span className="absolute -bottom-1 -right-1 text-[10px] leading-none px-1 py-0.5 rounded-full bg-green-600 text-white border border-white">
-                                    +{item.imageUrls.length - 1}
-                                  </span>
-                                )}
-                              </span>
-                              <span className="text-xs text-green-700 font-medium">View</span>
-                            </button>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <ImageIcon className="h-3 w-3" />
-                              None
+                          </p>
+                        </div>
+                        <Badge className="shrink-0 bg-green-500 text-[10px] text-white">
+                          +{item.restockedQuantity}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 rounded-md bg-white/80 px-2 py-1.5 text-center text-xs tabular-nums">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Previous</p>
+                          <p className="text-slate-700">{item.previousQuantity}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Added</p>
+                          <p className="font-medium text-green-700">+{item.restockedQuantity}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">New total</p>
+                          <p className="font-semibold text-green-700">{item.newQuantity}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1 text-xs text-slate-700">
+                        <p className="truncate">
+                          <span className="text-muted-foreground">By </span>
+                          {item.restockedBy}
+                        </p>
+                        <p>
+                          <span className="text-muted-foreground">Expiry </span>
+                          {expiryBatchIso(item.expiryDate) || "—"}
+                        </p>
+                        {item.remarks ? (
+                          <button
+                            type="button"
+                            className="block w-full break-words text-left text-green-800 underline-offset-2 hover:underline"
+                            onClick={() => handleRemarksClick(item.remarks || "")}
+                          >
+                            {item.remarks}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openRestockImageViewer(
+                                item.imageUrls || [],
+                                `${item.productName} - ${formatDate(item.restockedAt)}`
+                              )
+                            }
+                            className="inline-flex items-center gap-2 hover:opacity-90"
+                          >
+                            <span className="relative inline-flex">
+                              <img
+                                src={item.imageUrls[0]}
+                                alt=""
+                                className="h-9 w-9 rounded-md border object-cover"
+                              />
+                              {item.imageUrls.length > 1 && (
+                                <span className="absolute -bottom-1 -right-1 rounded-full border border-white bg-green-600 px-1 py-0.5 text-[10px] leading-none text-white">
+                                  +{item.imageUrls.length - 1}
+                                </span>
+                              )}
                             </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-slate-700">
-                          {item.remarks ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto p-1 text-xs text-left justify-start max-w-[220px] truncate"
-                              onClick={() => handleRemarksClick(item.remarks || "")}
-                              title={item.remarks}
-                            >
-                              {item.remarks}
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 px-2 text-xs border-amber-300 text-amber-800 hover:bg-amber-50"
-                              title="Correct restock qty, date, or expiry"
-                              onClick={() => openCorrectRestock(item)}
-                            >
-                              <Edit className="h-3.5 w-3.5 mr-1" />
-                              Correct
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to delete this restock record for "{item.productName}"?
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteRestockHistory(item)}
-                                    className="bg-red-600 hover:bg-red-700"
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
+                            <span className="text-xs font-medium text-green-700">View pics</span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <ImageIcon className="h-3 w-3" />
+                            No pics
+                          </span>
+                        )}
+                        <div className="ml-auto flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-50"
+                            onClick={() => openCorrectRestock(item)}
+                          >
+                            <Edit className="mr-1 h-3.5 w-3.5" />
+                            Correct
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm" className="h-8 w-8 p-0">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="w-[calc(100vw-1.5rem)] max-w-lg">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this restock record for &quot;
+                                  {item.productName}&quot;?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+                                <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteRestockHistory(item)}
+                                  className="w-full bg-red-600 hover:bg-red-700 sm:w-auto"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden overflow-hidden rounded-lg border border-green-200 bg-green-50/30 md:block">
+                  <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                    <TableHeader className="bg-green-100/70">
+                      <TableRow>
+                        <TableHead className="min-w-[260px]">Product</TableHead>
+                        <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
+                        <TableHead className="min-w-[120px]">Expiry</TableHead>
+                        <TableHead className="min-w-[110px]">Previous</TableHead>
+                        <TableHead className="min-w-[120px]">New Total</TableHead>
+                        <TableHead className="min-w-[180px]">Restocked By</TableHead>
+                        <TableHead className="min-w-[150px]">Date</TableHead>
+                        <TableHead className="min-w-[140px]">Pictures</TableHead>
+                        <TableHead className="min-w-[200px]">Remarks</TableHead>
+                        <TableHead className="w-24 text-right">Action</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedRestockHistory.map((item) => (
+                        <TableRow key={item.id} className="bg-white/70">
+                          <TableCell className="font-semibold text-slate-900">
+                            {item.productName}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className="bg-green-500 text-[10px] text-white">
+                              +{item.restockedQuantity}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-700">
+                            {expiryBatchIso(item.expiryDate) || (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
+                          <TableCell className="font-semibold text-green-700">
+                            {item.newQuantity}
+                          </TableCell>
+                          <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
+                          <TableCell className="text-slate-700">
+                            <span className="inline-flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {formatDate(item.restockedAt)}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openRestockImageViewer(
+                                    item.imageUrls || [],
+                                    `${item.productName} - ${formatDate(item.restockedAt)}`
+                                  )
+                                }
+                                className="inline-flex items-center gap-2 hover:opacity-90"
+                                title="View pictures"
+                              >
+                                <span className="relative inline-flex">
+                                  <img
+                                    src={item.imageUrls[0]}
+                                    alt="restock-pic"
+                                    className="h-9 w-9 rounded-md border object-cover"
+                                  />
+                                  {item.imageUrls.length > 1 && (
+                                    <span className="absolute -bottom-1 -right-1 rounded-full border border-white bg-green-600 px-1 py-0.5 text-[10px] leading-none text-white">
+                                      +{item.imageUrls.length - 1}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-xs font-medium text-green-700">View</span>
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                <ImageIcon className="h-3 w-3" />
+                                None
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-slate-700">
+                            {item.remarks ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto max-w-[220px] justify-start truncate p-1 text-left text-xs"
+                                onClick={() => handleRemarksClick(item.remarks || "")}
+                                title={item.remarks}
+                              >
+                                {item.remarks}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-50"
+                                title="Correct restock qty, date, or expiry"
+                                onClick={() => openCorrectRestock(item)}
+                              >
+                                <Edit className="mr-1 h-3.5 w-3.5" />
+                                Correct
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete this restock record for &quot;
+                                      {item.productName}&quot;?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleDeleteRestockHistory(item)}
+                                      className="bg-red-600 hover:bg-red-700"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             ) : (
-              <div className="text-center py-8">
-                <History className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No restock summary</h3>
-                <p className="text-muted-foreground">
-                  {restockHistory.length === 0 ? "No products have been restocked yet." : "No restocks match your search or date filter."}
+              <div className="py-8 text-center">
+                <History className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+                <h3 className="mb-2 text-base font-semibold sm:text-lg">No restock summary</h3>
+                <p className="text-sm text-muted-foreground">
+                  {restockHistory.length === 0
+                    ? "No products have been restocked yet."
+                    : "No restocks match your search or date filter."}
                 </p>
               </div>
             )}
 
             {/* Pagination Controls for Restock Summary */}
             {filteredRestockHistory.length > itemsPerPage && (
-              <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                <div className="text-sm text-muted-foreground">
-                  Showing {restockHistoryStartIndex + 1} to {Math.min(restockHistoryEndIndex, filteredRestockHistory.length)} of {filteredRestockHistory.length} records
+              <div className="mt-2 flex flex-col gap-3 border-t pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                <div className="text-xs text-muted-foreground sm:text-sm">
+                  Showing {restockHistoryStartIndex + 1}–
+                  {Math.min(restockHistoryEndIndex, filteredRestockHistory.length)} of{" "}
+                  {filteredRestockHistory.length}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-3 items-center gap-2 sm:flex">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setRestockHistoryPage(p => Math.max(1, p - 1))}
+                    className="w-full sm:w-auto"
+                    onClick={() => setRestockHistoryPage((p) => Math.max(1, p - 1))}
                     disabled={restockHistoryPage === 1}
                   >
-                    Previous
+                    Prev
                   </Button>
-                  <span className="text-sm">
-                    Page {restockHistoryPage} of {restockHistoryTotalPages}
+                  <span className="text-center text-xs sm:text-sm">
+                    {restockHistoryPage}/{restockHistoryTotalPages}
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setRestockHistoryPage(p => Math.min(restockHistoryTotalPages, p + 1))}
+                    className="w-full sm:w-auto"
+                    onClick={() =>
+                      setRestockHistoryPage((p) => Math.min(restockHistoryTotalPages, p + 1))
+                    }
                     disabled={restockHistoryPage === restockHistoryTotalPages}
                   >
                     Next
@@ -3291,19 +3474,48 @@ export function AdminInventoryManagement({
 
       {/* Disposed Inventory Section */}
       {activeSection === "recycle-bin" && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <CardTitle className="text-orange-600">Disposed Inventory ({filteredRecycledInventory.length})</CardTitle>
-                <CardDescription>View and restore recycled items for {selectedUser.name}</CardDescription>
+        <Card className="min-w-0 overflow-hidden border-2 border-orange-200 shadow-lg">
+          <CardHeader className="border-b bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-3 sm:px-6 sm:py-4">
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="min-w-0">
+                <CardTitle className="text-base text-orange-700 sm:text-lg">
+                  Disposed Inventory ({filteredRecycledInventory.length})
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  Recycled items for {selectedUser.name}
+                </CardDescription>
               </div>
-              <div className="sm:w-48">
-                <Select value={recycleDateFilter} onValueChange={(value) => {
-                  setRecycleDateFilter(value);
-                  resetRecyclePagination();
-                }}>
-                  <SelectTrigger>
+              <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="relative min-w-0 sm:col-span-2">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search product, reason, or admin..."
+                    value={recycleSearch}
+                    onChange={(e) => {
+                      setRecycleSearch(e.target.value);
+                      resetRecyclePagination();
+                    }}
+                    className="h-9 pl-10 pr-10"
+                  />
+                  {recycleSearch && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                      onClick={() => setRecycleSearch("")}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+                <Select
+                  value={recycleDateFilter}
+                  onValueChange={(value) => {
+                    setRecycleDateFilter(value);
+                    resetRecyclePagination();
+                  }}
+                >
+                  <SelectTrigger className="h-9 w-full">
                     <SelectValue placeholder="Filter by date" />
                   </SelectTrigger>
                   <SelectContent>
@@ -3317,139 +3529,157 @@ export function AdminInventoryManagement({
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            {/* Search Controls */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by product name, reason, or admin..."
-                    value={recycleSearch}
-                    onChange={(e) => {
-                      setRecycleSearch(e.target.value);
-                      resetRecyclePagination();
-                    }}
-                    className="pl-10"
-                  />
-                  {recycleSearch && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                      onClick={() => setRecycleSearch("")}
+          <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
+            {recycledInventoryLoading ? (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-20 animate-pulse rounded-lg bg-muted sm:h-16" />
+                ))}
+              </div>
+            ) : filteredRecycledInventory.length > 0 ? (
+              <>
+                <div className="space-y-2 md:hidden">
+                  {paginatedRecycledInventory.map((item) => (
+                    <div
+                      key={item.id}
+                      className="min-w-0 space-y-2 rounded-lg border border-amber-200 bg-amber-50/40 p-3"
                     >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  )}
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 break-words text-sm font-semibold text-gray-900">
+                          {item.productName}
+                        </p>
+                        <Badge className="shrink-0 bg-amber-500 text-[10px] text-white">
+                          Qty: {item.quantity}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge
+                          variant={item.status === "In Stock" ? "default" : "destructive"}
+                          className="text-[10px]"
+                        >
+                          {item.status}
+                        </Badge>
+                        <span className="text-xs text-orange-700">
+                          Disposed {formatDate(item.recycledAt)}
+                        </span>
+                      </div>
+                      {item.remarks ? (
+                        <p className="break-words text-xs text-amber-900">{item.remarks}</p>
+                      ) : null}
+                      <p className="truncate text-xs text-muted-foreground">
+                        By {item.recycledBy} · Added {formatDate(item.dateAdded)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden overflow-hidden rounded-lg border border-amber-200 bg-amber-50/30 md:block">
+                  <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                    <TableHeader className="bg-amber-100/70">
+                      <TableRow>
+                        <TableHead className="min-w-[220px]">Product</TableHead>
+                        <TableHead className="min-w-[120px]">Quantity</TableHead>
+                        <TableHead className="min-w-[120px]">Status</TableHead>
+                        <TableHead className="min-w-[300px]">Reason</TableHead>
+                        <TableHead className="min-w-[170px]">Disposed By</TableHead>
+                        <TableHead className="min-w-[150px]">Added</TableHead>
+                        <TableHead className="min-w-[150px]">Disposed</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedRecycledInventory.map((item) => (
+                        <TableRow key={item.id} className="bg-white/80">
+                          <TableCell className="font-semibold text-gray-900">
+                            {item.productName}
+                          </TableCell>
+                          <TableCell>
+                            <Badge className="bg-amber-500 text-[10px] text-white">
+                              Qty: {item.quantity}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={item.status === "In Stock" ? "default" : "destructive"}
+                              className="text-[10px]"
+                            >
+                              {item.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
+                          <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
+                          <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
+                          <TableCell className="font-medium text-orange-700">
+                            {formatDate(item.recycledAt)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            ) : (
+              <div className="py-8 text-center">
+                <RotateCcw className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+                <h3 className="mb-2 text-base font-semibold sm:text-lg">No disposed inventory items</h3>
+                <p className="text-sm text-muted-foreground">
+                  {recycledInventory.length === 0
+                    ? "No inventory items have been disposed yet."
+                    : "No disposed inventory items match your search or date filter."}
+                </p>
+              </div>
+            )}
+
+            {filteredRecycledInventory.length > itemsPerPage && (
+              <div className="mt-2 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+                <div className="text-xs text-muted-foreground sm:text-sm">
+                  Showing {recycleStartIndex + 1}–
+                  {Math.min(recycleEndIndex, filteredRecycledInventory.length)} of{" "}
+                  {filteredRecycledInventory.length}
+                </div>
+                <div className="grid grid-cols-3 items-center gap-2 sm:flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
+                    disabled={recyclePage === 1}
+                  >
+                    Prev
+                  </Button>
+                  <span className="text-center text-xs sm:text-sm">
+                    {recyclePage}/{recycleTotalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
+                    disabled={recyclePage === recycleTotalPages}
+                  >
+                    Next
+                  </Button>
                 </div>
               </div>
-            </div>
-            <div className="space-y-6">
-              {/* Recycled Inventory Items */}
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Disposed Inventory Items ({filteredRecycledInventory.length})</h3>
-                {recycledInventoryLoading ? (
-                  <div className="space-y-4">
-                    {[1, 2].map((i) => (
-                      <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
-                    ))}
-                  </div>
-                ) : filteredRecycledInventory.length > 0 ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/30 overflow-hidden">
-                    <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                      <TableHeader className="bg-amber-100/70">
-                        <TableRow>
-                          <TableHead className="min-w-[220px]">Product</TableHead>
-                          <TableHead className="min-w-[120px]">Quantity</TableHead>
-                          <TableHead className="min-w-[120px]">Status</TableHead>
-                          <TableHead className="min-w-[300px]">Reason</TableHead>
-                          <TableHead className="min-w-[170px]">Disposed By</TableHead>
-                          <TableHead className="min-w-[150px]">Added</TableHead>
-                          <TableHead className="min-w-[150px]">Disposed</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paginatedRecycledInventory.map((item) => (
-                          <TableRow key={item.id} className="bg-white/80">
-                            <TableCell className="font-semibold text-gray-900">{item.productName}</TableCell>
-                            <TableCell>
-                              <Badge className="bg-amber-500 text-white text-[10px]">Qty: {item.quantity}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">
-                                {item.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
-                            <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
-                            <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
-                            <TableCell className="text-orange-700 font-medium">{formatDate(item.recycledAt)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <RotateCcw className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No disposed inventory items</h3>
-                    <p className="text-muted-foreground">
-                      {recycledInventory.length === 0 ? "No inventory items have been disposed yet." : "No disposed inventory items match your search or date filter."}
-                    </p>
-                  </div>
-                )}
-
-                {/* Pagination for Recycle Section */}
-                {filteredRecycledInventory.length > itemsPerPage && (
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {recycleStartIndex + 1} to {Math.min(recycleEndIndex, filteredRecycledInventory.length)} of {filteredRecycledInventory.length} records
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setRecyclePage(p => Math.max(1, p - 1))}
-                        disabled={recyclePage === 1}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm">
-                        Page {recyclePage} of {recycleTotalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setRecyclePage(p => Math.min(recycleTotalPages, p + 1))}
-                        disabled={recyclePage === recycleTotalPages}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       )}
 
       {/* Deleted Logs Section */}
       {activeSection === "delete-log" && (
-      <Card className="relative z-10">
-        <CardHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div>
-                <CardTitle className="text-red-600">Deleted Logs ({filteredDeleteLogs.length})</CardTitle>
-                <CardDescription>
-                  View permanently deleted products for {selectedUser.name}. Submit a delete request
-                  on their behalf from here or under User Requests → Delete.
+      <Card className="relative z-10 min-w-0 overflow-hidden border-2 border-red-200 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-r from-red-50 to-rose-50 px-3 py-3 sm:px-6 sm:py-4">
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="text-base text-red-600 sm:text-lg">
+                  Deleted Logs ({filteredDeleteLogs.length})
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">
+                  Permanently deleted products for {selectedUser.name}
                 </CardDescription>
               </div>
               <Button
-                className="shrink-0"
+                className="h-9 w-full shrink-0 sm:w-auto"
                 onClick={() => setDeleteRequestDialogOpen(true)}
                 disabled={!selectedUser || inventory.length === 0}
               >
@@ -3457,28 +3687,48 @@ export function AdminInventoryManagement({
                 Submit for user
               </Button>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 relative z-20">
-              <div className="sm:w-48">
-                <Select
-                  value={deleteLogsDateFilter}
-                  onValueChange={(value) => {
-                    setDeleteLogsDateFilter(value);
+            <div className="relative z-20 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="relative min-w-0 sm:col-span-2 lg:col-span-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search product, reason, or admin..."
+                  value={deleteLogsSearch}
+                  onChange={(e) => {
+                    setDeleteLogsSearch(e.target.value);
                     resetDeleteLogsPagination();
                   }}
-                >
-                  <SelectTrigger className="bg-background">
-                    <SelectValue placeholder="Filter by date" />
-                  </SelectTrigger>
-                  <SelectContent className="z-[100]">
-                    <SelectItem value="all">All Time</SelectItem>
-                    <SelectItem value="today">Today</SelectItem>
-                    <SelectItem value="week">This Week</SelectItem>
-                    <SelectItem value="month">This Month</SelectItem>
-                    <SelectItem value="year">This Year</SelectItem>
-                  </SelectContent>
-                </Select>
+                  className="h-9 bg-background pl-10 pr-10"
+                />
+                {deleteLogsSearch && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                    onClick={() => setDeleteLogsSearch("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
               </div>
-              <div className="w-full sm:w-[260px]">
+              <Select
+                value={deleteLogsDateFilter}
+                onValueChange={(value) => {
+                  setDeleteLogsDateFilter(value);
+                  resetDeleteLogsPagination();
+                }}
+              >
+                <SelectTrigger className="h-9 w-full bg-background">
+                  <SelectValue placeholder="Filter by date" />
+                </SelectTrigger>
+                <SelectContent className="z-[100]">
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="today">Today</SelectItem>
+                  <SelectItem value="week">This Week</SelectItem>
+                  <SelectItem value="month">This Month</SelectItem>
+                  <SelectItem value="year">This Year</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="min-w-0 w-full">
                 <DateRangePicker
                   fromDate={deleteLogsFromDate}
                   toDate={deleteLogsToDate}
@@ -3490,112 +3740,136 @@ export function AdminInventoryManagement({
                     setDeleteLogsToDate(d);
                     resetDeleteLogsPagination();
                   }}
+                  className="w-full"
                 />
               </div>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          {/* Search Controls */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by product name, reason, or admin..."
-                  value={deleteLogsSearch}
-                  onChange={(e) => {
-                    setDeleteLogsSearch(e.target.value);
-                    resetDeleteLogsPagination();
-                  }}
-                  className="pl-10"
-                />
-                {deleteLogsSearch && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => setDeleteLogsSearch("")}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
+        <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
           {deleteLogsLoading ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {[1, 2].map((i) => (
-                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                <div key={i} className="h-20 animate-pulse rounded-lg bg-muted sm:h-16" />
               ))}
             </div>
           ) : filteredDeleteLogs.length > 0 ? (
-            <div className="rounded-lg border border-red-200 bg-red-50/30 overflow-hidden">
-              <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                <TableHeader className="bg-red-100/70">
-                  <TableRow>
-                    <TableHead className="min-w-[240px]">Product</TableHead>
-                    <TableHead className="min-w-[110px]">Quantity</TableHead>
-                    <TableHead className="min-w-[120px]">Status</TableHead>
-                    <TableHead className="min-w-[150px]">Added</TableHead>
-                    <TableHead className="min-w-[150px]">Deleted</TableHead>
-                    <TableHead className="min-w-[170px]">Deleted By</TableHead>
-                    <TableHead className="min-w-[260px]">Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedDeleteLogs.map((item) => (
-                    <TableRow key={item.id} className="bg-white/70">
-                      <TableCell className="font-semibold text-slate-900">{item.productName}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-red-500 text-white text-[10px]">-{item.quantity}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.status === "In Stock" ? "default" : "destructive"} className="text-[10px]">
-                          {item.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
-                      <TableCell className="font-semibold text-red-700">{formatDate(item.deletedAt)}</TableCell>
-                      <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
-                      <TableCell className="text-red-800">{item.reason}</TableCell>
+            <>
+              <div className="space-y-2 md:hidden">
+                {paginatedDeleteLogs.map((item) => (
+                  <div
+                    key={item.id}
+                    className="min-w-0 space-y-2 rounded-lg border border-red-200 bg-red-50/40 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-900">
+                        {item.productName}
+                      </p>
+                      <Badge className="shrink-0 bg-red-500 text-[10px] text-white">
+                        -{item.quantity}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge
+                        variant={item.status === "In Stock" ? "default" : "destructive"}
+                        className="text-[10px]"
+                      >
+                        {item.status}
+                      </Badge>
+                      <span className="text-xs font-medium text-red-700">
+                        Deleted {formatDate(item.deletedAt)}
+                      </span>
+                    </div>
+                    {item.reason ? (
+                      <p className="break-words text-xs text-red-800">{item.reason}</p>
+                    ) : null}
+                    <p className="truncate text-xs text-muted-foreground">
+                      By {item.deletedBy} · Added {formatDate(item.dateAdded)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-hidden rounded-lg border border-red-200 bg-red-50/30 md:block">
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-red-100/70">
+                    <TableRow>
+                      <TableHead className="min-w-[240px]">Product</TableHead>
+                      <TableHead className="min-w-[110px]">Quantity</TableHead>
+                      <TableHead className="min-w-[120px]">Status</TableHead>
+                      <TableHead className="min-w-[150px]">Added</TableHead>
+                      <TableHead className="min-w-[150px]">Deleted</TableHead>
+                      <TableHead className="min-w-[170px]">Deleted By</TableHead>
+                      <TableHead className="min-w-[260px]">Reason</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedDeleteLogs.map((item) => (
+                      <TableRow key={item.id} className="bg-white/70">
+                        <TableCell className="font-semibold text-slate-900">
+                          {item.productName}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-red-500 text-[10px] text-white">
+                            -{item.quantity}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={item.status === "In Stock" ? "default" : "destructive"}
+                            className="text-[10px]"
+                          >
+                            {item.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
+                        <TableCell className="font-semibold text-red-700">
+                          {formatDate(item.deletedAt)}
+                        </TableCell>
+                        <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
+                        <TableCell className="text-red-800">{item.reason}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           ) : (
-            <div className="text-center py-8">
-              <Trash2 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No deleted products</h3>
-              <p className="text-muted-foreground">
-                {deleteLogs.length === 0 ? "No products have been permanently deleted yet." : "No deleted products match your search or date filter."}
+            <div className="py-8 text-center">
+              <Trash2 className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <h3 className="mb-2 text-base font-semibold sm:text-lg">No deleted products</h3>
+              <p className="text-sm text-muted-foreground">
+                {deleteLogs.length === 0
+                  ? "No products have been permanently deleted yet."
+                  : "No deleted products match your search or date filter."}
               </p>
             </div>
           )}
 
-          {/* Pagination Controls for Deleted Logs */}
           {filteredDeleteLogs.length > itemsPerPage && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-              <div className="text-sm text-muted-foreground">
-                Showing {deleteLogsStartIndex + 1} to {Math.min(deleteLogsEndIndex, filteredDeleteLogs.length)} of {filteredDeleteLogs.length} records
+            <div className="mt-2 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">
+                Showing {deleteLogsStartIndex + 1}–
+                {Math.min(deleteLogsEndIndex, filteredDeleteLogs.length)} of{" "}
+                {filteredDeleteLogs.length}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-3 items-center gap-2 sm:flex">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setDeleteLogsPage(p => Math.max(1, p - 1))}
+                  className="w-full sm:w-auto"
+                  onClick={() => setDeleteLogsPage((p) => Math.max(1, p - 1))}
                   disabled={deleteLogsPage === 1}
                 >
-                  Previous
+                  Prev
                 </Button>
-                <span className="text-sm">
-                  Page {deleteLogsPage} of {deleteLogsTotalPages}
+                <span className="text-center text-xs sm:text-sm">
+                  {deleteLogsPage}/{deleteLogsTotalPages}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setDeleteLogsPage(p => Math.min(deleteLogsTotalPages, p + 1))}
+                  className="w-full sm:w-auto"
+                  onClick={() => setDeleteLogsPage((p) => Math.min(deleteLogsTotalPages, p + 1))}
                   disabled={deleteLogsPage === deleteLogsTotalPages}
                 >
                   Next
@@ -3623,19 +3897,48 @@ export function AdminInventoryManagement({
 
       {/* Modification Logs Section */}
       {activeSection === "edit-log" && (
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <CardTitle className="text-blue-600">Modification Logs ({filteredEditLogs.length})</CardTitle>
-              <CardDescription>View product edit history for {selectedUser.name}</CardDescription>
+      <Card className="min-w-0 overflow-hidden border-2 border-blue-200 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-sky-50 px-3 py-3 sm:px-6 sm:py-4">
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="min-w-0">
+              <CardTitle className="text-base text-blue-600 sm:text-lg">
+                Modification Logs ({filteredEditLogs.length})
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Product edit history for {selectedUser.name}
+              </CardDescription>
             </div>
-            <div className="sm:w-48">
-              <Select value={editLogsDateFilter} onValueChange={(value) => {
-                setEditLogsDateFilter(value);
-                resetEditLogsPagination();
-              }}>
-                <SelectTrigger>
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="relative min-w-0 sm:col-span-2 lg:col-span-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search product, reason, or admin..."
+                  value={editLogsSearch}
+                  onChange={(e) => {
+                    setEditLogsSearch(e.target.value);
+                    resetEditLogsPagination();
+                  }}
+                  className="h-9 pl-10 pr-10"
+                />
+                {editLogsSearch && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 p-0"
+                    onClick={() => setEditLogsSearch("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              <Select
+                value={editLogsDateFilter}
+                onValueChange={(value) => {
+                  setEditLogsDateFilter(value);
+                  resetEditLogsPagination();
+                }}
+              >
+                <SelectTrigger className="h-9 w-full">
                   <SelectValue placeholder="Filter by date" />
                 </SelectTrigger>
                 <SelectContent>
@@ -3646,140 +3949,178 @@ export function AdminInventoryManagement({
                   <SelectItem value="year">This Year</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="w-full sm:w-[260px]">
-              <DateRangePicker
-                fromDate={editLogsFromDate}
-                toDate={editLogsToDate}
-                setFromDate={(d) => {
-                  setEditLogsFromDate(d);
-                  resetEditLogsPagination();
-                }}
-                setToDate={(d) => {
-                  setEditLogsToDate(d);
-                  resetEditLogsPagination();
-                }}
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {/* Search Controls */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by product name, reason, or admin..."
-                  value={editLogsSearch}
-                  onChange={(e) => {
-                    setEditLogsSearch(e.target.value);
+              <div className="min-w-0 w-full">
+                <DateRangePicker
+                  fromDate={editLogsFromDate}
+                  toDate={editLogsToDate}
+                  setFromDate={(d) => {
+                    setEditLogsFromDate(d);
                     resetEditLogsPagination();
                   }}
-                  className="pl-10"
+                  setToDate={(d) => {
+                    setEditLogsToDate(d);
+                    resetEditLogsPagination();
+                  }}
+                  className="w-full"
                 />
-                {editLogsSearch && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                    onClick={() => setEditLogsSearch("")}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                )}
               </div>
             </div>
           </div>
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
           {editLogsLoading ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {[1, 2].map((i) => (
-                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                <div key={i} className="h-20 animate-pulse rounded-lg bg-muted sm:h-16" />
               ))}
             </div>
           ) : filteredEditLogs.length > 0 ? (
-            <div className="rounded-lg border border-blue-200 bg-blue-50/30 overflow-hidden">
-              <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll">
-                <TableHeader className="bg-blue-100/70">
-                  <TableRow>
-                    <TableHead className="w-[20%]">Product</TableHead>
-                    <TableHead className="w-[16%]">Quantity</TableHead>
-                    <TableHead className="w-[16%]">Status</TableHead>
-                    <TableHead className="w-[20%]">Reason</TableHead>
-                    <TableHead className="w-[14%]">Edited By</TableHead>
-                    <TableHead className="w-[14%]">Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedEditLogs.map((item) => (
-                    <TableRow key={item.id} className="bg-white/70">
-                      <TableCell className="font-semibold text-slate-900">
-                        <div className="flex items-center gap-2">
-                          <span>{item.productName}</span>
-                          {item.previousProductName && item.previousProductName !== item.productName && (
-                            <Badge variant="outline" className="text-[10px]">Renamed</Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-slate-700">
-                        <div className="inline-flex items-center gap-2">
-                          <span>{item.previousQuantity}</span>
+            <>
+              <div className="space-y-2 md:hidden">
+                {paginatedEditLogs.map((item) => (
+                  <div
+                    key={item.id}
+                    className="min-w-0 space-y-2 rounded-lg border border-blue-200 bg-blue-50/40 p-3"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <p className="break-words text-sm font-semibold text-slate-900">
+                        {item.productName}
+                      </p>
+                      {item.previousProductName &&
+                      item.previousProductName !== item.productName ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          Renamed
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-md bg-white/80 px-2 py-1.5">
+                        <p className="text-[10px] text-muted-foreground">Quantity</p>
+                        <p className="inline-flex items-center gap-1 tabular-nums">
+                          {item.previousQuantity}
                           <ArrowRight className="h-3 w-3 text-blue-500" />
                           <span className="font-semibold text-blue-700">{item.newQuantity}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="inline-flex items-center gap-2">
-                          <Badge variant="outline" className="text-[10px]">{item.previousStatus}</Badge>
-                          <ArrowRight className="h-3 w-3 text-blue-500" />
-                          <Badge className="bg-blue-500 text-white text-[10px]">{item.newStatus}</Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-slate-700 truncate" title={item.reason}>{item.reason}</TableCell>
-                      <TableCell className="text-slate-700 truncate">{item.editedBy}</TableCell>
-                      <TableCell className="text-slate-700">
-                        <span className="inline-flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {formatDate(item.editedAt)}
-                        </span>
-                      </TableCell>
+                        </p>
+                      </div>
+                      <div className="rounded-md bg-white/80 px-2 py-1.5">
+                        <p className="text-[10px] text-muted-foreground">Status</p>
+                        <p className="inline-flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            {item.previousStatus}
+                          </Badge>
+                          <ArrowRight className="h-3 w-3 shrink-0 text-blue-500" />
+                          <Badge className="bg-blue-500 text-[10px] text-white">
+                            {item.newStatus}
+                          </Badge>
+                        </p>
+                      </div>
+                    </div>
+                    {item.reason ? (
+                      <p className="break-words text-xs text-slate-700">{item.reason}</p>
+                    ) : null}
+                    <p className="inline-flex items-center gap-1 truncate text-xs text-muted-foreground">
+                      <Calendar className="h-3 w-3 shrink-0" />
+                      {formatDate(item.editedAt)} · {item.editedBy}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-hidden rounded-lg border border-blue-200 bg-blue-50/30 md:block">
+                <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-blue-100/70">
+                    <TableRow>
+                      <TableHead className="w-[20%]">Product</TableHead>
+                      <TableHead className="w-[16%]">Quantity</TableHead>
+                      <TableHead className="w-[16%]">Status</TableHead>
+                      <TableHead className="w-[20%]">Reason</TableHead>
+                      <TableHead className="w-[14%]">Edited By</TableHead>
+                      <TableHead className="w-[14%]">Date</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedEditLogs.map((item) => (
+                      <TableRow key={item.id} className="bg-white/70">
+                        <TableCell className="font-semibold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <span>{item.productName}</span>
+                            {item.previousProductName &&
+                            item.previousProductName !== item.productName ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                Renamed
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          <div className="inline-flex items-center gap-2">
+                            <span>{item.previousQuantity}</span>
+                            <ArrowRight className="h-3 w-3 text-blue-500" />
+                            <span className="font-semibold text-blue-700">{item.newQuantity}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="inline-flex items-center gap-2">
+                            <Badge variant="outline" className="text-[10px]">
+                              {item.previousStatus}
+                            </Badge>
+                            <ArrowRight className="h-3 w-3 text-blue-500" />
+                            <Badge className="bg-blue-500 text-[10px] text-white">
+                              {item.newStatus}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell className="truncate text-slate-700" title={item.reason}>
+                          {item.reason}
+                        </TableCell>
+                        <TableCell className="truncate text-slate-700">{item.editedBy}</TableCell>
+                        <TableCell className="text-slate-700">
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(item.editedAt)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           ) : (
-            <div className="text-center py-8">
-              <Edit className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No product edits</h3>
-              <p className="text-muted-foreground">
-                {editLogs.length === 0 ? "No products have been edited yet." : "No product edits match your search or date filter."}
+            <div className="py-8 text-center">
+              <Edit className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <h3 className="mb-2 text-base font-semibold sm:text-lg">No product edits</h3>
+              <p className="text-sm text-muted-foreground">
+                {editLogs.length === 0
+                  ? "No products have been edited yet."
+                  : "No product edits match your search or date filter."}
               </p>
             </div>
           )}
 
-          {/* Pagination Controls for Modification Logs */}
           {filteredEditLogs.length > itemsPerPage && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
-              <div className="text-sm text-muted-foreground">
-                Showing {editLogsStartIndex + 1} to {Math.min(editLogsEndIndex, filteredEditLogs.length)} of {filteredEditLogs.length} records
+            <div className="mt-2 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
+              <div className="text-xs text-muted-foreground sm:text-sm">
+                Showing {editLogsStartIndex + 1}–
+                {Math.min(editLogsEndIndex, filteredEditLogs.length)} of {filteredEditLogs.length}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-3 items-center gap-2 sm:flex">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setEditLogsPage(p => Math.max(1, p - 1))}
+                  className="w-full sm:w-auto"
+                  onClick={() => setEditLogsPage((p) => Math.max(1, p - 1))}
                   disabled={editLogsPage === 1}
                 >
-                  Previous
+                  Prev
                 </Button>
-                <span className="text-sm">
-                  Page {editLogsPage} of {editLogsTotalPages}
+                <span className="text-center text-xs sm:text-sm">
+                  {editLogsPage}/{editLogsTotalPages}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setEditLogsPage(p => Math.min(editLogsTotalPages, p + 1))}
+                  className="w-full sm:w-auto"
+                  onClick={() => setEditLogsPage((p) => Math.min(editLogsTotalPages, p + 1))}
                   disabled={editLogsPage === editLogsTotalPages}
                 >
                   Next

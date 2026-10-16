@@ -164,14 +164,14 @@ export function DashboardSidebar() {
       if (flagged) return flagged;
     }
     return allActiveLocations.find((loc) => {
-      const display = formatWarehouseDisplayName(loc.name);
-      const normalized = normalizeWarehouseKey(loc.name ?? "");
-      return (
-        display === "NJ-02" ||
-        display.startsWith("NJ-02") ||
-        isDefaultNj2Warehouse(loc.name) ||
-        /^nj0*2/.test(normalized)
-      );
+        const display = formatWarehouseDisplayName(loc.name);
+        const normalized = normalizeWarehouseKey(loc.name ?? "");
+        return (
+          display === "NJ-02" ||
+          display.startsWith("NJ-02") ||
+          isDefaultNj2Warehouse(loc.name) ||
+          /^nj0*2/.test(normalized)
+        );
     });
   }, [allActiveLocations]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");

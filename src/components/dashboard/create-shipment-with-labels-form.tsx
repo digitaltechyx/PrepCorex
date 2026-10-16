@@ -1323,7 +1323,7 @@ export function CreateShipmentWithLabelsForm({
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit, onInvalidSubmit)} className="min-w-0 space-y-4 sm:space-y-6">
           {/* Add Shipment Button */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h3 className="text-base font-semibold sm:text-lg">
                 {isQuickShip ? "Quick Ship outbound" : "Create Outbound Shipment"}
@@ -1334,15 +1334,15 @@ export function CreateShipmentWithLabelsForm({
                   : "Create multiple shipments, each with its own label"}
               </p>
             </div>
-            <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:flex sm:w-auto sm:items-center">
               {canImportOutbound ? (
                 <Button
                   type="button"
                   variant="outline"
-                  className="min-h-10 flex-1 sm:flex-none"
+                  className="min-h-10 w-full sm:w-auto"
                   onClick={() => setBulkImportOpen(true)}
                 >
-                  <Upload className="mr-2 h-4 w-4" />
+                  <Upload className="mr-2 h-4 w-4 shrink-0" />
                   Import
                 </Button>
               ) : null}
@@ -1350,9 +1350,9 @@ export function CreateShipmentWithLabelsForm({
               type="button"
               onClick={handleAddShipmentGroup}
               variant="outline"
-              className="min-h-10 flex-1 sm:flex-none"
+              className="min-h-10 w-full sm:w-auto"
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="mr-2 h-4 w-4 shrink-0" />
               Add Shipment
             </Button>
             </div>
@@ -1509,10 +1509,10 @@ export function CreateShipmentWithLabelsForm({
             const popupKey = group.id;
 
             return (
-              <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="mb-4 rounded-lg border-2 px-2.5 sm:px-4">
-                <div className="relative">
-                  <AccordionTrigger className="hover:no-underline pr-10 sm:pr-12 [&>svg]:hidden">
-                    <div className="flex w-full min-w-0 items-center justify-between gap-2 sm:gap-3">
+              <AccordionItem key={group.id} value={`shipment-${groupIndex}`} className="mb-4 overflow-hidden rounded-lg border-2 px-2.5 sm:px-4">
+                <div className="relative min-w-0">
+                  <AccordionTrigger className="hover:no-underline pr-11 [&>svg]:hidden">
+                    <div className="flex w-full min-w-0 items-center justify-between gap-2">
                       <div className="min-w-0 text-left">
                         <div className="truncate text-sm font-semibold">
                           Shipment {groupIndex + 1}
@@ -1521,7 +1521,7 @@ export function CreateShipmentWithLabelsForm({
                           </span>
                         </div>
                       </div>
-                      <div className="mr-4 shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold tabular-nums text-primary sm:mr-6 sm:px-3 sm:text-sm">
+                      <div className="shrink-0 rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold tabular-nums text-primary sm:px-3 sm:text-sm">
                         ${groupTotal.toFixed(2)}
                       </div>
                     </div>
@@ -1534,7 +1534,8 @@ export function CreateShipmentWithLabelsForm({
                       e.stopPropagation();
                       handleRemoveGroup(groupIndex);
                     }}
-                    className="absolute right-1 top-1/2 z-10 -translate-y-1/2 sm:right-4"
+                    className="absolute right-0 top-1/2 z-10 h-8 w-8 -translate-y-1/2 p-0"
+                    aria-label={`Remove shipment ${groupIndex + 1}`}
                   >
                     <X className="h-4 w-4" />
                   </Button>

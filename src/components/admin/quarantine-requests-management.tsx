@@ -202,8 +202,8 @@ export function QuarantineRequestsManagement({
 
   if (!isValidUserId) {
     return (
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="min-w-0">
+        <CardContent className="p-3 pt-4 sm:p-6 sm:pt-6">
           <p className="text-sm text-muted-foreground">
             Select a user to view quarantine requests.
           </p>
@@ -214,51 +214,50 @@ export function QuarantineRequestsManagement({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-amber-600" />
+      <Card className="min-w-0 overflow-hidden border-2 border-amber-200 shadow-lg">
+        <CardHeader className="flex flex-col gap-3 border-b bg-gradient-to-r from-amber-50 to-yellow-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600" />
               Quarantine requests
             </CardTitle>
-            <CardDescription>
-              Approving clears the request for the floor. Warehouse ops picks the stock and marks it
-              completed — that is when quantities actually move.
+            <CardDescription className="text-xs sm:text-sm">
+              Approve for the floor; warehouse completes when stock moves.
             </CardDescription>
           </div>
-          <Button onClick={() => setBehalfDialogOpen(true)}>
+          <Button className="h-9 w-full shrink-0 sm:w-auto" onClick={() => setBehalfDialogOpen(true)}>
             <Plus className="mr-1 h-4 w-4" />
             Submit for user
           </Button>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200">
+        <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-xs text-amber-900">
               <Clock className="mr-1 h-3 w-3" />
               {pendingCount} pending
             </Badge>
-            <Badge variant="outline" className="bg-sky-50 text-sky-900 border-sky-200">
+            <Badge variant="outline" className="border-sky-200 bg-sky-50 text-xs text-sky-900">
               <Check className="mr-1 h-3 w-3" />
               {approvedCount} awaiting floor
             </Badge>
-            <Badge variant="outline" className="bg-emerald-50 text-emerald-900 border-emerald-200">
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-xs text-emerald-900">
               <Check className="mr-1 h-3 w-3" />
               {completedCount} completed
             </Badge>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative flex-1">
+          <div className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-row">
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={requestSearch}
                 onChange={(e) => setRequestSearch(e.target.value)}
                 placeholder="Search product, reason, or requester…"
-                className="pl-9"
+                className="h-9 pl-9"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[190px]">
+              <SelectTrigger className="h-9 w-full sm:w-[190px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -275,11 +274,11 @@ export function QuarantineRequestsManagement({
           {loading ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-12 w-full" />
+                <Skeleton key={i} className="h-16 w-full sm:h-12" />
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed py-12 text-center">
+            <div className="rounded-lg border border-dashed py-10 text-center sm:py-12">
               <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
                 {requests.length === 0
@@ -288,77 +287,133 @@ export function QuarantineRequestsManagement({
               </p>
             </div>
           ) : (
-            <div className="rounded-lg border overflow-hidden">
-              <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                <TableHeader className="bg-muted/50">
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Requested</TableHead>
-                    <TableHead>By</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((request) => (
-                    <TableRow key={request.id}>
-                      <TableCell className="font-medium">
-                        {request.productName}
+            <>
+              <div className="space-y-2 md:hidden">
+                {filtered.map((request) => (
+                  <div
+                    key={request.id}
+                    className="min-w-0 space-y-2 rounded-lg border border-amber-200 bg-amber-50/30 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words text-sm font-semibold">{request.productName}</p>
                         {request.sku ? (
-                          <span className="block text-[11px] font-normal text-muted-foreground">
+                          <p className="truncate text-[11px] text-muted-foreground">
                             SKU {request.sku}
-                          </span>
+                          </p>
                         ) : null}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {quarantineRequestKindLabel(request.kind)}
-                      </TableCell>
-                      <TableCell>{request.quantity}</TableCell>
-                      <TableCell className="max-w-[220px] truncate">{request.reason}</TableCell>
-                      <TableCell>{formatDate(request.requestedAt)}</TableCell>
-                      <TableCell>
-                        <span className="text-sm">{request.requestedByName || "—"}</span>
-                        {request.onBehalf ? (
-                          <Badge variant="outline" className="ml-1 text-[10px]">
-                            On behalf
-                          </Badge>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] capitalize ${STATUS_CLASS[request.status]}`}
-                        >
-                          {request.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant={request.status === "pending" ? "default" : "outline"}
-                          onClick={() => {
-                            setRejectFeedback("");
-                            setSelectedRequest(request);
-                          }}
-                        >
-                          {request.status === "pending" ? (
-                            "Process"
-                          ) : (
-                            <>
-                              <Eye className="mr-1 h-3.5 w-3.5" />
-                              View
-                            </>
-                          )}
-                        </Button>
-                      </TableCell>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 text-[10px] capitalize ${STATUS_CLASS[request.status]}`}
+                      >
+                        {request.status}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>{quarantineRequestKindLabel(request.kind)}</span>
+                      <span className="tabular-nums">Qty {request.quantity}</span>
+                    </div>
+                    {request.reason ? (
+                      <p className="break-words text-xs text-foreground">{request.reason}</p>
+                    ) : null}
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {formatDate(request.requestedAt)} · {request.requestedByName || "—"}
+                      {request.onBehalf ? " (on behalf)" : ""}
+                    </p>
+                    <Button
+                      size="sm"
+                      className="h-9 w-full"
+                      variant={request.status === "pending" ? "default" : "outline"}
+                      onClick={() => {
+                        setRejectFeedback("");
+                        setSelectedRequest(request);
+                      }}
+                    >
+                      {request.status === "pending" ? (
+                        "Process"
+                      ) : (
+                        <>
+                          <Eye className="mr-1 h-3.5 w-3.5" />
+                          View
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-hidden rounded-lg border md:block">
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Requested</TableHead>
+                      <TableHead>By</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((request) => (
+                      <TableRow key={request.id}>
+                        <TableCell className="font-medium">
+                          {request.productName}
+                          {request.sku ? (
+                            <span className="block text-[11px] font-normal text-muted-foreground">
+                              SKU {request.sku}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {quarantineRequestKindLabel(request.kind)}
+                        </TableCell>
+                        <TableCell>{request.quantity}</TableCell>
+                        <TableCell className="max-w-[220px] truncate">{request.reason}</TableCell>
+                        <TableCell>{formatDate(request.requestedAt)}</TableCell>
+                        <TableCell>
+                          <span className="text-sm">{request.requestedByName || "—"}</span>
+                          {request.onBehalf ? (
+                            <Badge variant="outline" className="ml-1 text-[10px]">
+                              On behalf
+                            </Badge>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] capitalize ${STATUS_CLASS[request.status]}`}
+                          >
+                            {request.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant={request.status === "pending" ? "default" : "outline"}
+                            onClick={() => {
+                              setRejectFeedback("");
+                              setSelectedRequest(request);
+                            }}
+                          >
+                            {request.status === "pending" ? (
+                              "Process"
+                            ) : (
+                              <>
+                                <Eye className="mr-1 h-3.5 w-3.5" />
+                                View
+                              </>
+                            )}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -372,7 +427,7 @@ export function QuarantineRequestsManagement({
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Quarantine request</DialogTitle>
             <DialogDescription>

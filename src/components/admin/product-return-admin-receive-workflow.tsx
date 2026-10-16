@@ -627,10 +627,10 @@ export function ProductReturnAdminReceiveWorkflow({
 
   const openReceiveDialog = (
     <Dialog open={!!openArrival} onOpenChange={(open) => !open && setOpenArrival(null)}>
-      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Open receive</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-h-[90dvh] w-[calc(100%-1rem)] max-w-md overflow-y-auto p-4 sm:p-6">
+        <DialogHeader className="space-y-1 text-left">
+          <DialogTitle className="text-base sm:text-lg">Open receive</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
             Count good and damaged units for this{" "}
             {openArrival ? formatReturnArrivalUnitType(openArrival.unitType).toLowerCase() : "unit"}.
             Damaged qty follows the same inbound rules (not sellable). Photos/video upload in the
@@ -638,9 +638,9 @@ export function ProductReturnAdminReceiveWorkflow({
           </DialogDescription>
         </DialogHeader>
         {openArrival ? (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div className="space-y-2">
-              <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-mono break-all">
+              <div className="break-all rounded-md bg-muted/50 px-2.5 py-1.5 font-mono text-xs sm:px-3 sm:py-2 sm:text-sm">
                 {openArrival.trackingNumber}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -653,9 +653,9 @@ export function ProductReturnAdminReceiveWorkflow({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-2 min-w-0">
-                <Label>Good qty</Label>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <div className="min-w-0 space-y-1.5 sm:space-y-2">
+                <Label className="text-xs sm:text-sm">Good qty</Label>
                 <OnScreenKeyboardField
                   mode="numeric"
                   value={goodQty}
@@ -665,8 +665,8 @@ export function ProductReturnAdminReceiveWorkflow({
                   autoFocus
                 />
               </div>
-              <div className="space-y-2 min-w-0">
-                <Label>Damaged qty</Label>
+              <div className="min-w-0 space-y-1.5 sm:space-y-2">
+                <Label className="text-xs sm:text-sm">Damaged qty</Label>
                 <OnScreenKeyboardField
                   mode="numeric"
                   value={damagedQty}
@@ -677,8 +677,8 @@ export function ProductReturnAdminReceiveWorkflow({
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Notes (optional)</Label>
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label className="text-xs sm:text-sm">Notes (optional)</Label>
               <OnScreenKeyboardField
                 mode="text"
                 multiline
@@ -689,8 +689,8 @@ export function ProductReturnAdminReceiveWorkflow({
                 placeholder="Inspection notes…"
               />
             </div>
-            <div className="space-y-2">
-              <Label>Photos (optional)</Label>
+            <div className="space-y-1.5 sm:space-y-2">
+              <Label className="text-xs sm:text-sm">Photos (optional)</Label>
               <Input type="file" accept="image/*" multiple onChange={handlePhotoSelect} />
               {photoFiles.length > 0 ? (
                 <Badge variant="secondary">{photoFiles.length} photo(s) selected</Badge>
@@ -706,6 +706,7 @@ export function ProductReturnAdminReceiveWorkflow({
               <Button
                 type="button"
                 className="flex-1"
+                size="sm"
                 disabled={isOpening}
                 onClick={() => void handleOpenReceive()}
               >
@@ -715,6 +716,7 @@ export function ProductReturnAdminReceiveWorkflow({
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
                 disabled={isOpening}
                 onClick={() => setOpenArrival(null)}
               >
@@ -738,10 +740,10 @@ export function ProductReturnAdminReceiveWorkflow({
         }
       }}
     >
-      <DialogContent className="max-w-md max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Retry / add media</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-h-[90dvh] w-[calc(100%-1rem)] max-w-md overflow-y-auto p-4 sm:p-6">
+        <DialogHeader className="space-y-1 text-left">
+          <DialogTitle className="text-base sm:text-lg">Retry / add media</DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
             Counts stay as saved. Attach photos or video for{" "}
             <span className="font-mono">
               {mediaRetryArrival?.trackingNumber || "this parcel"}
@@ -750,7 +752,7 @@ export function ProductReturnAdminReceiveWorkflow({
           </DialogDescription>
         </DialogHeader>
         {mediaRetryArrival ? (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
               <p className="font-mono break-all">{mediaRetryArrival.trackingNumber}</p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -812,22 +814,22 @@ export function ProductReturnAdminReceiveWorkflow({
 
   if (mode === "open") {
     return (
-      <div className="space-y-5">
-        <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+      <div className="space-y-3 sm:space-y-4">
+        <div className="rounded-xl border bg-card px-3 py-2.5 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="min-w-0">
               <h4 className="text-sm font-semibold">Open receive</h4>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-[11px] text-muted-foreground sm:mt-1 sm:text-xs">
                 Scan a parcel to open & count it immediately, or pick from the awaiting-open list.
                 Tap unit type in the timeline to fix package/carton/pallet without re-scanning.
               </p>
             </div>
             <div className="shrink-0 text-right">
-              <p className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold tabular-nums text-amber-950">
+              <p className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-amber-950 sm:px-3 sm:py-1 sm:text-sm">
                 {summary.arrivedOnly} awaiting
               </p>
               {summary.receivedUnits > 0 ? (
-                <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums sm:mt-1 sm:text-[11px]">
                   {summary.receivedUnits} counted
                 </p>
               ) : null}
@@ -854,9 +856,9 @@ export function ProductReturnAdminReceiveWorkflow({
 
         {canUse ? (
           <>
-            <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
+            <div className="space-y-2.5 rounded-xl border bg-card p-3 shadow-sm sm:space-y-3 sm:rounded-2xl sm:p-4">
               <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800 sm:h-8 sm:w-8">
                   <ScanLine className="h-4 w-4" />
                 </span>
                 <div>
@@ -983,10 +985,10 @@ export function ProductReturnAdminReceiveWorkflow({
   }
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border bg-card px-4 py-3 shadow-sm">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="rounded-xl border bg-card px-3 py-2.5 shadow-sm sm:rounded-2xl sm:px-4 sm:py-3">
         <h4 className="text-sm font-semibold">Receive workflow</h4>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-0.5 text-[11px] text-muted-foreground sm:mt-1 sm:text-xs">
           Log each physical parcel once (one tracking = one parcel). Wrong scans can be deleted
           from the timeline; tap unit type on any arrival to fix package/carton/pallet. Use Open
           receive to scan and count units.
@@ -1008,10 +1010,10 @@ export function ProductReturnAdminReceiveWorkflow({
       />
 
       {canUse ? (
-        <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+        <div className="space-y-2.5 rounded-xl border bg-card p-3 shadow-sm sm:space-y-3 sm:rounded-2xl sm:p-4">
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700 sm:h-8 sm:w-8">
                 <ScanLine className="h-4 w-4" />
               </span>
               <div className="min-w-0">

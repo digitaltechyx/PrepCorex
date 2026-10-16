@@ -416,12 +416,12 @@ export function PricingManagement({ users }: PricingManagementProps) {
         const existing =
           pricingList.find((p) => p.id === stableId) ||
           pricingList.find(
-            (p) =>
+          (p) =>
               (p.service === row.service || servicesMatch(p.service, row.service)) &&
-              p.package === row.package &&
-              p.quantityRange === row.quantityRange &&
-              p.productType === row.productType
-          );
+            p.package === row.package &&
+            p.quantityRange === row.quantityRange &&
+            p.productType === row.productType
+        );
         if (existing) {
           row.rate = existing.rate.toString();
           row.pricingId = existing.id;
@@ -707,7 +707,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
           packOf: 0,
           updatedAt: now,
         };
-
+        
         const docId = pricingDocIdFor(row);
         const pricingRef = doc(db, targetPricingPath, docId);
         // Only set createdAt when inserting; merge keeps existing createdAt on updates.
@@ -1408,14 +1408,14 @@ export function PricingManagement({ users }: PricingManagementProps) {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {GLOBAL_PRICING_PROFILES.map((profile) => (
-              <Button
+            <Button
                 key={profile.id}
-                type="button"
+              type="button"
                 variant={selectedProfileSlug === profile.id ? "default" : "outline"}
                 onClick={() => setSelectedProfileSlug(profile.id)}
-              >
+            >
                 {profile.label}
-              </Button>
+            </Button>
             ))}
             <Button
               type="button"
@@ -1427,62 +1427,62 @@ export function PricingManagement({ users }: PricingManagementProps) {
           </div>
 
           {editingCustomProfile && (
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
                 <Label className="text-sm font-medium mb-2 block">User for custom profile</Label>
-                <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
+              <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
                       <DialogTitle>Select user</DialogTitle>
                       <DialogDescription>
                         Choose a user to edit their custom rates. Assignment is a separate step —
                         use &quot;Assign Custom pricing&quot; after selecting them.
                       </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 mt-4">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search users..."
-                          value={userSearchQuery}
-                          onChange={(e) => setUserSearchQuery(e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
-                      <div className="max-h-[400px] overflow-y-auto space-y-1">
-                        {filteredUsers.map((user) => (
-                          <Button
-                            key={user.uid}
-                            variant="ghost"
-                            className="w-full justify-start"
-                            onClick={() => handleUserSelect(user)}
-                          >
-                            <div className="flex flex-col items-start">
+                  </DialogHeader>
+                  <div className="space-y-4 mt-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search users..."
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    <div className="max-h-[400px] overflow-y-auto space-y-1">
+                      {filteredUsers.map((user) => (
+                        <Button
+                          key={user.uid}
+                          variant="ghost"
+                          className="w-full justify-start"
+                          onClick={() => handleUserSelect(user)}
+                        >
+                          <div className="flex flex-col items-start">
                               <span className="font-medium">
                                 {formatUserDisplayName(user, { showEmail: false })}
                               </span>
-                              <span className="text-xs text-muted-foreground">{user.email}</span>
-                            </div>
-                          </Button>
-                        ))}
-                      </div>
+                            <span className="text-xs text-muted-foreground">{user.email}</span>
+                          </div>
+                        </Button>
+                      ))}
                     </div>
-                  </DialogContent>
-                </Dialog>
-                <Button
-                  variant="outline"
-                  className="w-full justify-between"
-                  onClick={() => setUserDialogOpen(true)}
-                >
-                  <span>
-                    {selectedUser
-                      ? formatUserDisplayName(selectedUser, { showEmail: true })
-                      : "Select a user"}
-                  </span>
-                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
-                </Button>
-              </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                onClick={() => setUserDialogOpen(true)}
+              >
+                <span>
+                  {selectedUser
+                    ? formatUserDisplayName(selectedUser, { showEmail: true })
+                    : "Select a user"}
+                </span>
+                <ChevronsUpDown className="h-4 w-4 opacity-50" />
+              </Button>
             </div>
+          </div>
           )}
 
           {!editingCustomProfile && (
@@ -1756,54 +1756,54 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 
                 <TabsContent value="FBA/WFS/TFS" className="mt-4">
                   <Card className="overflow-hidden rounded-2xl border border-slate-200 bg-white/90 shadow-sm">
-                    <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
+                        <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50 pb-3">
                       <CardTitle className="text-xl text-blue-700">Standard units</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-5 p-5 text-sm">
-                      <div className="grid grid-cols-2 gap-3 border-b pb-4">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
-                        {([
-                          { pkg: "Starter", range: "1-999", label: "1-999 units" },
-                          { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
-                          { pkg: "Premium", range: "2500+", label: "2,500+ units" },
-                        ]).map((tier) => {
-                          const globalIndex = pricingRows.findIndex(
-                            (r) =>
-                              r.service === "FBA/WFS/TFS" &&
-                              r.package === tier.pkg &&
-                              r.quantityRange === tier.range &&
+                        </CardHeader>
+                        <CardContent className="space-y-5 p-5 text-sm">
+                          <div className="grid grid-cols-2 gap-3 border-b pb-4">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Monthly Volume</div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your Price</div>
+                            {([
+                              { pkg: "Starter", range: "1-999", label: "1-999 units" },
+                              { pkg: "Standard", range: "1000-2499", label: "1,000-2,499 units" },
+                              { pkg: "Premium", range: "2500+", label: "2,500+ units" },
+                            ]).map((tier) => {
+                              const globalIndex = pricingRows.findIndex(
+                                (r) =>
+                                  r.service === "FBA/WFS/TFS" &&
+                                  r.package === tier.pkg &&
+                                  r.quantityRange === tier.range &&
                               r.productType === "Standard"
-                          );
-                          const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
-                          return (
+                              );
+                              const row = globalIndex >= 0 ? pricingRows[globalIndex] : null;
+                              return (
                             <div key={`Standard-${tier.range}`} className="contents">
-                              <div className="text-[15px]">{tier.label}</div>
-                              <div>
-                                <Input
-                                  type="text"
-                                  placeholder="0.00"
-                                  value={row?.rate ?? ""}
-                                  onChange={(e) => {
-                                    const value = e.target.value;
-                                    if (globalIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
+                                  <div className="text-[15px]">{tier.label}</div>
+                                  <div>
+                                    <Input
+                                      type="text"
+                                      placeholder="0.00"
+                                      value={row?.rate ?? ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (globalIndex >= 0 && (value === "" || /^\d*\.?\d*$/.test(value))) {
                                       handleRateChange(globalIndex, value);
-                                    }
-                                  }}
-                                  onBlur={(e) => {
-                                    if (globalIndex < 0) return;
-                                    const value = e.target.value;
-                                    if (value && !isNaN(parseFloat(value))) {
+                                        }
+                                      }}
+                                      onBlur={(e) => {
+                                        if (globalIndex < 0) return;
+                                        const value = e.target.value;
+                                        if (value && !isNaN(parseFloat(value))) {
                                       handleRateChange(globalIndex, parseFloat(value).toFixed(2));
-                                    }
-                                  }}
+                                        }
+                                      }}
                                   className="h-9"
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
 
                       <div className="space-y-2">
                         <Label className="text-sm font-semibold">What&apos;s included</Label>
@@ -1817,9 +1817,9 @@ export function PricingManagement({ users }: PricingManagementProps) {
                           placeholder={"Receiving & inspection\nLabeling & standard prep"}
                           className="resize-y text-sm"
                         />
-                      </div>
-                    </CardContent>
-                  </Card>
+                          </div>
+                        </CardContent>
+                      </Card>
                 </TabsContent>
 
                 <TabsContent value="DTC/FBM" className="mt-4">
@@ -1962,12 +1962,12 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                 </p>
                               </div>
                               <div className="grid gap-3 sm:grid-cols-3">
-                                <div>
+                              <div>
                                   <Label className="text-xs text-muted-foreground">Month 1</Label>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
                                     value={storageMonth1Rate}
                                     onChange={(e) => {
                                       setStorageMonth1Rate(e.target.value);
@@ -1975,7 +1975,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                     }}
                                     className="mt-1"
                                   />
-                                </div>
+                              </div>
                                 <div>
                                   <Label className="text-xs text-muted-foreground">Months 2–6</Label>
                                   <Input
@@ -1999,7 +1999,7 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   />
                                 </div>
                               </div>
-                              <div className="pt-2 border-t space-y-3">
+                                <div className="pt-2 border-t space-y-3">
                                 <div>
                                   <Label className="text-sm font-medium mb-2 block">
                                     Manage user pallet count
@@ -2030,21 +2030,21 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                   </p>
                                 ) : (
                                   <>
-                                    <div className="text-sm">
-                                      <span className="font-medium">Active pallet cycles: </span>
-                                      <span className="tabular-nums">{palletStats.total}</span>
-                                      <span className="text-muted-foreground"> · </span>
-                                      <span className="text-muted-foreground">
+                                  <div className="text-sm">
+                                    <span className="font-medium">Active pallet cycles: </span>
+                                    <span className="tabular-nums">{palletStats.total}</span>
+                                    <span className="text-muted-foreground"> · </span>
+                                    <span className="text-muted-foreground">
                                         {palletStats.fromInventory} from inventory / receive
-                                      </span>
-                                      <span className="text-muted-foreground"> · </span>
-                                      <span className="text-muted-foreground">
-                                        {palletStats.manual} admin-assigned
-                                      </span>
-                                    </div>
+                                    </span>
+                                    <span className="text-muted-foreground"> · </span>
+                                    <span className="text-muted-foreground">
+                                      {palletStats.manual} admin-assigned
+                                    </span>
+                                  </div>
 
-                                    <div className="flex flex-wrap items-end gap-2">
-                                      <div className="space-y-1">
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <div className="space-y-1">
                                         <Label className="text-xs text-muted-foreground">
                                           Set active pallet count
                                         </Label>
@@ -2084,56 +2084,56 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                         <Label className="text-xs text-muted-foreground">
                                           Add manual pallets
                                         </Label>
-                                        <Input
-                                          type="number"
-                                          min={1}
-                                          max={500}
-                                          value={manualAssignQty}
-                                          onChange={(e) => setManualAssignQty(e.target.value)}
-                                          className="w-24 h-9"
-                                        />
-                                      </div>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        onClick={() => void handleAssignManualPallets()}
-                                        disabled={isMutatingPallets || !adminUserProfile?.uid}
-                                      >
-                                        {isMutatingPallets ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          "Assign pallets"
-                                        )}
-                                      </Button>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        max={500}
+                                        value={manualAssignQty}
+                                        onChange={(e) => setManualAssignQty(e.target.value)}
+                                        className="w-24 h-9"
+                                      />
                                     </div>
-                                    <div className="flex flex-wrap items-end gap-2">
-                                      <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">
-                                          Remove admin-assigned (newest first)
-                                        </Label>
-                                        <Input
-                                          type="number"
-                                          min={1}
-                                          value={manualRemoveQty}
-                                          onChange={(e) => setManualRemoveQty(e.target.value)}
-                                          className="w-24 h-9"
-                                        />
-                                      </div>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                        onClick={() => void handleAssignManualPallets()}
+                                      disabled={isMutatingPallets || !adminUserProfile?.uid}
+                                    >
+                                      {isMutatingPallets ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        "Assign pallets"
+                                      )}
+                                    </Button>
+                                  </div>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-muted-foreground">
+                                        Remove admin-assigned (newest first)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        value={manualRemoveQty}
+                                        onChange={(e) => setManualRemoveQty(e.target.value)}
+                                        className="w-24 h-9"
+                                      />
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
                                         onClick={() => void handleRemoveManualPallets()}
                                         disabled={isMutatingPallets || palletStats.manual === 0}
-                                      >
-                                        {isMutatingPallets ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          "Remove manual"
-                                        )}
-                                      </Button>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">
+                                    >
+                                      {isMutatingPallets ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        "Remove manual"
+                                      )}
+                                    </Button>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
                                       Manual pallets stay until you remove them or mark cycles closed;
                                       inventory sync only adjusts non-manual cycles to match in-stock
                                       pallet quantity.
@@ -2268,18 +2268,18 @@ export function PricingManagement({ users }: PricingManagementProps) {
                 </TabsContent>
 
                 <TabsContent value="Container Handling" className="mt-4">
-                  <div className="p-4 border rounded-lg bg-muted/50">
+                    <div className="p-4 border rounded-lg bg-muted/50">
                     <h3 className="text-lg font-semibold mb-2">Container Handling Pricing</h3>
                     <p className="text-xs text-muted-foreground mb-4">
                       Set the price charged per container when a user adds container handling inventory.
                     </p>
-                    {containerHandlingPricingLoading ? (
-                      <div className="space-y-4">
+                      {containerHandlingPricingLoading ? (
+                        <div className="space-y-4">
                         <Skeleton className="h-12 w-full" />
                         <Skeleton className="h-12 w-full" />
-                        <Skeleton className="h-12 w-full" />
-                      </div>
-                    ) : (
+                          <Skeleton className="h-12 w-full" />
+                        </div>
+                      ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full border-collapse">
                           <thead>
@@ -2296,11 +2296,11 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                 <tr key={size} className="border-b hover:bg-muted/30">
                                   <td className="p-2 text-sm font-medium">{size}</td>
                                   <td className="p-2">
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
                                       value={row.price}
                                       onChange={(e) =>
                                         setContainerPrices((prev) => ({
@@ -2312,31 +2312,31 @@ export function PricingManagement({ users }: PricingManagementProps) {
                                     />
                                   </td>
                                   <td className="p-2">
-                                    <Button
+                          <Button 
                                       type="button"
                                       size="sm"
                                       onClick={() =>
                                         handleSaveContainerHandling(size, row.price, row.pricingId)
                                       }
-                                      disabled={isSaving || containerHandlingPricingLoading}
-                                    >
-                                      {isSaving ? (
+                            disabled={isSaving || containerHandlingPricingLoading}
+                          >
+                            {isSaving ? (
                                         <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <>
+                            ) : (
+                              <>
                                           <Save className="mr-1.5 h-4 w-4" />
                                           Save
-                                        </>
-                                      )}
-                                    </Button>
+                              </>
+                            )}
+                          </Button>
                                   </td>
                                 </tr>
                               );
                             })}
                           </tbody>
                         </table>
-                      </div>
-                    )}
+                        </div>
+                      )}
                   </div>
                 </TabsContent>
 

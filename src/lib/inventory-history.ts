@@ -1056,8 +1056,8 @@ export function buildInventoryHistory(
               s.shipTo ? `to ${s.shipTo}` : "",
               "Product return (not taken from on-hand stock)",
               s.remarks?.trim() || "",
-            ]
-              .filter(Boolean)
+        ]
+          .filter(Boolean)
               .join(" · ")
           : formatOutboundShipmentDetails({
               units: line.units,

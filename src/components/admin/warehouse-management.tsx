@@ -1667,9 +1667,9 @@ export function WarehouseManagement() {
               binsCreated || binsSkipped
                 ? `Bins created ${binsCreated}${binsSkipped ? `, skipped ${binsSkipped}` : ""}.`
                 : undefined,
-          });
-        }}
-      />
+                              });
+                            }}
+                          />
 
       <WarehouseExtendShelvingDialog
         open={extendShelvingOpen}
@@ -1683,9 +1683,9 @@ export function WarehouseManagement() {
           toast({
             title: "Shelving added",
             description: `Bins created ${binsCreated}, skipped (already exist) ${binsSkipped}.`,
-          });
-        }}
-      />
+                                        });
+                                      }}
+                                    />
 
       <WarehouseShelvingDialog
         open={shelvingDialogOpen}

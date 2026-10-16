@@ -50,6 +50,7 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 /** Firestore rejects `undefined`; returns may omit SKU (e.g. new product without SKU). */
 function resolveReturnSku(returnItem: Pick<ProductReturn, "sku" | "newProductSku">): string {
@@ -1279,29 +1280,35 @@ export function ProductReturnsManagement({
   };
 
   return (
-    <div className="space-y-5">
-      {/* Stat cards */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+    <div className="min-w-0 space-y-3 sm:space-y-5">
+      {/* Stat cards — compact on mobile */}
+      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <Card
           role="button"
           tabIndex={0}
           onClick={() => setStatusFilter("pending")}
           onKeyDown={(e) => e.key === "Enter" && setStatusFilter("pending")}
-          className="border-2 border-amber-200/60 bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 rounded-xl overflow-hidden"
+          className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-amber-200/60 bg-gradient-to-br from-amber-50 to-orange-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 dark:from-amber-950/20 dark:to-orange-950/20 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-amber-900 dark:text-amber-100">Pending</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-amber-500 flex items-center justify-center shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-amber-900 dark:text-amber-100 sm:text-sm">
+              Pending
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-amber-500 shadow-sm sm:flex">
               <Clock className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12 rounded" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-2xl font-bold text-amber-900 dark:text-amber-100">{pendingCount}</div>
-                <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">Awaiting review</p>
+                <div className="text-base font-bold tabular-nums text-amber-900 dark:text-amber-100 sm:text-2xl">
+                  {pendingCount}
+                </div>
+                <p className="mt-0.5 hidden text-xs text-amber-700 dark:text-amber-300 sm:block">
+                  Awaiting review
+                </p>
               </>
             )}
           </CardContent>
@@ -1311,21 +1318,27 @@ export function ProductReturnsManagement({
           tabIndex={0}
           onClick={() => setStatusFilter("in_progress")}
           onKeyDown={(e) => e.key === "Enter" && setStatusFilter("in_progress")}
-          className="border-2 border-blue-200/60 bg-gradient-to-br from-blue-50 to-sky-50/50 dark:from-blue-950/20 dark:to-sky-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 rounded-xl overflow-hidden"
+          className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-blue-200/60 bg-gradient-to-br from-blue-50 to-sky-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 dark:from-blue-950/20 dark:to-sky-950/20 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-blue-900 dark:text-blue-100">In Progress</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-blue-500 flex items-center justify-center shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-blue-900 dark:text-blue-100 sm:text-sm">
+              In progress
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-blue-500 shadow-sm sm:flex">
               <Package className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12 rounded" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{inProgressCount}</div>
-                <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">Receiving / processing</p>
+                <div className="text-base font-bold tabular-nums text-blue-900 dark:text-blue-100 sm:text-2xl">
+                  {inProgressCount}
+                </div>
+                <p className="mt-0.5 hidden text-xs text-blue-700 dark:text-blue-300 sm:block">
+                  Receiving / processing
+                </p>
               </>
             )}
           </CardContent>
@@ -1335,21 +1348,27 @@ export function ProductReturnsManagement({
           tabIndex={0}
           onClick={() => setStatusFilter("closed")}
           onKeyDown={(e) => e.key === "Enter" && setStatusFilter("closed")}
-          className="border-2 border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/20 dark:to-emerald-950/20 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 rounded-xl overflow-hidden"
+          className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1 dark:from-green-950/20 dark:to-emerald-950/20 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-green-900 dark:text-green-100">Closed</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-green-500 flex items-center justify-center shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-green-900 dark:text-green-100 sm:text-sm">
+              Closed
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-green-500 shadow-sm sm:flex">
               <CheckCircle className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12 rounded" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-2xl font-bold text-green-900 dark:text-green-100">{closedCount}</div>
-                <p className="text-xs text-green-700 dark:text-green-300 mt-0.5">Completed</p>
+                <div className="text-base font-bold tabular-nums text-green-900 dark:text-green-100 sm:text-2xl">
+                  {closedCount}
+                </div>
+                <p className="mt-0.5 hidden text-xs text-green-700 dark:text-green-300 sm:block">
+                  Completed
+                </p>
               </>
             )}
           </CardContent>
@@ -1359,21 +1378,27 @@ export function ProductReturnsManagement({
           tabIndex={0}
           onClick={() => setStatusFilter("all")}
           onKeyDown={(e) => e.key === "Enter" && setStatusFilter("all")}
-          className="border-2 border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-900/30 dark:to-slate-800/30 shadow-md cursor-pointer transition-all hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded-xl overflow-hidden"
+          className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 dark:from-slate-900/30 dark:to-slate-800/30 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
         >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-slate-900 dark:text-slate-100">Total</CardTitle>
-            <div className="h-9 w-9 rounded-lg bg-slate-500 flex items-center justify-center shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[10px] font-medium leading-tight text-slate-900 dark:text-slate-100 sm:text-sm">
+              Total
+            </CardTitle>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-slate-500 shadow-sm sm:flex">
               <FileStack className="h-4 w-4 text-white" />
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
             {loading ? (
-              <Skeleton className="h-8 w-12 rounded" />
+              <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
             ) : (
               <>
-                <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalCount}</div>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">All returns</p>
+                <div className="text-base font-bold tabular-nums text-slate-900 dark:text-slate-100 sm:text-2xl">
+                  {totalCount}
+                </div>
+                <p className="mt-0.5 hidden text-xs text-slate-600 dark:text-slate-400 sm:block">
+                  All returns
+                </p>
               </>
             )}
           </CardContent>
@@ -1381,12 +1406,12 @@ export function ProductReturnsManagement({
       </div>
 
       {/* Filter + Submit */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3 flex-1 min-w-0">
-          <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">Status</Label>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-end sm:gap-3">
+          <div className="min-w-0 w-full space-y-1 sm:w-auto sm:space-y-2">
+            <Label className="text-xs text-muted-foreground sm:text-sm">Status</Label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px] rounded-lg h-10 border-border/80">
+              <SelectTrigger className="h-10 w-full rounded-lg border-border/80 sm:w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -1399,10 +1424,10 @@ export function ProductReturnsManagement({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 w-full space-y-2 sm:w-auto">
             <Label className="text-sm text-muted-foreground">Client</Label>
             <Select value={clientFilter} onValueChange={setClientFilter}>
-              <SelectTrigger className="w-[220px] rounded-lg h-10 border-border/80">
+              <SelectTrigger className="h-10 w-full rounded-lg border-border/80 sm:w-[220px]">
                 <SelectValue placeholder="All clients" />
               </SelectTrigger>
               <SelectContent>
@@ -1415,7 +1440,7 @@ export function ProductReturnsManagement({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2 min-w-[200px] flex-1 max-w-sm">
+          <div className="min-w-0 w-full flex-1 space-y-2 sm:max-w-sm">
             <Label className="text-sm text-muted-foreground">Search</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1423,14 +1448,14 @@ export function ProductReturnsManagement({
                 placeholder="Product, client name, email…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 rounded-lg h-10"
+                className="h-10 w-full rounded-lg pl-9"
               />
             </div>
           </div>
         </div>
         <Button
           size="sm"
-          className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white shadow-sm font-medium shrink-0"
+          className="h-10 w-full shrink-0 rounded-lg bg-teal-600 font-medium text-white shadow-sm hover:bg-teal-700 sm:w-auto"
           onClick={() => {
             setBehalfUser(null);
             setBehalfUserSearch("");
@@ -1482,7 +1507,99 @@ export function ProductReturnsManagement({
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="space-y-2 p-4 md:hidden">
+                {paginatedReturns.map((returnItem) => {
+                  const row = returnItem as AdminProductReturn;
+                  const counted = countedReturnUnits(row);
+                  const progress =
+                    row.requestedQuantity > 0
+                      ? Math.round((counted.total / row.requestedQuantity) * 100)
+                      : 0;
+                  const productName = row.productName || row.newProductName || "N/A";
+                  const canUpdate = row.status === "approved" || row.status === "in_progress";
+                  const canClose = canUpdate && row.receivedQuantity > 0;
+                  const rowClient = getClientProfile(row.ownerUserId);
+
+                  return (
+                    <div
+                      key={`${row.ownerUserId}-${row.id}`}
+                      className="min-w-0 space-y-2 rounded-lg border border-border/60 bg-card p-3 shadow-sm"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {formatUserDisplayName(rowClient, { showEmail: false }) || "Unknown"}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {rowClient?.email || row.ownerUserId}
+                        </p>
+                      </div>
+                      <p className="break-words text-sm font-semibold">{productName}</p>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline" className="rounded-md text-xs font-medium">
+                          {returnItem.type === "existing" ? "Existing" : "New"}
+                        </Badge>
+                        {returnItem.type === "existing" && returnItem.returnType && (
+                          <Badge variant="secondary" className="rounded-md text-xs">
+                            {returnItem.returnType === "combine" ? "Combine" : "Partial"}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="tabular-nums">
+                          {counted.total} / {returnItem.requestedQuantity}
+                        </span>
+                        {getStatusBadge(returnItem.status)}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-2.5 rounded-full bg-teal-500 transition-all duration-300"
+                            style={{ width: `${Math.min(progress, 100)}%` }}
+                          />
+                        </div>
+                        <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
+                          {progress}%
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{formatDate(returnItem.createdAt)}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 flex-1 rounded-md sm:flex-none"
+                          onClick={() => handleViewDetails(returnItem)}
+                        >
+                          <Eye className="mr-1 h-4 w-4" />
+                          View
+                        </Button>
+                        {canUpdate && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 flex-1 rounded-md text-xs sm:flex-none"
+                            onClick={() => handleViewDetails(returnItem, "receive")}
+                          >
+                            <Package className="mr-1 h-3.5 w-3.5" />
+                            Receive
+                          </Button>
+                        )}
+                        {canClose && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-9 flex-1 rounded-md bg-teal-600 text-xs hover:bg-teal-700 sm:flex-none"
+                            onClick={() => handleOpenCloseDialog(returnItem)}
+                          >
+                            <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                            Close
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent border-b bg-muted/40">
@@ -1636,7 +1753,11 @@ export function ProductReturnsManagement({
         <>
           <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
             <DialogContent
-              className="max-w-3xl h-[90vh] flex flex-col overflow-hidden p-0 [&>button]:text-white [&>button]:hover:text-white"
+              className={cn(
+                "!flex !translate-x-0 !translate-y-0 left-0 top-0 h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 p-0",
+                "sm:left-[50%] sm:top-[50%] sm:h-[90vh] sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:!translate-x-[-50%] sm:!translate-y-[-50%] sm:rounded-lg sm:border",
+                "[&>button]:right-3 [&>button]:top-3 [&>button]:text-white [&>button]:hover:text-white"
+              )}
               onPointerDownOutside={(event) => {
                 const target = event.target as HTMLElement | null;
                 if (target?.closest("[role='dialog']")) event.preventDefault();
@@ -1646,60 +1767,69 @@ export function ProductReturnsManagement({
                 if (target?.closest("[role='dialog']")) event.preventDefault();
               }}
             >
-              <DialogHeader className="flex-shrink-0 border-b bg-gradient-to-r from-slate-950 via-slate-900 to-violet-950 px-6 py-5 text-white">
-                <DialogTitle className="text-white">Return request details</DialogTitle>
-                <DialogDescription className="text-slate-300">
+              <DialogHeader className="shrink-0 space-y-0.5 border-b bg-gradient-to-r from-slate-950 via-slate-900 to-violet-950 px-3 py-3 pr-12 text-left text-white sm:px-5 sm:py-4">
+                <DialogTitle className="text-base text-white sm:text-lg">Return request details</DialogTitle>
+                <DialogDescription className="text-xs text-slate-300 sm:text-sm">
                   Product, arrivals, receive, and activity
                 </DialogDescription>
               </DialogHeader>
               <Tabs
                 value={detailsTab}
                 onValueChange={setDetailsTab}
-                className="flex-1 flex flex-col min-h-0 px-6 pb-6 pt-4"
+                className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-2 sm:px-5 sm:pb-5 sm:pt-3"
               >
-                <TabsList className="mb-4 grid h-10 w-full grid-cols-4 rounded-xl bg-muted p-1">
-                  <TabsTrigger value="details" className="rounded-lg">Details</TabsTrigger>
-                  <TabsTrigger value="receive" className="rounded-lg">Receive</TabsTrigger>
-                  <TabsTrigger value="open-receive" className="rounded-lg">Open receive</TabsTrigger>
-                  <TabsTrigger value="logs" className="rounded-lg">Logs</TabsTrigger>
+                <TabsList className="mb-2 grid h-9 w-full shrink-0 grid-cols-4 gap-0.5 rounded-lg bg-muted p-0.5 sm:mb-3 sm:h-10 sm:rounded-xl sm:p-1">
+                  <TabsTrigger value="details" className="rounded-md px-1 text-[11px] sm:rounded-lg sm:text-sm">
+                    Details
+                  </TabsTrigger>
+                  <TabsTrigger value="receive" className="rounded-md px-1 text-[11px] sm:rounded-lg sm:text-sm">
+                    Receive
+                  </TabsTrigger>
+                  <TabsTrigger value="open-receive" className="rounded-md px-1 text-[11px] sm:rounded-lg sm:text-sm">
+                    <span className="sm:hidden">Open</span>
+                    <span className="hidden sm:inline">Open receive</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="logs" className="rounded-md px-1 text-[11px] sm:rounded-lg sm:text-sm">
+                    Logs
+                  </TabsTrigger>
                 </TabsList>
-                <TabsContent value="details" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
-                  <div className="space-y-5">
-                  <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-                    <div className="border-b bg-muted/40 px-4 py-3">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Product</p>
-                      <p className="text-base font-semibold">
+                <TabsContent value="details" className="custom-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2">
+                  <div className="space-y-3 sm:space-y-4">
+                  <div className="overflow-hidden rounded-xl border bg-card shadow-sm sm:rounded-2xl">
+                    <div className="border-b bg-muted/40 px-3 py-2 sm:px-4 sm:py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">Product</p>
+                      <p className="text-sm font-semibold leading-snug sm:text-base">
                         {selectedReturn.productName || selectedReturn.newProductName || "N/A"}
                       </p>
-                      <p className="font-mono text-xs text-muted-foreground">
+                      <p className="font-mono text-[11px] text-muted-foreground sm:text-xs">
                         {selectedReturn.sku || selectedReturn.newProductSku || "No SKU"}
                       </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
-                      <div className="bg-card px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Requested</p>
-                        <p className="text-xl font-semibold tabular-nums">{selectedReturn.requestedQuantity}</p>
+                    <div className="grid grid-cols-4 gap-px bg-border">
+                      <div className="bg-card px-2 py-2 sm:px-4 sm:py-3">
+                        <p className="text-[10px] text-muted-foreground sm:text-xs">Requested</p>
+                        <p className="text-base font-semibold tabular-nums sm:text-xl">{selectedReturn.requestedQuantity}</p>
                       </div>
-                      <div className="bg-card px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Counted</p>
-                        <p className="text-xl font-semibold tabular-nums">{countedReturnUnits(selectedReturn).total}</p>
+                      <div className="bg-card px-2 py-2 sm:px-4 sm:py-3">
+                        <p className="text-[10px] text-muted-foreground sm:text-xs">Counted</p>
+                        <p className="text-base font-semibold tabular-nums sm:text-xl">{countedReturnUnits(selectedReturn).total}</p>
                       </div>
-                      <div className="bg-card px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Good</p>
-                        <p className="text-xl font-semibold tabular-nums text-emerald-700">
+                      <div className="bg-card px-2 py-2 sm:px-4 sm:py-3">
+                        <p className="text-[10px] text-muted-foreground sm:text-xs">Good</p>
+                        <p className="text-base font-semibold tabular-nums text-emerald-700 sm:text-xl">
                           {countedReturnUnits(selectedReturn).good}
                         </p>
                       </div>
-                      <div className="bg-card px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Damaged</p>
-                        <p className="text-xl font-semibold tabular-nums text-rose-700">
+                      <div className="bg-card px-2 py-2 sm:px-4 sm:py-3">
+                        <p className="text-[10px] text-muted-foreground sm:text-xs">Damaged</p>
+                        <p className="text-base font-semibold tabular-nums text-rose-700 sm:text-xl">
                           {selectedReturn.receivedDamagedQuantity ?? countedReturnUnits(selectedReturn).damaged}
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
-                      <span className="text-xs text-muted-foreground">Type</span>
-                      <Badge variant="secondary">
+                    <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2 sm:gap-2 sm:px-4 sm:py-3">
+                      <span className="text-[10px] text-muted-foreground sm:text-xs">Type</span>
+                      <Badge variant="secondary" className="text-[10px] sm:text-xs">
                         {selectedReturn.type === "existing" ? "Existing product" : "New inventory"}
                         {selectedReturn.type === "existing" && selectedReturn.returnType
                           ? ` · ${selectedReturn.returnType === "combine" ? "Combine" : "Partial"}`
@@ -1711,23 +1841,23 @@ export function ProductReturnsManagement({
 
                   {normalizeReturnArrivals(selectedReturn.returnArrivals).length > 0 ? (
                     <div>
-                      <p className="mb-3 text-sm font-semibold">Arrival timeline</p>
+                      <p className="mb-2 text-xs font-semibold sm:mb-3 sm:text-sm">Arrival timeline</p>
                       <ProductReturnArrivalsTimeline returnItem={selectedReturn} compact />
                     </div>
                   ) : null}
 
                   {/* User Remarks */}
                   {selectedReturn.userRemarks && (
-                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
-                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Client remarks</p>
+                    <div className="rounded-xl border bg-card p-3 shadow-sm sm:rounded-2xl sm:p-4">
+                      <p className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:mb-1 sm:text-xs">Client remarks</p>
                       <p className="text-sm">{selectedReturn.userRemarks}</p>
                     </div>
                   )}
 
                   {getProductReturnImageUrls(selectedReturn).length > 0 && (
                     <div>
-                      <div className="text-sm text-muted-foreground mb-2">Product image</div>
-                      <div className="flex flex-wrap gap-3">
+                      <div className="mb-1.5 text-xs text-muted-foreground sm:mb-2 sm:text-sm">Product image</div>
+                      <div className="flex flex-wrap gap-2 sm:gap-3">
                         {getProductReturnImageUrls(selectedReturn).map((url) => (
                           <a
                             key={url}
@@ -1739,7 +1869,7 @@ export function ProductReturnsManagement({
                             <img
                               src={url}
                               alt="Product return"
-                              className="h-28 w-28 rounded-lg border object-cover hover:opacity-90"
+                              className="h-20 w-20 rounded-lg border object-cover hover:opacity-90 sm:h-28 sm:w-28"
                             />
                           </a>
                         ))}
@@ -1749,12 +1879,12 @@ export function ProductReturnsManagement({
 
                   {/* Additional Services */}
                   {selectedReturn.additionalServices && (
-                    <div className="rounded-2xl border bg-card p-4 shadow-sm">
-                      <p className="mb-3 text-sm font-semibold">Additional services</p>
-                      <div className="space-y-2">
+                    <div className="rounded-xl border bg-card p-3 shadow-sm sm:rounded-2xl sm:p-4">
+                      <p className="mb-2 text-xs font-semibold sm:mb-3 sm:text-sm">Additional services</p>
+                      <div className="space-y-1.5 text-sm sm:space-y-2">
                         {selectedReturn.additionalServices.packIntoBoxes && (
                           <div className="flex items-center gap-2">
-                            <Package className="h-4 w-4 text-muted-foreground" />
+                            <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span>Pack into Boxes</span>
                             {selectedReturn.additionalServices.boxesCount && (
                               <Badge variant="outline">
@@ -1765,7 +1895,7 @@ export function ProductReturnsManagement({
                         )}
                         {selectedReturn.additionalServices.placeOnPallet && (
                           <div className="flex items-center gap-2">
-                            <Package className="h-4 w-4 text-muted-foreground" />
+                            <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span>Place on Pallet</span>
                             {selectedReturn.additionalServices.palletsCount && (
                               <Badge variant="outline">
@@ -1777,11 +1907,11 @@ export function ProductReturnsManagement({
                         {selectedReturn.additionalServices.shipToAddress && (
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
-                              <Truck className="h-4 w-4 text-muted-foreground" />
+                              <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
                               <span>Ship to Address</span>
                             </div>
                             {selectedReturn.additionalServices.shippingAddress && (
-                              <div className="pl-6 text-sm text-muted-foreground">
+                              <div className="pl-6 text-xs text-muted-foreground sm:text-sm">
                                 {selectedReturn.additionalServices.shippingAddress.name && (
                                   <div>{selectedReturn.additionalServices.shippingAddress.name}</div>
                                 )}
@@ -1806,11 +1936,12 @@ export function ProductReturnsManagement({
 
                   {/* Actions */}
                   {selectedReturn.status === "pending" && (
-                    <div className="flex gap-2 pt-4 border-t">
+                    <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:pt-4">
                       <Button
                         onClick={() => handleApprove(selectedReturn)}
                         disabled={isProcessing}
                         className="flex-1"
+                        size="sm"
                       >
                         {isProcessing ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1827,6 +1958,7 @@ export function ProductReturnsManagement({
                         }}
                         disabled={isProcessing}
                         className="flex-1"
+                        size="sm"
                       >
                         <X className="mr-2 h-4 w-4" />
                         Reject
@@ -1838,7 +1970,7 @@ export function ProductReturnsManagement({
                   {(selectedReturn.status === "approved" || selectedReturn.status === "in_progress") && 
                    selectedReturn.receivedQuantity > 0 && 
                    (selectedReturn.receivedQuantity - (selectedReturn.shippedQuantity || 0)) > 0 && (
-                    <div className="flex gap-2 pt-4 border-t">
+                    <div className="flex gap-2 border-t pt-3 sm:pt-4">
                       <Button
                         onClick={() => {
                           setShipQuantity("");
@@ -1850,6 +1982,7 @@ export function ProductReturnsManagement({
                         }}
                         disabled={isProcessing}
                         className="flex-1"
+                        size="sm"
                       >
                         <Truck className="mr-2 h-4 w-4" />
                         Ship Products
@@ -1858,7 +1991,7 @@ export function ProductReturnsManagement({
                   )}
                   </div>
                 </TabsContent>
-                <TabsContent value="receive" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
+                <TabsContent value="receive" className="custom-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2">
                   {selectedReturn?.id && adminProfile ? (
                     <ProductReturnAdminReceiveWorkflow
                       mode="log"
@@ -1876,7 +2009,7 @@ export function ProductReturnsManagement({
                     />
                   ) : null}
                 </TabsContent>
-                <TabsContent value="open-receive" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
+                <TabsContent value="open-receive" className="custom-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2">
                   {selectedReturn?.id && adminProfile ? (
                     <ProductReturnAdminReceiveWorkflow
                       mode="open"
@@ -1894,34 +2027,34 @@ export function ProductReturnsManagement({
                     />
                   ) : null}
                 </TabsContent>
-                <TabsContent value="logs" className="flex-1 overflow-y-auto min-h-0 pr-4 custom-scrollbar mt-0">
-                  <div className="space-y-6">
+                <TabsContent value="logs" className="custom-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2">
+                  <div className="space-y-4 sm:space-y-5">
                     {/* Receiving Log */}
                     {selectedReturn.receivingLog && selectedReturn.receivingLog.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-sm font-semibold">Receiving history</p>
+                      <div className="space-y-1.5 sm:space-y-2">
+                        <p className="text-xs font-semibold sm:text-sm">Receiving history</p>
                         <PagedRows items={selectedReturn.receivingLog}>
                           {(pageLogs) => pageLogs.map((log, index) => (
-                          <div key={index} className="rounded-2xl border bg-card p-4 shadow-sm">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
+                          <div key={index} className="rounded-xl border bg-card px-3 py-2 shadow-sm sm:rounded-2xl sm:p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
                                 <p className="text-sm font-semibold text-emerald-700">+{log.quantity} units</p>
                                 {typeof log.goodQty === "number" || typeof log.damagedQty === "number" ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">
+                                  <p className="mt-0.5 text-[11px] text-muted-foreground sm:text-xs">
                                     Good {String(log.goodQty ?? log.quantity)} · Damaged {String(log.damagedQty ?? 0)}
                                   </p>
                                 ) : null}
                                 {log.trackingNumber ? (
-                                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                                  <p className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground sm:text-xs">
                                     {String(log.trackingNumber)}
                                     {log.unitType ? ` · ${String(log.unitType)}` : ""}
                                   </p>
                                 ) : null}
                                 {log.notes ? (
-                                  <p className="mt-2 text-sm text-muted-foreground">{log.notes}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{log.notes}</p>
                                 ) : null}
                               </div>
-                              <p className="shrink-0 text-xs text-muted-foreground">{formatDate(log.receivedAt)}</p>
+                              <p className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">{formatDate(log.receivedAt)}</p>
                             </div>
                           </div>
                         ))}
@@ -1931,29 +2064,29 @@ export function ProductReturnsManagement({
 
                     {/* Shipping Log */}
                     {selectedReturn.shippingLog && selectedReturn.shippingLog.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-sm font-semibold">Shipping history</p>
+                      <div className="space-y-1.5 sm:space-y-2">
+                        <p className="text-xs font-semibold sm:text-sm">Shipping history</p>
                         <PagedRows items={selectedReturn.shippingLog}>
                           {(pageLogs) => pageLogs.map((log: any, index: number) => (
-                          <div key={index} className="rounded-2xl border bg-card p-4 shadow-sm">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1">
+                          <div key={index} className="rounded-xl border bg-card px-3 py-2 shadow-sm sm:rounded-2xl sm:p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold text-sky-700">−{log.quantity} units shipped</p>
                                   {log.notes && (
-                                    <div className="text-sm text-muted-foreground mt-1">{log.notes}</div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground sm:text-sm">{log.notes}</div>
                                   )}
                                   {log.packOf && (
-                                    <div className="text-sm text-muted-foreground mt-1">{log.quantity} pack of {log.packOf}</div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground sm:text-sm">{log.quantity} pack of {log.packOf}</div>
                                   )}
                                   {log.invoiceNumber && (
-                                    <div className="mt-2">
-                                      <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-md">
+                                    <div className="mt-1">
+                                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] text-primary sm:text-xs">
                                         Invoice: {log.invoiceNumber}
                                       </span>
                                     </div>
                                   )}
                                 </div>
-                                <p className="shrink-0 text-xs text-muted-foreground">
+                                <p className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">
                                   {formatDate(log.shippedAt)}
                                 </p>
                               </div>
@@ -1963,7 +2096,7 @@ export function ProductReturnsManagement({
                       </div>
                     )}
                     {!selectedReturn.receivingLog?.length && !selectedReturn.shippingLog?.length ? (
-                      <div className="rounded-2xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                      <div className="rounded-xl border border-dashed px-3 py-8 text-center text-xs text-muted-foreground sm:rounded-2xl sm:px-4 sm:py-10 sm:text-sm">
                         No receive or ship activity yet.
                       </div>
                     ) : null}

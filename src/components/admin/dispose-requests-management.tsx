@@ -546,14 +546,14 @@ export function DisposeRequestsManagement({
         });
         await refreshBatchCounts(request.batchId);
       } else {
-        const requestRef = doc(db, `users/${userId}/disposeRequests`, request.id);
-        const updateData: Record<string, unknown> = {
-          status: "rejected",
-          rejectedBy: adminProfile.uid,
-          rejectedAt: Timestamp.now(),
-        };
-        if (rejectFeedback.trim()) updateData.adminFeedback = rejectFeedback.trim();
-        await updateDoc(requestRef, updateData as Parameters<typeof updateDoc>[1]);
+      const requestRef = doc(db, `users/${userId}/disposeRequests`, request.id);
+      const updateData: Record<string, unknown> = {
+        status: "rejected",
+        rejectedBy: adminProfile.uid,
+        rejectedAt: Timestamp.now(),
+      };
+      if (rejectFeedback.trim()) updateData.adminFeedback = rejectFeedback.trim();
+      await updateDoc(requestRef, updateData as Parameters<typeof updateDoc>[1]);
       }
       toast({ title: "Request rejected", description: rejectFeedback.trim() ? "Feedback saved for the user." : "Request rejected." });
       closeDialog();
@@ -629,37 +629,43 @@ export function DisposeRequestsManagement({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <RotateCcw className="h-5 w-5" />
+      <Card className="min-w-0 overflow-hidden border-2 border-orange-200 shadow-lg">
+        <CardHeader className="border-b bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-3 sm:px-6 sm:py-4">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <RotateCcw className="h-5 w-5 shrink-0" />
             Dispose Requests
           </CardTitle>
-          <CardDescription>Approve to remove quantity from inventory (moved to disposed); reject with optional feedback.</CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
+            Approve to remove qty (disposed); reject with optional feedback.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Stat cards */}
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
+          {/* Stat cards — compact on mobile */}
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
             <Card
               role="button"
               tabIndex={0}
               onClick={() => setStatusFilter("pending")}
               onKeyDown={(e) => e.key === "Enter" && setStatusFilter("pending")}
-              className="border-2 border-amber-200/50 bg-gradient-to-br from-amber-50 to-orange-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-2"
+              className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-amber-200/60 bg-gradient-to-br from-amber-50 to-orange-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
             >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-amber-900">Pending</CardTitle>
-                <div className="h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
-                  <Clock className="h-5 w-5 text-white" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-amber-900 sm:text-sm">
+                  Pending
+                </CardTitle>
+                <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-amber-500 shadow-sm sm:flex">
+                  <Clock className="h-4 w-4 text-white" />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
                 {loading ? (
-                  <Skeleton className="h-8 w-12" />
+                  <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-amber-900">{pendingCount}</div>
-                    <p className="text-xs text-amber-700 mt-1">Awaiting review</p>
+                    <div className="text-base font-bold tabular-nums text-amber-900 sm:text-2xl">
+                      {pendingCount}
+                    </div>
+                    <p className="mt-0.5 hidden text-xs text-amber-700 sm:block">Awaiting review</p>
                   </>
                 )}
               </CardContent>
@@ -669,21 +675,25 @@ export function DisposeRequestsManagement({
               tabIndex={0}
               onClick={() => setStatusFilter("approved")}
               onKeyDown={(e) => e.key === "Enter" && setStatusFilter("approved")}
-              className="border-2 border-green-200/50 bg-gradient-to-br from-green-50 to-green-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2"
+              className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-green-200/60 bg-gradient-to-br from-green-50 to-emerald-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
             >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-green-900">Approved</CardTitle>
-                <div className="h-10 w-10 rounded-full bg-green-500 flex items-center justify-center shadow-md">
-                  <CheckCircle className="h-5 w-5 text-white" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-green-900 sm:text-sm">
+                  Approved
+                </CardTitle>
+                <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-green-500 shadow-sm sm:flex">
+                  <CheckCircle className="h-4 w-4 text-white" />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
                 {loading ? (
-                  <Skeleton className="h-8 w-12" />
+                  <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-green-900">{approvedCount}</div>
-                    <p className="text-xs text-green-700 mt-1">Disposed</p>
+                    <div className="text-base font-bold tabular-nums text-green-900 sm:text-2xl">
+                      {approvedCount}
+                    </div>
+                    <p className="mt-0.5 hidden text-xs text-green-700 sm:block">Disposed</p>
                   </>
                 )}
               </CardContent>
@@ -693,21 +703,25 @@ export function DisposeRequestsManagement({
               tabIndex={0}
               onClick={() => setStatusFilter("rejected")}
               onKeyDown={(e) => e.key === "Enter" && setStatusFilter("rejected")}
-              className="border-2 border-red-200/50 bg-gradient-to-br from-red-50 to-red-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2"
+              className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-red-200/60 bg-gradient-to-br from-red-50 to-rose-50/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
             >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-red-900">Rejected</CardTitle>
-                <div className="h-10 w-10 rounded-full bg-red-500 flex items-center justify-center shadow-md">
-                  <XCircle className="h-5 w-5 text-white" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-red-900 sm:text-sm">
+                  Rejected
+                </CardTitle>
+                <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-red-500 shadow-sm sm:flex">
+                  <XCircle className="h-4 w-4 text-white" />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
                 {loading ? (
-                  <Skeleton className="h-8 w-12" />
+                  <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-red-900">{rejectedCount}</div>
-                    <p className="text-xs text-red-700 mt-1">Not approved</p>
+                    <div className="text-base font-bold tabular-nums text-red-900 sm:text-2xl">
+                      {rejectedCount}
+                    </div>
+                    <p className="mt-0.5 hidden text-xs text-red-700 sm:block">Not approved</p>
                   </>
                 )}
               </CardContent>
@@ -717,36 +731,40 @@ export function DisposeRequestsManagement({
               tabIndex={0}
               onClick={() => setStatusFilter("all")}
               onKeyDown={(e) => e.key === "Enter" && setStatusFilter("all")}
-              className="border-2 border-slate-200/50 bg-gradient-to-br from-slate-50 to-slate-100/50 shadow-md cursor-pointer transition-shadow hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+              className="min-w-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200/60 bg-gradient-to-br from-slate-50 to-slate-100/50 shadow-sm transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 sm:rounded-xl sm:border-2 sm:shadow-md sm:hover:shadow-lg sm:focus:ring-offset-2"
             >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-slate-900">Total</CardTitle>
-                <div className="h-10 w-10 rounded-full bg-slate-500 flex items-center justify-center shadow-md">
-                  <FileStack className="h-5 w-5 text-white" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="text-[10px] font-medium leading-tight text-slate-900 sm:text-sm">
+                  Total
+                </CardTitle>
+                <div className="hidden h-9 w-9 items-center justify-center rounded-lg bg-slate-500 shadow-sm sm:flex">
+                  <FileStack className="h-4 w-4 text-white" />
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
                 {loading ? (
-                  <Skeleton className="h-8 w-12" />
+                  <Skeleton className="h-5 w-8 rounded sm:h-8 sm:w-12" />
                 ) : (
                   <>
-                    <div className="text-2xl font-bold text-slate-900">{totalCount}</div>
-                    <p className="text-xs text-slate-700 mt-1">All requests</p>
+                    <div className="text-base font-bold tabular-nums text-slate-900 sm:text-2xl">
+                      {totalCount}
+                    </div>
+                    <p className="mt-0.5 hidden text-xs text-slate-700 sm:block">All requests</p>
                   </>
                 )}
               </CardContent>
             </Card>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-              <div className="relative w-full sm:w-72">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:flex sm:items-center sm:gap-2">
+              <div className="relative min-w-0 w-full sm:max-w-xs sm:flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={requestSearch}
                   onChange={(e) => setRequestSearch(e.target.value)}
                   placeholder="Search product, reason, status..."
-                  className="pl-9 pr-8"
+                  className="h-9 pl-9 pr-8"
                 />
                 {requestSearch && (
                   <Button
@@ -760,11 +778,9 @@ export function DisposeRequestsManagement({
                   </Button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-              <Label className="text-xs text-muted-foreground">Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue />
+                <SelectTrigger className="h-9 w-full sm:w-[140px]">
+                  <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
@@ -773,10 +789,14 @@ export function DisposeRequestsManagement({
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
               </Select>
-              </div>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setAddDisposeDialogOpen(true)} className="shrink-0">
-              <Plus className="h-4 w-4 mr-1" />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAddDisposeDialogOpen(true)}
+              className="h-9 w-full shrink-0 sm:w-auto"
+            >
+              <Plus className="mr-1 h-4 w-4" />
               Request dispose for user
             </Button>
           </div>
@@ -784,80 +804,182 @@ export function DisposeRequestsManagement({
           {loading || batchesLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : filteredRequests.length === 0 && filteredBatches.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No dispose requests found.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">No dispose requests found.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Qty</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Requested</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredBatches.map((batch) => (
-                    <TableRow key={`batch-${batch.id}`} className="bg-orange-50/50">
-                      <TableCell>
-                        <Badge variant="outline">Batch</Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        Dispose batch · {batch.totalLines} lines
-                        <span className="block text-xs text-muted-foreground line-clamp-2">
-                          {batch.reason}
-                        </span>
-                      </TableCell>
-                      <TableCell>{batch.totalLines}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={batch.reason}>
-                        {batch.reason}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{formatDate(batch.requestedAt)}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{batch.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" onClick={() => setSelectedBatch(batch)}>
-                          <Eye className="h-4 w-4 mr-1" /> Preview
+            <>
+              <div className="space-y-1.5 md:hidden">
+                {filteredBatches.map((batch) => (
+                  <div
+                    key={`batch-${batch.id}`}
+                    className="min-w-0 rounded-lg border border-orange-200 bg-orange-50/50 px-2.5 py-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-0.5 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            Batch
+                          </Badge>
+                          <Badge variant="secondary" className="text-[10px] capitalize">
+                            {batch.status}
+                          </Badge>
+                        </div>
+                        <p className="break-words text-sm font-semibold leading-snug">
+                          Dispose batch · {batch.totalLines} lines
+                        </p>
+                        {batch.reason ? (
+                          <p className="mt-0.5 line-clamp-2 break-words text-[11px] text-muted-foreground">
+                            {batch.reason}
+                          </p>
+                        ) : null}
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {formatDate(batch.requestedAt)}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 shrink-0 px-2.5"
+                        onClick={() => setSelectedBatch(batch)}
+                      >
+                        <Eye className="mr-1 h-3.5 w-3.5" /> Preview
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {filteredRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="min-w-0 rounded-lg border px-2.5 py-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-0.5 flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            Single
+                          </Badge>
+                          <Badge
+                            variant={
+                              req.status === "pending"
+                                ? "secondary"
+                                : req.status === "approved"
+                                  ? "default"
+                                  : "destructive"
+                            }
+                            className="text-[10px] capitalize"
+                          >
+                            {req.status}
+                          </Badge>
+                        </div>
+                        <p className="break-words text-sm font-semibold leading-snug">{req.productName}</p>
+                        <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                          Qty {req.quantity}
+                          {req.reason ? ` · ${req.reason}` : ""}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {formatDate(req.requestedAt)}
+                        </p>
+                      </div>
+                      {req.status === "pending" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 shrink-0 px-2.5"
+                          onClick={() => setSelectedRequest(req)}
+                        >
+                          <Eye className="mr-1 h-3.5 w-3.5" /> Process
                         </Button>
-                      </TableCell>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden overflow-x-auto rounded-md border md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Requested</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                  {filteredRequests.map((req) => (
-                    <TableRow key={req.id}>
-                      <TableCell>
-                        <Badge variant="outline">Single</Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{req.productName}</TableCell>
-                      <TableCell>{req.quantity}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={req.reason}>{req.reason}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{formatDate(req.requestedAt)}</TableCell>
-                      <TableCell>
-                        <Badge variant={req.status === "pending" ? "secondary" : req.status === "approved" ? "default" : "destructive"}>
-                          {req.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {req.status === "pending" && (
-                          <Button size="sm" variant="outline" onClick={() => setSelectedRequest(req)}>
-                            <Eye className="h-4 w-4 mr-1" /> Process
+                  </TableHeader>
+                  <TableBody>
+                    {filteredBatches.map((batch) => (
+                      <TableRow key={`batch-${batch.id}`} className="bg-orange-50/50">
+                        <TableCell>
+                          <Badge variant="outline">Batch</Badge>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          Dispose batch · {batch.totalLines} lines
+                          <span className="block text-xs text-muted-foreground line-clamp-2">
+                            {batch.reason}
+                          </span>
+                        </TableCell>
+                        <TableCell>{batch.totalLines}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={batch.reason}>
+                          {batch.reason}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(batch.requestedAt)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{batch.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" variant="outline" onClick={() => setSelectedBatch(batch)}>
+                            <Eye className="mr-1 h-4 w-4" /> Preview
                           </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredRequests.map((req) => (
+                      <TableRow key={req.id}>
+                        <TableCell>
+                          <Badge variant="outline">Single</Badge>
+                        </TableCell>
+                        <TableCell className="font-medium">{req.productName}</TableCell>
+                        <TableCell>{req.quantity}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={req.reason}>
+                          {req.reason}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(req.requestedAt)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              req.status === "pending"
+                                ? "secondary"
+                                : req.status === "approved"
+                                  ? "default"
+                                  : "destructive"
+                            }
+                          >
+                            {req.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {req.status === "pending" && (
+                            <Button size="sm" variant="outline" onClick={() => setSelectedRequest(req)}>
+                              <Eye className="mr-1 h-4 w-4" /> Process
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-md p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Process dispose request</DialogTitle>
             <DialogDescription>

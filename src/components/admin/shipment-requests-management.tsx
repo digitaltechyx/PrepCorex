@@ -787,39 +787,39 @@ export function ShipmentRequestsManagement({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-3 sm:space-y-4">
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Pending Requests</CardTitle>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Pending</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{pendingCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold sm:text-2xl">{pendingCount}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Confirmed</CardTitle>
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Confirmed</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{confirmedCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold text-green-600 sm:text-2xl">{confirmedCount}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+        <Card className="min-w-0">
+          <CardHeader className="p-3 pb-1 sm:p-6 sm:pb-2">
+            <CardTitle className="text-[11px] font-medium sm:text-sm">Rejected</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{rejectedCount}</div>
+          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="text-xl font-bold text-red-600 sm:text-2xl">{rejectedCount}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Filter */}
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="h-9 w-full sm:w-[180px]">
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>
           <SelectContent>
@@ -833,6 +833,7 @@ export function ShipmentRequestsManagement({
         <Button
           type="button"
           variant="outline"
+          className="h-9 w-full whitespace-normal text-left sm:w-auto sm:whitespace-nowrap"
           disabled={!isValidUserId || isBackfillingReserve || isProcessing}
           onClick={() => {
             void (async () => {
@@ -891,107 +892,117 @@ export function ShipmentRequestsManagement({
       </div>
 
       {/* Requests Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Outbound Requests</CardTitle>
-          <CardDescription>
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="px-3 py-3 sm:px-6 sm:py-4">
+          <CardTitle className="text-base sm:text-lg">Outbound Requests</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
             Review and confirm outbound requests from {selectedUser.name}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="min-w-0 px-3 sm:px-6">
           {loading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+            <div className="space-y-3">
+              <Skeleton className="h-16 w-full sm:h-12" />
+              <Skeleton className="h-16 w-full sm:h-12" />
+              <Skeleton className="h-16 w-full sm:h-12" />
             </div>
           ) : filteredRequests.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No outbound requests found.</p>
+            <p className="py-8 text-center text-muted-foreground">No outbound requests found.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Remarks</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Requested Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="space-y-2 md:hidden">
                 {filteredRequests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>{formatDate(request.date)}</TableCell>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate max-w-[200px]">{request.remarks || "—"}</span>
-                        {request.remarks && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 shrink-0"
-                            onClick={() => setSelectedRemarks(request.remarks || null)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        )}
+                  <div
+                    key={request.id}
+                    className="min-w-0 space-y-2 rounded-lg border p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-muted-foreground">
+                          Ship {formatDate(request.date)}
+                        </p>
+                        <p className="mt-0.5 break-words text-sm font-medium">
+                          {request.remarks || "—"}
+                        </p>
                       </div>
-                    </TableCell>
-                    <TableCell>{request.shipments.length} product(s)</TableCell>
-                    <TableCell>{formatDate(request.requestedAt)}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1">
-                      <Badge
-                        variant={
-                          request.status === "confirmed"
-                            ? "default"
-                            : request.status === "rejected"
-                            ? "destructive"
-                            : request.status === "cancelled"
-                            ? "secondary"
-                            : "secondary"
-                        }
-                      >
-                        {request.status}
-                      </Badge>
-                        {shipmentRequestIsPrepOutbound(request as unknown as Record<string, unknown>) ? (
-                          <Badge variant="outline" className="border-amber-400 text-amber-800">
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <Badge
+                          variant={
+                            request.status === "confirmed"
+                              ? "default"
+                              : request.status === "rejected"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                          className="capitalize"
+                        >
+                          {request.status}
+                        </Badge>
+                        {shipmentRequestIsPrepOutbound(
+                          request as unknown as Record<string, unknown>
+                        ) ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-400 text-[10px] text-amber-800"
+                          >
                             Pre outbound
                           </Badge>
                         ) : null}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-1">
-                      {request.status === "pending" || request.status === "awaiting_label_upload" ? (
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {request.shipments.length} product(s) · Requested{" "}
+                      {formatDate(request.requestedAt)}
+                    </p>
+                    {request.remarks ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setSelectedRemarks(request.remarks || null)}
+                      >
+                        <Eye className="mr-1 h-3.5 w-3.5" />
+                        View remarks
+                      </Button>
+                    ) : null}
+                    <div className="flex flex-col gap-1.5">
+                      {request.status === "pending" ||
+                      request.status === "awaiting_label_upload" ? (
                         <Button
-                          variant="ghost"
+                          variant="default"
                           size="sm"
+                          className="h-9 w-full"
                           onClick={() => setSelectedRequest(request)}
                         >
-                          <Eye className="h-4 w-4 mr-1" />
+                          <Eye className="mr-1 h-4 w-4" />
                           Review
                         </Button>
                       ) : request.status === "confirmed" ? (
                         <Button
-                          variant="ghost"
+                          variant="default"
                           size="sm"
+                          className="h-9 w-full"
                           onClick={() => setSelectedRequest(request)}
                         >
-                          <Eye className="h-4 w-4 mr-1" />
+                          <Eye className="mr-1 h-4 w-4" />
                           Continue fulfillment
                         </Button>
                       ) : (
-                        <span className="text-muted-foreground text-sm">
+                        <p className="break-words text-xs text-muted-foreground">
                           {request.status === "cancelled"
-                            ? `Cancelled ${(request as any).cancelledAt ? formatDate((request as any).cancelledAt) : ""}${
+                            ? `Cancelled ${
+                                (request as any).cancelledAt
+                                  ? formatDate((request as any).cancelledAt)
+                                  : ""
+                              }${
                                 (request as any).cancellationReason
                                   ? ` — ${(request as any).cancellationReason}`
                                   : ""
                               }`
-                            : `Rejected ${request.rejectedAt ? formatDate(request.rejectedAt) : ""}`}
-                        </span>
+                            : `Rejected ${
+                                request.rejectedAt ? formatDate(request.rejectedAt) : ""
+                              }`}
+                        </p>
                       )}
                       {(request.status === "pending" ||
                         request.status === "awaiting_label_upload" ||
@@ -1003,20 +1014,146 @@ export function ShipmentRequestsManagement({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-8"
+                          className="h-9 w-full"
                           title="Correct qty, pack size, or remove a line"
                           onClick={() => setSelectedRequest(request)}
                         >
-                          <Pencil className="h-3.5 w-3.5 mr-1" />
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
                           Correct
                         </Button>
                       )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Remarks</TableHead>
+                      <TableHead>Items</TableHead>
+                      <TableHead>Requested Date</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRequests.map((request) => (
+                      <TableRow key={request.id}>
+                        <TableCell>{formatDate(request.date)}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <span className="max-w-[200px] truncate">
+                              {request.remarks || "—"}
+                            </span>
+                            {request.remarks && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 shrink-0"
+                                onClick={() => setSelectedRemarks(request.remarks || null)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>{request.shipments.length} product(s)</TableCell>
+                        <TableCell>{formatDate(request.requestedAt)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge
+                              variant={
+                                request.status === "confirmed"
+                                  ? "default"
+                                  : request.status === "rejected"
+                                    ? "destructive"
+                                    : request.status === "cancelled"
+                                      ? "secondary"
+                                      : "secondary"
+                              }
+                            >
+                              {request.status}
+                            </Badge>
+                            {shipmentRequestIsPrepOutbound(
+                              request as unknown as Record<string, unknown>
+                            ) ? (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-400 text-amber-800"
+                              >
+                                Pre outbound
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {request.status === "pending" ||
+                            request.status === "awaiting_label_upload" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSelectedRequest(request)}
+                              >
+                                <Eye className="mr-1 h-4 w-4" />
+                                Review
+                              </Button>
+                            ) : request.status === "confirmed" ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSelectedRequest(request)}
+                              >
+                                <Eye className="mr-1 h-4 w-4" />
+                                Continue fulfillment
+                              </Button>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                {request.status === "cancelled"
+                                  ? `Cancelled ${
+                                      (request as any).cancelledAt
+                                        ? formatDate((request as any).cancelledAt)
+                                        : ""
+                                    }${
+                                      (request as any).cancellationReason
+                                        ? ` — ${(request as any).cancellationReason}`
+                                        : ""
+                                    }`
+                                  : `Rejected ${
+                                      request.rejectedAt ? formatDate(request.rejectedAt) : ""
+                                    }`}
+                              </span>
+                            )}
+                            {(request.status === "pending" ||
+                              request.status === "awaiting_label_upload" ||
+                              request.status === "awaiting_label" ||
+                              (request.status === "confirmed" &&
+                                String(
+                                  (request as ShipmentRequest).warehouseDispatchStatus ?? ""
+                                )
+                                  .trim()
+                                  .toLowerCase() !== "dispatched")) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                title="Correct qty, pack size, or remove a line"
+                                onClick={() => setSelectedRequest(request)}
+                              >
+                                <Pencil className="mr-1 h-3.5 w-3.5" />
+                                Correct
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
