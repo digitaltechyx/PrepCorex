@@ -291,29 +291,31 @@ function TikTokOrdersAdminContent() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <ShoppingBag className="h-5 w-5 text-fuchsia-600" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="p-3 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <ShoppingBag className="h-5 w-5 shrink-0 text-fuchsia-600" />
                 TikTok Shop Orders
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 Full client order details. Mark shipped with tracking (admin only).
               </CardDescription>
             </div>
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="outline">
-                  {selectedUser
-                    ? formatUserDisplayName(selectedUser, { showEmail: true })
-                    : "Select user"}
+                <Button variant="outline" size="sm" className="w-full justify-start sm:w-auto">
+                  <span className="truncate">
+                    {selectedUser
+                      ? formatUserDisplayName(selectedUser, { showEmail: true })
+                      : "Select user"}
+                  </span>
                 </Button>
               </DialogTrigger>
-              <DialogContent className="p-0">
-                <DialogHeader className="p-4 pb-0">
+              <DialogContent className="w-[calc(100%-1.5rem)] p-0 sm:max-w-lg">
+                <DialogHeader className="p-4 pb-0 text-left">
                   <DialogTitle>Select user</DialogTitle>
                 </DialogHeader>
                 <div className="p-3 border-b">
@@ -357,26 +359,26 @@ function TikTokOrdersAdminContent() {
             </Dialog>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6">
           {!selectedUser ? (
-            <p className="text-muted-foreground text-center py-8">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               Select a user to see their TikTok Shop orders.
             </p>
           ) : ordersLoading ? (
             <Skeleton className="h-64 w-full rounded-xl" />
           ) : connections.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               This user has no TikTok Shop connected.
             </p>
           ) : orders.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">No TikTok orders found for this user.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">No TikTok orders found for this user.</p>
           ) : (
-            <ul className="space-y-4">
+            <ul className="space-y-1.5 sm:space-y-4">
               {orders.map((o) => (
-                <li key={`${o.connectionId}-${o.id}`} className="rounded-xl border bg-card p-4 shadow-sm space-y-3">
+                <li key={`${o.connectionId}-${o.id}`} className="space-y-2 rounded-lg border bg-card px-2.5 py-2 shadow-sm sm:space-y-3 sm:rounded-xl sm:p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-mono text-sm font-semibold">{o.id}</p>
+                      <p className="break-all font-mono text-sm font-semibold">{o.id}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {o.createTime
                           ? new Date(Number(o.createTime) * 1000).toLocaleString()

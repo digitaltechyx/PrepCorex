@@ -304,44 +304,44 @@ function EbayOrdersContent() {
   };
 
   return (
-    <Card className="border-2 shadow-xl overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-700 text-white pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-2xl font-bold text-white flex items-center gap-2">
-              <ShoppingBag className="h-6 w-6" />
+    <Card className="min-w-0 overflow-hidden border-2 shadow-xl">
+      <CardHeader className="bg-gradient-to-r from-amber-600 to-orange-700 pb-3 text-white sm:pb-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-2xl">
+              <ShoppingBag className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
               eBay Orders
             </CardTitle>
-            <CardDescription className="text-amber-100 mt-2">
+            <CardDescription className="mt-1 text-xs text-amber-100 sm:mt-2 sm:text-sm">
               {selectedUser
                 ? `View and fulfill eBay orders for ${selectedUser.name || selectedUser.email || "this user"}`
                 : "Select a user to view their eBay orders"}
             </CardDescription>
           </div>
-          <div className="h-14 w-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+          <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm sm:flex">
             <ShoppingBag className="h-7 w-7 text-white" />
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-6">
-        <div className="mb-6 pb-6 border-b">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+      <CardContent className="p-3 sm:p-6">
+        <div className="mb-4 border-b pb-4 sm:mb-6 sm:pb-6">
+          <div className="flex flex-col items-stretch justify-between gap-2 sm:flex-row sm:items-center sm:gap-4">
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Select User:</span>
+              <span className="text-xs font-medium sm:text-sm">Select User:</span>
             </div>
-            <div className="flex-1 w-full sm:w-auto flex gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-1 sm:flex-row">
               {usersLoading ? (
-                <Skeleton className="h-11 w-full sm:w-[300px]" />
+                <Skeleton className="h-10 w-full sm:h-11 sm:w-[300px]" />
               ) : (
                 <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
                   <DialogTrigger asChild>
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full sm:w-[300px] h-11 justify-between"
+                      className="h-10 w-full justify-between sm:h-11 sm:w-[300px]"
                     >
-                      <span className="truncate text-left flex-1 mr-2">
+                      <span className="mr-2 flex-1 truncate text-left">
                         {selectedUser
                           ? formatUserDisplayName(selectedUser, { showEmail: true })
                           : selectableUsers.length === 0
@@ -351,9 +351,9 @@ function EbayOrdersContent() {
                       <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="p-0">
+                  <DialogContent className="w-[calc(100%-1.5rem)] p-0 sm:max-w-lg">
                     <DialogTitle className="sr-only">Select user</DialogTitle>
-                    <div className="p-3 border-b">
+                    <div className="border-b p-3">
                       <Input
                         placeholder="Search users..."
                         value={userSearchQuery}
@@ -374,12 +374,12 @@ function EbayOrdersContent() {
                             key={u.uid}
                             role="button"
                             tabIndex={0}
-                            className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent cursor-pointer ${
+                            className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-accent ${
                               selectedUser?.uid === u.uid ? "bg-accent" : ""
                             }`}
                             onClick={() => handleUserSelect(u)}
                           >
-                            <span className="truncate flex-1">
+                            <span className="flex-1 truncate">
                               {formatUserDisplayName(u, { showEmail: true })}
                             </span>
                             {selectedUser?.uid === u.uid && <span className="text-primary">✓</span>}
@@ -390,8 +390,8 @@ function EbayOrdersContent() {
                 </Dialog>
               )}
               {selectedUser && (
-                <Button onClick={handleSync} disabled={syncing} variant="secondary">
-                  {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                <Button className="w-full sm:w-auto" onClick={handleSync} disabled={syncing} variant="secondary" size="sm">
+                  {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                   Sync orders
                 </Button>
               )}
@@ -408,13 +408,13 @@ function EbayOrdersContent() {
             No eBay orders yet. User should connect eBay in Integrations, select listings, then sync orders here.
           </p>
         ) : (
-          <ul className="space-y-4">
+          <ul className="space-y-1.5 sm:space-y-4">
             {orders.map((order) => (
-              <li key={order.id} className="rounded-xl border bg-card p-4 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <li key={order.id} className="rounded-lg border bg-card px-2.5 py-2 shadow-sm sm:rounded-xl sm:p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                   <div className="min-w-0">
-                    <p className="font-mono font-medium">{order.orderId ?? order.id}</p>
-                    <p className="text-sm text-muted-foreground">Created {formatDate(order.creationDate ?? undefined)}</p>
+                    <p className="break-all font-mono text-sm font-medium sm:text-base">{order.orderId ?? order.id}</p>
+                    <p className="text-xs text-muted-foreground sm:text-sm">Created {formatDate(order.creationDate ?? undefined)}</p>
                     {order.buyer?.fullName && (
                       <p className="text-sm text-muted-foreground">Buyer: {order.buyer.fullName}</p>
                     )}

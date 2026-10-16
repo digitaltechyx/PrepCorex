@@ -453,30 +453,35 @@ export function ShopifyOrdersPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <ShoppingBag className="h-7 w-7 text-emerald-600" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight sm:text-2xl">
+            <ShoppingBag className="h-6 w-6 shrink-0 text-emerald-600 sm:h-7 sm:w-7" />
             Shopify Orders
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="mt-0.5 text-xs text-muted-foreground sm:mt-1 sm:text-sm">
             All client Shopify orders in one place. Orders auto-sync when you open this page.
             Filter by client, store, status, or date — then fulfill or purchase labels.
           </p>
         </div>
-        <Button onClick={() => void handleSync()} disabled={syncing || loading || !user}>
+        <Button
+          className="w-full shrink-0 sm:w-auto"
+          size="sm"
+          onClick={() => void handleSync()}
+          disabled={syncing || loading || !user}
+        >
           {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Sync from Shopify
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Client:</span>
-            <span className="text-sm">
+      <Card className="min-w-0 overflow-hidden">
+        <CardContent className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:p-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+            <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-xs font-medium sm:text-sm">Client:</span>
+            <span className="truncate text-xs sm:text-sm">
               {userFilter === "all"
                 ? "All clients"
                 : usersLoading
@@ -493,13 +498,13 @@ export function ShopifyOrdersPanel() {
           </div>
           <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" disabled={usersLoading}>
+              <Button variant="outline" size="sm" className="w-full shrink-0 sm:w-auto" disabled={usersLoading}>
                 Change client
                 <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
+            <DialogContent className="w-[calc(100%-1.5rem)] max-w-lg p-4 sm:p-6">
+              <DialogHeader className="text-left">
                 <DialogTitle>Filter by client</DialogTitle>
                 <DialogDescription>Choose all clients or one account to narrow the list.</DialogDescription>
               </DialogHeader>
@@ -537,58 +542,58 @@ export function ShopifyOrdersPanel() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total orders</CardDescription>
-            <CardTitle className="text-2xl">{orders.length}</CardTitle>
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Total</CardDescription>
+            <CardTitle className="text-base tabular-nums sm:text-2xl">{orders.length}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Unfulfilled</CardDescription>
-            <CardTitle className="text-2xl text-amber-700">{unfulfilledCount}</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Unfulfilled</CardDescription>
+            <CardTitle className="text-base tabular-nums text-amber-700 sm:text-2xl">{unfulfilledCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Fulfilled</CardDescription>
-            <CardTitle className="text-2xl text-emerald-700">{fulfilledCount}</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Fulfilled</CardDescription>
+            <CardTitle className="text-base tabular-nums text-emerald-700 sm:text-2xl">{fulfilledCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Showing (filtered)</CardDescription>
-            <CardTitle className="text-2xl">{visible.length}</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Showing</CardDescription>
+            <CardTitle className="text-base tabular-nums sm:text-2xl">{visible.length}</CardTitle>
           </CardHeader>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="space-y-4">
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="space-y-3 p-3 sm:space-y-4 sm:p-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="text-lg">Orders</CardTitle>
-              <CardDescription>
+            <div className="min-w-0">
+              <CardTitle className="text-base sm:text-lg">Orders</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
                 Search and filter, then open details or process unfulfilled orders.
               </CardDescription>
             </div>
             {hasActiveFilters ? (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <Button variant="ghost" size="sm" className="self-start" onClick={clearFilters}>
                 <X className="mr-1 h-4 w-4" />
                 Clear filters
               </Button>
             ) : null}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            <div className="space-y-1.5 sm:col-span-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="col-span-2 space-y-1.5">
               <Label htmlFor="shopify-admin-search">Search</Label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="shopify-admin-search"
-                  placeholder="Order #, client, customer, email, SKU, tracking…"
+                  placeholder="Order #, client, customer, email, SKU…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -660,31 +665,31 @@ export function ShopifyOrdersPanel() {
           </div>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="p-3 sm:p-6">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <div className="flex items-center justify-center py-12 text-muted-foreground sm:py-16">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               Loading orders…
             </div>
           ) : visible.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-muted-foreground sm:py-16">
               <Package className="h-8 w-8 opacity-40" />
               <p className="font-medium">No orders to show</p>
               <p className="text-sm">Sync from Shopify or adjust filters.</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-1.5 sm:space-y-3">
               {visible.map((order) => {
                 const fulfilled = order.fulfillmentStatus === "fulfilled";
                 return (
                   <div
                     key={`${order.ownerUserId}-${order.shop}-${order.id}`}
-                    className="rounded-lg border px-4 py-3 transition-colors hover:bg-muted/30"
+                    className="rounded-lg border px-2.5 py-2 transition-colors hover:bg-muted/30 sm:px-4 sm:py-3"
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold">{order.name || `#${order.orderNumber}`}</p>
+                      <div className="min-w-0 space-y-0.5 sm:space-y-1">
+                        <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                          <p className="text-sm font-semibold sm:text-base">{order.name || `#${order.orderNumber}`}</p>
                           <Badge variant="outline" className="capitalize text-[10px]">
                             {order.fulfillmentStatus || "unfulfilled"}
                           </Badge>
@@ -700,12 +705,12 @@ export function ShopifyOrdersPanel() {
                             {order.shopName || order.shop.replace(".myshopify.com", "")}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="truncate text-xs text-muted-foreground sm:text-sm">
                           {order.customerName || order.email || "Customer"}
                           {order.email && order.customerName ? ` · ${order.email}` : ""}
                         </p>
                         {order.lineItems.length > 0 ? (
-                          <p className="truncate text-xs text-muted-foreground">
+                          <p className="truncate text-[11px] text-muted-foreground sm:text-xs">
                             {order.lineItems
                               .slice(0, 3)
                               .map((li) => `${li.quantity}× ${li.title}`)
@@ -714,25 +719,25 @@ export function ShopifyOrdersPanel() {
                           </p>
                         ) : null}
                       </div>
-                      <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-                        <div className="text-left sm:text-right">
-                          <p className="font-semibold">
+                      <div className="flex shrink-0 flex-col items-stretch gap-1.5 sm:items-end sm:gap-2">
+                        <div className="flex items-baseline justify-between gap-2 text-left sm:block sm:text-right">
+                          <p className="text-sm font-semibold sm:text-base">
                             {formatMoney(order.totalPrice, order.currency)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-[10px] text-muted-foreground sm:text-xs">
                             Placed {formatWhen(order.createdAt)}
                           </p>
                           {order.trackingNumbers[0] ? (
-                            <p className="mt-1 text-xs">
+                            <p className="mt-0.5 truncate text-[11px] sm:mt-1 sm:text-xs">
                               Track: <span className="font-medium">{order.trackingNumbers[0]}</span>
                             </p>
                           ) : null}
                         </div>
-                        <div className="flex flex-wrap gap-1.5 justify-end">
+                        <div className="flex flex-wrap gap-1.5 sm:justify-end">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-8"
+                            className="h-8 flex-1 sm:flex-none"
                             onClick={() => setDetailsOrder(order)}
                           >
                             <Eye className="mr-1.5 h-3.5 w-3.5" />
@@ -743,16 +748,16 @@ export function ShopifyOrdersPanel() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8"
+                                className="h-8 flex-1 sm:flex-none"
                                 onClick={() => openFulfillDialog(order)}
                               >
                                 <Truck className="mr-1.5 h-3.5 w-3.5" />
-                                Quick Fulfill
+                                Fulfill
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8"
+                                className="h-8 flex-1 sm:flex-none"
                                 onClick={() => openLabelFlow(order)}
                               >
                                 <Tag className="mr-1.5 h-3.5 w-3.5" />
@@ -772,10 +777,10 @@ export function ShopifyOrdersPanel() {
       </Card>
 
       <Dialog open={!!detailsOrder} onOpenChange={(open) => !open && setDetailsOrder(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{detailsOrder?.name || `Order #${detailsOrder?.orderNumber}`}</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="max-h-[90vh] w-[calc(100%-1.5rem)] overflow-y-auto p-4 sm:max-w-lg sm:p-6">
+          <DialogHeader className="text-left">
+            <DialogTitle className="text-base sm:text-lg">{detailsOrder?.name || `Order #${detailsOrder?.orderNumber}`}</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               {detailsOrder
                 ? `${detailsOrder.ownerName} · ${detailsOrder.shopName || detailsOrder.shop}`
                 : ""}

@@ -278,13 +278,13 @@ export function AmazonOrdersPanel() {
       );
     }
     return (
-      <div className="space-y-3">
+      <div className="space-y-1.5 sm:space-y-3">
         {list.map((order) => (
-          <div key={`${order.ownerUserId}_${order.id}`} className="rounded-lg border p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold">{order.amazonOrderId}</p>
+          <div key={`${order.ownerUserId}_${order.id}`} className="rounded-lg border px-2.5 py-2 sm:p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+              <div className="min-w-0 space-y-0.5 sm:space-y-1">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
+                  <p className="break-all text-sm font-semibold sm:text-base">{order.amazonOrderId}</p>
                   <Badge variant={order.isFba ? "secondary" : "outline"} className="text-[10px]">
                     {order.isFba ? "FBA" : "FBM"}
                   </Badge>
@@ -292,29 +292,30 @@ export function AmazonOrdersPanel() {
                     {order.orderStatus || "unknown"}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground sm:text-xs">
                   {formatWhen(order.createdAt)} · {order.storeName} · {order.ownerName}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground sm:text-xs">
                   {order.lineItems.length} line(s)
                   {order.orderTotal ? ` · ${order.currency || "USD"} ${order.orderTotal}` : ""}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 shrink-0">
-                <Button size="sm" variant="outline" onClick={() => setDetailsOrder(order)}>
-                  <Eye className="h-4 w-4 mr-1" />
+              <div className="flex shrink-0 flex-wrap gap-1.5 sm:gap-2">
+                <Button size="sm" variant="outline" className="h-8 flex-1 sm:flex-none" onClick={() => setDetailsOrder(order)}>
+                  <Eye className="mr-1 h-3.5 w-3.5" />
                   Details
                 </Button>
                 {order.sellerFulfillable ? (
                   <Button
                     size="sm"
+                    className="h-8 flex-1 sm:flex-none"
                     onClick={() => {
                       setFulfillOrder(order);
                       setFulfillDialogOpen(true);
                     }}
                   >
-                    <Truck className="h-4 w-4 mr-1" />
-                    Quick Fulfill
+                    <Truck className="mr-1 h-3.5 w-3.5" />
+                    Fulfill
                   </Button>
                 ) : null}
               </div>
@@ -334,28 +335,28 @@ export function AmazonOrdersPanel() {
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <ShoppingBag className="h-5 w-5 text-orange-600" />
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="p-3 sm:p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <ShoppingBag className="h-5 w-5 shrink-0 text-orange-600" />
                 Amazon Orders
               </CardTitle>
-              <CardDescription className="mt-1">
+              <CardDescription className="mt-0.5 text-xs sm:mt-1 sm:text-sm">
                 FBM + FBA orders, quick fulfill for merchant-fulfilled (MFN), and FBA inventory/inbound views.
               </CardDescription>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
               <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Users className="h-4 w-4 mr-2" />
-                    {selectedUser ? formatUserDisplayName(selectedUser) : "All clients"}
+                  <Button variant="outline" size="sm" className="w-full justify-start sm:w-auto">
+                    <Users className="mr-2 h-4 w-4" />
+                    <span className="truncate">{selectedUser ? formatUserDisplayName(selectedUser) : "All clients"}</span>
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="w-[calc(100%-1.5rem)] max-w-lg p-4 sm:p-6">
                   <DialogHeader>
                     <DialogTitle>Select client</DialogTitle>
                   </DialogHeader>
@@ -381,14 +382,14 @@ export function AmazonOrdersPanel() {
                   </div>
                 </DialogContent>
               </Dialog>
-              <Button variant="outline" size="sm" onClick={() => void handleSync()} disabled={syncing || loading}>
-                {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => void handleSync()} disabled={syncing || loading}>
+                {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Sync live
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6">
           <Tabs
             value={activeTab}
             onValueChange={(v) => {
@@ -397,39 +398,39 @@ export function AmazonOrdersPanel() {
               if (tab === "fba-inventory" || tab === "fba-inbound") void fetchFba();
             }}
           >
-            <TabsList className="mb-4 flex-wrap h-auto">
-              <TabsTrigger value="fbm" className="gap-2">
-                FBM Orders
+            <TabsList className="mb-3 grid h-auto w-full grid-cols-2 gap-0.5 p-0.5 sm:mb-4 sm:flex sm:h-10 sm:flex-wrap sm:gap-0 sm:p-1">
+              <TabsTrigger value="fbm" className="gap-1 px-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                FBM
                 <Badge
                   variant={activeTab === "fbm" ? "default" : "secondary"}
-                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  className="h-4 min-w-4 px-1 text-[9px] tabular-nums sm:h-5 sm:min-w-5 sm:px-1.5 sm:text-[10px]"
                 >
                   {fbmCount}
                 </Badge>
               </TabsTrigger>
-              <TabsTrigger value="fba" className="gap-2">
-                FBA Orders
+              <TabsTrigger value="fba" className="gap-1 px-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                FBA
                 <Badge
                   variant={activeTab === "fba" ? "default" : "secondary"}
-                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  className="h-4 min-w-4 px-1 text-[9px] tabular-nums sm:h-5 sm:min-w-5 sm:px-1.5 sm:text-[10px]"
                 >
                   {fbaCount}
                 </Badge>
               </TabsTrigger>
-              <TabsTrigger value="fba-inventory" className="gap-2">
-                FBA inventory
+              <TabsTrigger value="fba-inventory" className="gap-1 px-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                Inventory
                 <Badge
                   variant={activeTab === "fba-inventory" ? "default" : "secondary"}
-                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  className="h-4 min-w-4 px-1 text-[9px] tabular-nums sm:h-5 sm:min-w-5 sm:px-1.5 sm:text-[10px]"
                 >
                   {userFilter === "all" ? "—" : fbaOpsCountsReady ? fbaInventoryCount : "…"}
                 </Badge>
               </TabsTrigger>
-              <TabsTrigger value="fba-inbound" className="gap-2">
-                FBA inbound
+              <TabsTrigger value="fba-inbound" className="gap-1 px-1.5 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+                Inbound
                 <Badge
                   variant={activeTab === "fba-inbound" ? "default" : "secondary"}
-                  className="h-5 min-w-5 px-1.5 text-[10px] tabular-nums"
+                  className="h-4 min-w-4 px-1 text-[9px] tabular-nums sm:h-5 sm:min-w-5 sm:px-1.5 sm:text-[10px]"
                 >
                   {userFilter === "all" ? "—" : fbaOpsCountsReady ? fbaInboundCount : "…"}
                 </Badge>
@@ -499,7 +500,18 @@ export function AmazonOrdersPanel() {
               ) : fbaInventory.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-6">No FBA inventory rows returned.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="space-y-1.5 md:hidden">
+                  {fbaInventory.map((row) => (
+                    <div key={row.sellerSku} className="rounded-lg border px-2.5 py-2">
+                      <p className="break-all text-sm font-medium">{row.sellerSku}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        ASIN {row.asin || "—"} · Fulfillable {row.fulfillableQuantity} · Total{" "}
+                        {row.totalQuantity} · Inbound {row.inboundWorkingQuantity}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
@@ -583,9 +595,9 @@ export function AmazonOrdersPanel() {
       </Card>
 
       <Dialog open={!!detailsOrder} onOpenChange={(open) => !open && setDetailsOrder(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Order {detailsOrder?.amazonOrderId}</DialogTitle>
+        <DialogContent className="max-h-[85vh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto p-4 sm:p-6">
+          <DialogHeader className="text-left">
+            <DialogTitle className="break-all text-base sm:text-lg">Order {detailsOrder?.amazonOrderId}</DialogTitle>
           </DialogHeader>
           {detailsOrder ? <AmazonOrderDetailBody order={detailsOrder} /> : null}
         </DialogContent>

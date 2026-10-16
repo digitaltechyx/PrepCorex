@@ -427,25 +427,25 @@ export function ShipStationOrdersPanel({
     syncing || !user || (mode === "admin" && !targetUserId) || connections.length === 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="min-w-0">
           {backHref ? (
-            <Button variant="ghost" size="sm" className="mb-2 -ml-2 h-8 px-2" asChild>
+            <Button variant="ghost" size="sm" className="mb-1 -ml-2 h-8 px-2 sm:mb-2" asChild>
               <Link href={backHref}>
                 <ArrowLeft className="mr-1 h-4 w-4" />
                 {backLabel}
               </Link>
             </Button>
           ) : null}
-          <h1 className="text-2xl font-bold tracking-tight">ShipStation Orders</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">ShipStation Orders</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
             {mode === "admin"
               ? "View synced ShipStation orders and purchased labels for a client. Updates arrive automatically via webhooks (plus scheduled backup sync)."
               : "Orders sync automatically when ShipStation has new orders or shipments. Use Sync now if you need an immediate refresh."}
           </p>
         </div>
-        <Button onClick={() => void handleSync()} disabled={syncDisabled}>
+        <Button className="w-full shrink-0 sm:w-auto" size="sm" onClick={() => void handleSync()} disabled={syncDisabled}>
           {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           Sync now
         </Button>
@@ -516,23 +516,23 @@ export function ShipStationOrdersPanel({
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Synced orders</CardDescription>
-            <CardTitle className="text-2xl">{orders.length}</CardTitle>
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Synced</CardDescription>
+            <CardTitle className="text-base tabular-nums sm:text-2xl">{orders.length}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>With purchased label</CardDescription>
-            <CardTitle className="text-2xl">{labeledCount}</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Labeled</CardDescription>
+            <CardTitle className="text-base tabular-nums sm:text-2xl">{labeledCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Showing (filtered)</CardDescription>
-            <CardTitle className="text-2xl">{visible.length}</CardTitle>
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">Showing</CardDescription>
+            <CardTitle className="text-base tabular-nums sm:text-2xl">{visible.length}</CardTitle>
           </CardHeader>
         </Card>
       </div>

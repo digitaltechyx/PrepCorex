@@ -496,23 +496,23 @@ export function VeeqoOrdersPanel({
     syncing || !user || (mode === "admin" && !targetUserId) || connections.length === 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+    <div className="min-w-0 space-y-3 sm:space-y-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <div className="min-w-0">
           {backHref ? (
-            <Button variant="ghost" size="sm" className="mb-2 -ml-2 h-8 px-2" asChild>
+            <Button variant="ghost" size="sm" className="mb-1 -ml-2 h-8 px-2 sm:mb-2" asChild>
               <Link href={backHref}>
                 <ArrowLeft className="mr-1 h-4 w-4" />
                 {backLabel}
               </Link>
             </Button>
           ) : null}
-          <h1 className="text-2xl font-bold tracking-tight">Veeqo Orders</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Veeqo Orders</h1>
+          <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
             Sync Veeqo orders and buy shipping labels (billed on your Veeqo account).
           </p>
         </div>
-        <Button onClick={() => void handleSync()} disabled={syncDisabled}>
+        <Button className="w-full shrink-0 sm:w-auto" size="sm" onClick={() => void handleSync()} disabled={syncDisabled}>
           {syncing ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
