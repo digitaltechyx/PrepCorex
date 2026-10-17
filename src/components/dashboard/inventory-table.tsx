@@ -264,6 +264,9 @@ function formatExpiryLotLine(expiryLabel: string, quantity: number): string {
   return `${expiryLabel} · ${qty} unit${qty === 1 ? "" : "s"}`;
 }
 
+/** Table / mobile list show at most three lots; eye opens the rest. */
+const MAX_VISIBLE_EXPIRY_LOTS = 3;
+
 /** Prefer multi-lot expiryBatches; fall back to single expiryDate + on-hand qty. */
 function formatInventoryExpiryLots(
   item: {
@@ -303,6 +306,52 @@ function formatInventoryExpiryLots(
     };
   }
   return { hasLots: false, lines: [] };
+}
+
+function InventoryExpiryLotsPreview({
+  lines,
+  emptyLabel = "N/A",
+  lineClassName,
+  onViewAll,
+}: {
+  lines: string[];
+  emptyLabel?: string;
+  lineClassName?: string;
+  onViewAll: (allLines: string[]) => void;
+}) {
+  if (lines.length === 0) {
+    return <span className={lineClassName}>{emptyLabel}</span>;
+  }
+  const visible = lines.slice(0, MAX_VISIBLE_EXPIRY_LOTS);
+  const hasMore = lines.length > MAX_VISIBLE_EXPIRY_LOTS;
+  return (
+    <div className="flex items-start gap-0.5 min-w-0">
+      <div className="min-w-0 space-y-0.5">
+        {visible.map((line) => (
+          <div key={line} className={cn("text-sm leading-snug", lineClassName)}>
+            {line}
+          </div>
+        ))}
+        {hasMore ? (
+          <p className="text-[10px] text-muted-foreground">
+            +{lines.length - MAX_VISIBLE_EXPIRY_LOTS} more
+          </p>
+        ) : null}
+      </div>
+      {hasMore ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 text-blue-600 hover:text-blue-700"
+          title="View all expiry lots"
+          onClick={() => onViewAll(lines)}
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function knownExpiriesForInventoryItem(
@@ -864,6 +913,10 @@ export function InventoryTable({
   const [outOfStockSheetOpen, setOutOfStockSheetOpen] = useState(false);
   const [otherResourcesSheetOpen, setOtherResourcesSheetOpen] = useState(false);
   const [productNamePreview, setProductNamePreview] = useState<string | null>(null);
+  const [expiryLotsPreview, setExpiryLotsPreview] = useState<{
+    productName: string;
+    lines: string[];
+  } | null>(null);
   const [expandedMobileIds, setExpandedMobileIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
@@ -2476,13 +2529,17 @@ export function InventoryTable({
                       ) : null}
                       {expiryLots.lines.length > 0 ? (
                         <div className="space-y-0.5">
-                          {expiryLots.hasLots ? (
-                            expiryLots.lines.map((line) => (
-                              <p key={line}>Expiry: {line}</p>
-                            ))
-                          ) : (
-                            <p>Expiry: {expiryLots.lines[0]}</p>
-                          )}
+                          <p className="font-medium text-foreground/80">Expiry</p>
+                          <InventoryExpiryLotsPreview
+                            lines={expiryLots.lines}
+                            lineClassName="text-[11px] text-muted-foreground"
+                            onViewAll={(allLines) =>
+                              setExpiryLotsPreview({
+                                productName: item.productName,
+                                lines: allLines,
+                              })
+                            }
+                          />
                         </div>
                       ) : null}
                       {unitLine ? <p>Unit: {unitLine}</p> : null}
@@ -2659,24 +2716,23 @@ export function InventoryTable({
                     <TableCell className="hidden lg:table-cell whitespace-nowrap">
                       {(item as any).retailIdentifier || "N/A"}
                     </TableCell>
-                    <TableCell className="hidden xl:table-cell whitespace-nowrap">
+                    <TableCell className="hidden xl:table-cell align-top">
                       <div className="flex items-start gap-1">
                         {(() => {
                           const lots = formatInventoryExpiryLots(
                             item as any,
                             knownExpiriesForInventoryItem(item as any, knownExpiriesByKey)
                           );
-                          if (lots.lines.length === 0) {
-                            return <span>N/A</span>;
-                          }
                           return (
-                            <div className="min-w-0 space-y-0.5">
-                              {lots.lines.map((line) => (
-                                <div key={line} className="text-sm leading-snug">
-                                  {line}
-                                </div>
-                              ))}
-                            </div>
+                            <InventoryExpiryLotsPreview
+                              lines={lots.lines}
+                              onViewAll={(allLines) =>
+                                setExpiryLotsPreview({
+                                  productName: item.productName,
+                                  lines: allLines,
+                                })
+                              }
+                            />
                           );
                         })()}
                         {!hasAdminActions &&
@@ -3427,6 +3483,30 @@ export function InventoryTable({
             <DialogTitle>Product name</DialogTitle>
           </DialogHeader>
           <p className="text-sm whitespace-pre-wrap break-words">{productNamePreview}</p>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={expiryLotsPreview !== null}
+        onOpenChange={(open) => !open && setExpiryLotsPreview(null)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Expiry lots</DialogTitle>
+            <DialogDescription className="truncate">
+              {expiryLotsPreview?.productName}
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-[60vh] space-y-2 overflow-y-auto text-sm">
+            {(expiryLotsPreview?.lines ?? []).map((line) => (
+              <li
+                key={line}
+                className="rounded-md border bg-muted/30 px-3 py-2 leading-snug"
+              >
+                {line}
+              </li>
+            ))}
+          </ul>
         </DialogContent>
       </Dialog>
     </Card>

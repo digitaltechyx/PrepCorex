@@ -2,11 +2,47 @@
  * Utility functions for CSV generation and download
  */
 
+import { reconcileExpiryBatchesToOnHand } from "@/lib/inventory-expiry-batches";
+
 export interface InventoryCSVRow {
   'Product Name': string;
+  'SKU': string;
   'Quantity': number;
   'Status': string;
+  'Expiry Lots': string;
   'Date Added': string;
+}
+
+/** Warehouse inventory CSV columns (excludes marketplace / Other Resources rows). */
+export const INVENTORY_CSV_HEADERS: (keyof InventoryCSVRow)[] = [
+  "Product Name",
+  "SKU",
+  "Quantity",
+  "Status",
+  "Expiry Lots",
+  "Date Added",
+];
+
+/**
+ * Format FEFO expiry lots for CSV, e.g. "2026-10-31 (135); 2026-11-01 (10)".
+ * Falls back to a single expiryDate when batches are missing.
+ */
+export function formatInventoryExpiryLotsForCsv(item: {
+  quantity?: unknown;
+  expiryDate?: unknown;
+  expiryBatches?: Array<{ expiry?: string; quantity?: number }> | null;
+}): string {
+  const onHand = Math.max(0, Math.floor(Number(item.quantity) || 0));
+  const { batches } = reconcileExpiryBatchesToOnHand(
+    Array.isArray(item.expiryBatches) ? item.expiryBatches : [],
+    onHand,
+    item.expiryDate,
+    "fefo"
+  );
+  if (batches.length === 0) return "";
+  return batches
+    .map((b) => `${b.expiry} (${Math.max(0, Math.floor(Number(b.quantity) || 0))})`)
+    .join("; ");
 }
 
 export interface ShippedCSVRow {

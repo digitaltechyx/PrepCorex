@@ -44,7 +44,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
 import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, DeleteRequest, EditLog, Location, InventoryTransfer } from "@/types";
-import { arrayToCSV, downloadCSV, formatDateForCSV, type InventoryCSVRow, type ShippedCSVRow } from "@/lib/csv-utils";
+import {
+  arrayToCSV,
+  downloadCSV,
+  formatDateForCSV,
+  formatInventoryExpiryLotsForCsv,
+  INVENTORY_CSV_HEADERS,
+  type InventoryCSVRow,
+  type ShippedCSVRow,
+} from "@/lib/csv-utils";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { useAuth } from "@/hooks/use-auth";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { useCollection } from "@/hooks/use-collection";
@@ -1772,32 +1781,37 @@ export function AdminInventoryManagement({
   const paginatedRecycledInventory = filteredRecycledInventory.slice(recycleStartIndex, recycleEndIndex);
   const resetRecyclePagination = () => setRecyclePage(1);
 
-  // Download functions
+  // Download functions — warehouse PrepCorex stock only (no Shopify/Amazon/etc.), with expiry lots.
   const handleDownloadInventory = () => {
-    if (!selectedUser || filteredInventory.length === 0) {
+    const warehouseRows = filteredInventory.filter(
+      (item) => !isIntegrationInventorySource((item as { source?: string }).source)
+    );
+    if (!selectedUser || warehouseRows.length === 0) {
       toast({
         variant: "destructive",
         title: "No Data",
-        description: "No inventory data available to download.",
+        description: "No warehouse inventory to download (marketplace Other Resources are excluded).",
       });
       return;
     }
 
-    const csvData: InventoryCSVRow[] = filteredInventory.map(item => ({
-      'Product Name': item.productName,
-      'Quantity': item.quantity,
-      'Status': item.status,
-      'Date Added': formatDateForCSV(item.dateAdded),
+    const csvData: InventoryCSVRow[] = warehouseRows.map((item) => ({
+      "Product Name": item.productName,
+      SKU: String(item.sku ?? "").trim(),
+      Quantity: item.quantity,
+      Status: item.status,
+      "Expiry Lots": formatInventoryExpiryLotsForCsv(item),
+      "Date Added": formatDateForCSV(item.dateAdded),
     }));
 
-    const csvContent = arrayToCSV(csvData, ['Product Name', 'Quantity', 'Status', 'Date Added']);
+    const csvContent = arrayToCSV(csvData, INVENTORY_CSV_HEADERS);
     const filename = `${selectedUser.name}_inventory_${new Date().toISOString().split('T')[0]}.csv`;
     
     downloadCSV(csvContent, filename);
     
     toast({
       title: "Download Started",
-      description: `Inventory data for ${selectedUser.name} is being downloaded.`,
+      description: `Warehouse inventory for ${selectedUser.name} is downloading (${warehouseRows.length} products).`,
     });
   };
 
