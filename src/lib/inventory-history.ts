@@ -109,12 +109,16 @@ function skusMatch(item: InventoryItem, sku: string | undefined | null): boolean
 
 function productIdsMatch(item: InventoryItem, productId: string | undefined | null): boolean {
   const id = String(productId ?? "").trim();
-  return Boolean(id && id === item.id);
+  if (!id) return false;
+  // Do not auto-include mergedFromInventoryIds here — that would fold B’s +inbound into A’s
+  // running balance on top of the merge +qty and warp every Before/After. Linked ship rows
+  // from merged products are appended separately in the history dialog.
+  return id === item.id;
 }
 
 function inventoryChangeLogMatchesItem(log: InventoryChangeLog, item: InventoryItem): boolean {
   return (
-    log.inventoryId === item.id ||
+    productIdsMatch(item, log.inventoryId) ||
     skusMatch(item, log.sku) ||
     namesMatch(item, log.productName)
   );
@@ -153,6 +157,80 @@ function unitsShippedFromLine(line: {
   const boxes = Math.max(0, Math.floor(Number(line.boxesShipped) || 0));
   const packOf = Math.max(1, Math.floor(Number(line.packOf) || 1));
   return boxes > 0 ? boxes * packOf : 0;
+}
+
+/** Merge row keeps net +qty on A; details summarize source restock/ship (e.g. +444, −4 → 440). */
+function formatProductMergeDetails(
+  log: InventoryChangeLog,
+  sources: InventoryHistorySources
+): string {
+  const sourceId = String(
+    (log as InventoryChangeLog & { sourceInventoryId?: string | null }).sourceInventoryId ?? ""
+  ).trim();
+  const sourceSku = String(
+    (log as InventoryChangeLog & { sourceSku?: string | null }).sourceSku ?? log.sku ?? ""
+  ).trim();
+  const mergedQty = Math.max(
+    0,
+    Math.floor(
+      Number(
+        (log as InventoryChangeLog & { sourceQtyMerged?: number | null }).sourceQtyMerged ??
+          log.qtyChange
+      ) || 0
+    )
+  );
+
+  let receivedUnits = 0;
+  if (sourceId) {
+    for (const row of sources.inboundReceiveLogs ?? []) {
+      if (String(row.inventoryId ?? "").trim() !== sourceId) continue;
+      receivedUnits += Math.max(0, Math.floor(Number(row.goodQty) || 0));
+    }
+    for (const req of sources.inventoryRequests ?? []) {
+      if (String(req.productId ?? "").trim() !== sourceId) continue;
+      if (req.status !== "approved") continue;
+      // Prefer putaway totals when present; else approved receive qty.
+      const qty = Math.max(
+        0,
+        Math.floor(Number(req.receivedQuantity ?? req.quantity) || 0)
+      );
+      if (qty > receivedUnits) receivedUnits = qty;
+    }
+  }
+
+  let shippedUnits = 0;
+  if (sourceId) {
+    for (const s of sources.shipped ?? []) {
+      if (s.items?.length) {
+        for (const line of s.items) {
+          if (String(line.productId ?? "").trim() !== sourceId) continue;
+          shippedUnits += unitsShippedFromLine(line);
+        }
+      } else if (String((s as ShippedItem & { productId?: string }).productId ?? "").trim() === sourceId) {
+        shippedUnits += unitsShippedFromLine({
+          shippedQty: s.shippedQty ?? s.totalUnits,
+          boxesShipped: s.boxesShipped ?? s.totalBoxes,
+          packOf: s.packOf,
+        });
+      }
+    }
+  }
+
+  const fromLabel = sourceSku || sourceId || "merged product";
+  const idSuffix = sourceId && sourceId !== fromLabel ? ` (${sourceId})` : "";
+  const head = `Merged ${mergedQty} units from ${fromLabel}${idSuffix}`;
+
+  if (receivedUnits > 0 || shippedUnits > 0) {
+    const bits: string[] = [];
+    if (receivedUnits > 0) bits.push(`+${receivedUnits} received`);
+    if (shippedUnits > 0) bits.push(`−${shippedUnits} shipped`);
+    bits.push(`${mergedQty} on hand`);
+    return `${head}. Source: ${bits.join(", ")}.`;
+  }
+
+  const stored = String(log.details ?? "").trim();
+  if (stored) return stored;
+  return `${head}. Source restock/ship history stays on that row.`;
 }
 
 function stockSnapshotFromRemaining(remainingQty: unknown, unitsShipped: number): {
@@ -285,6 +363,58 @@ function isPackDetailsChangeLog(log: InventoryChangeLog): boolean {
 }
 
 /** Outbound Details column: "qty 4 pack of 12" plus request id when present. */
+/** Human-readable lot take: "10 from Oct 31, 2026, 8 from Nov 1, 2026". */
+function formatConsumedLotsDetail(
+  batches:
+    | Array<{ expiry?: string | null; quantity?: number | null; lot?: string | null }>
+    | null
+    | undefined
+): string | null {
+  if (!Array.isArray(batches) || batches.length === 0) return null;
+  const parts = batches
+    .map((b) => {
+      const expiry = String(b.expiry || "").trim();
+      const qty = Math.max(0, Math.floor(Number(b.quantity) || 0));
+      if (!expiry || qty <= 0) return "";
+      let label = expiry;
+      try {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+          const [y, m, d] = expiry.split("-").map(Number);
+          label = new Date(y!, m! - 1, d!).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+        }
+      } catch {
+        /* keep iso */
+      }
+      return `${qty} from ${label}`;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function lotBreakdownFromChangeLog(log: InventoryChangeLog): string | null {
+  const fromField = formatConsumedLotsDetail(log.consumedExpiryBatches);
+  if (fromField) return fromField;
+  const fromAlloc = formatConsumedLotsDetail(log.lotAllocations);
+  if (fromAlloc) return fromAlloc;
+  // Older logs only embedded "Batches: 10× exp 2026-10-31, …" in details text.
+  const stored = String(log.details ?? "");
+  const match = stored.match(/Batches:\s*([^·]+)/i);
+  if (!match?.[1]) return null;
+  const parsed = match[1]
+    .split(",")
+    .map((chunk) => {
+      const m = chunk.trim().match(/^(\d+)\s*[×x]\s*exp\s*(\d{4}-\d{2}-\d{2})/i);
+      if (!m) return null;
+      return { quantity: Number(m[1]), expiry: m[2] };
+    })
+    .filter(Boolean) as Array<{ quantity: number; expiry: string }>;
+  return formatConsumedLotsDetail(parsed);
+}
+
 function formatOutboundShipmentDetails(input: {
   units?: number | null;
   packOf?: number | null;
@@ -293,6 +423,8 @@ function formatOutboundShipmentDetails(input: {
   shipmentRequestId?: string | null;
   /** Optional cancel reason for restore rows. */
   cancelReason?: string | null;
+  /** e.g. "10 from Oct 31, 2026, 8 from Nov 1, 2026" */
+  lotBreakdown?: string | null;
 }): string {
   const packOfRaw = Number(input.packOf);
   const boxesRaw = Number(input.boxesShipped);
@@ -319,6 +451,9 @@ function formatOutboundShipmentDetails(input: {
 
   const parts: string[] = [];
   if (base) parts.push(base);
+
+  const lots = String(input.lotBreakdown ?? "").trim();
+  if (lots) parts.push(lots);
 
   const requestId = String(input.shipmentRequestId ?? "").trim();
   if (requestId) {
@@ -360,7 +495,7 @@ function findPackFromShipmentRequest(
 
   for (const shipment of req.shipments) {
     const productId = String(shipment.productId ?? "").trim();
-    if (productId && productId === item.id) {
+    if (productIdsMatch(item, productId)) {
       const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
       const boxesShipped = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
       return { packOf, boxesShipped: boxesShipped || undefined };
@@ -716,7 +851,7 @@ export function buildInventoryHistory(
 
   for (const req of sources.inventoryRequests) {
     const linked = sourceRequestId && req.id === sourceRequestId;
-    const byProductId = Boolean(req.productId && req.productId === item.id);
+    const byProductId = productIdsMatch(item, req.productId);
     const byName = namesMatch(item, req.productName) || skusMatch(item, req.sku);
     if (!linked && !byName && !byProductId) continue;
 
@@ -787,7 +922,13 @@ export function buildInventoryHistory(
   }
 
   for (const r of sources.restockHistory) {
-    if (!namesMatch(item, r.productName)) continue;
+    if (
+      !productIdsMatch(item, (r as { productId?: string }).productId) &&
+      !skusMatch(item, (r as { sku?: string }).sku) &&
+      !namesMatch(item, r.productName)
+    ) {
+      continue;
+    }
     raw.push({
       timestamp: toTimestamp(r.restockedAt),
       event: "Restock",
@@ -859,11 +1000,13 @@ export function buildInventoryHistory(
                       ? "Shopify quick fulfill"
                       : log.eventType === "ebay_quick_fulfill"
                         ? "eBay quick fulfill"
-                        : Number(log.qtyChange) === 0 &&
-                            Number.isFinite(Number(log.qtyBefore)) &&
-                            Number(log.qtyBefore) === Number(log.qtyAfter)
-                          ? "Pack details change"
-                          : "Stock removed";
+                        : log.eventType === "inventory_product_merge"
+                          ? "Products merged"
+                          : Number(log.qtyChange) === 0 &&
+                              Number.isFinite(Number(log.qtyBefore)) &&
+                              Number(log.qtyBefore) === Number(log.qtyAfter)
+                            ? "Pack details change"
+                            : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
     const requestPack = findPackFromShipmentRequest(sources, log, item);
@@ -880,7 +1023,12 @@ export function buildInventoryHistory(
       shippedLine?.boxesShipped ??
       requestPack?.boxesShipped ??
       null;
+    const isProductMerge = log.eventType === "inventory_product_merge";
+
     const details = (() => {
+      if (isProductMerge) {
+        return formatProductMergeDetails(log, sources);
+      }
       if (packDetailsChange) {
         const stored = String(log.details ?? "").trim();
         if (stored) return stored;
@@ -903,6 +1051,7 @@ export function buildInventoryHistory(
         boxesShipped,
         fallbackText: log.details,
         shipmentRequestId: log.shipmentRequestId,
+        lotBreakdown: lotBreakdownFromChangeLog(log),
         cancelReason:
           log.eventType === "outbound_restored" ||
           log.eventType === "outbound_line_restored" ||
@@ -914,11 +1063,12 @@ export function buildInventoryHistory(
 
     const isPackLayoutOnly = packDetailsChange;
 
-    // Restored stock shows as inbound-style increase; awaiting/dispatch stay on outbound tab.
+    // Merge +qty stays on the stock trail (absorbs source on-hand). Restored stock is inbound-style.
     const historyEventType =
       log.eventType === "outbound_restored" ||
       log.eventType === "outbound_line_restored" ||
-      log.eventType === "shopify_qf_product_correct_credit"
+      log.eventType === "shopify_qf_product_correct_credit" ||
+      isProductMerge
         ? ("restock" as const)
         : ("shipped" as const);
 
@@ -948,7 +1098,7 @@ export function buildInventoryHistory(
           ? 0
           : log.qtyChange,
       details,
-      user: "Fulfillment",
+      user: isProductMerge ? "System" : "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
       sourceId: log.id ? String(log.id) : undefined,
       outboundLinkKind:
@@ -1072,7 +1222,7 @@ export function buildInventoryHistory(
 
   if (includeInternal) {
     for (const t of sources.inventoryTransfers) {
-      if (t.inventoryId !== item.id && !namesMatch(item, t.productName)) continue;
+      if (!productIdsMatch(item, t.inventoryId) && !namesMatch(item, t.productName)) continue;
       raw.push({
         timestamp: toTimestamp(t.movedAt),
         event: "Internal transfer",
@@ -1133,7 +1283,12 @@ export function buildInventoryHistory(
     });
   }
 
-  return applyRunningBalances(raw, { currentQuantity: item.quantity });
+  // Merged-away rows are qty 0 on purpose — do not shift their historical +restock/−ship
+  // chain down to zero (that would rewrite e.g. +444 / −4 into nonsense before/after).
+  const mergedAway = Boolean(String(item.mergedIntoInventoryId ?? "").trim());
+  return applyRunningBalances(raw, {
+    currentQuantity: mergedAway ? null : item.quantity,
+  });
 }
 
 export function formatQtyCell(n: number | null): string {
@@ -1242,7 +1397,7 @@ export function inboundReceiveLogsForItem(
   const sourceRequestId = (item as InventoryItem & { sourceRequestId?: string }).sourceRequestId;
   return logs
     .filter((log) => {
-      if (log.inventoryId === item.id) return true;
+      if (productIdsMatch(item, log.inventoryId)) return true;
       if (sourceRequestId && log.inventoryRequestId === sourceRequestId) return true;
       if (skusMatch(item, log.sku)) return true;
       return namesMatch(item, log.productName);

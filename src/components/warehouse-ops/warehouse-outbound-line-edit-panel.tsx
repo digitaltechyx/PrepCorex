@@ -27,6 +27,11 @@ import {
 } from "@/lib/warehouse-outbound-ops";
 import type { OutboundPickSourceHint } from "@/lib/warehouse-pick";
 import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
+import {
+  OutboundLotAllocationFields,
+  type OutboundLotAllocationValue,
+  type OutboundLotOption,
+} from "@/components/dashboard/outbound-lot-allocation-fields";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 type InventoryOption = {
@@ -34,6 +39,7 @@ type InventoryOption = {
   productName: string;
   sku: string;
   quantity: number;
+  expiryLots: OutboundLotOption[];
 };
 
 type Props = {
@@ -72,6 +78,9 @@ export function WarehouseOutboundLineEditPanel({
   const [addUnitPrice, setAddUnitPrice] = useState("0");
   const [addProductQuery, setAddProductQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editLotAllocations, setEditLotAllocations] = useState<OutboundLotAllocationValue[]>([]);
+  const [editLotOptions, setEditLotOptions] = useState<OutboundLotOption[]>([]);
+  const [editLotsManual, setEditLotsManual] = useState(false);
 
   const loadLines = useCallback(async () => {
     setLoading(true);
@@ -111,11 +120,22 @@ export function WarehouseOutboundLineEditPanel({
         const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
         const sku = String(data.sku ?? "").trim();
         const productName = String(data.productName ?? sku).trim() || sku || d.id;
+        const expiryLots: OutboundLotOption[] = Array.isArray(data.expiryBatches)
+          ? (data.expiryBatches as Array<{ expiry?: string; quantity?: number; lot?: string | null }>)
+              .map((b) => ({
+                expiry: String(b.expiry || "").trim(),
+                quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
+                lot: b.lot ?? null,
+              }))
+              .filter((b) => b.expiry && b.quantity > 0)
+              .sort((a, b) => a.expiry.localeCompare(b.expiry))
+          : [];
         rows.push({
           id: d.id,
           productName,
           sku: sku || productName,
           quantity: qty,
+          expiryLots,
         });
       }
       rows.sort((a, b) => a.productName.localeCompare(b.productName));
@@ -166,6 +186,34 @@ export function WarehouseOutboundLineEditPanel({
     setNewPackOf(String(line.packOf));
     setNewUnitPrice(String(line.unitPrice ?? 0));
     setPickHints([]);
+    const hasLots = line.lotRows.length > 0;
+    setEditLotsManual(hasLots || String(line.stockRotationPolicy || "").toLowerCase() === "manual");
+    setEditLotAllocations(
+      line.lotRows.map((row) => ({
+        expiry: row.expiry,
+        quantity: row.quantity,
+        lot: row.lot ?? null,
+      }))
+    );
+    // Available = on-hand batches + units already reserved on this line (so admin can reshuffle).
+    const inv = inventoryOptions.find((p) => p.id === line.productId);
+    const byExpiry = new Map<string, OutboundLotOption>();
+    for (const lot of inv?.expiryLots || []) {
+      byExpiry.set(lot.expiry, { ...lot });
+    }
+    for (const row of line.lotRows) {
+      const prev = byExpiry.get(row.expiry);
+      byExpiry.set(row.expiry, {
+        expiry: row.expiry,
+        quantity: (prev?.quantity || 0) + row.quantity,
+        lot: row.lot ?? prev?.lot ?? null,
+      });
+    }
+    setEditLotOptions(
+      Array.from(byExpiry.values())
+        .filter((l) => l.quantity > 0)
+        .sort((a, b) => a.expiry.localeCompare(b.expiry))
+    );
   }
 
   function cancelEdit() {
@@ -174,6 +222,9 @@ export function WarehouseOutboundLineEditPanel({
     setNewPackOf("");
     setNewUnitPrice("");
     setPickHints([]);
+    setEditLotAllocations([]);
+    setEditLotOptions([]);
+    setEditLotsManual(false);
   }
 
   function resolveReason(forRemove: boolean): string | null {
@@ -231,11 +282,40 @@ export function WarehouseOutboundLineEditPanel({
     }
     const priceSame =
       unitPrice == null || Math.abs(unitPrice - (line.unitPrice ?? 0)) < 0.0001;
-    if (!remove && boxQty === line.boxes && packOf === line.packOf && priceSame) {
+    const nextLots =
+      isAdmin && editLotsManual
+        ? editLotAllocations
+            .filter((r) => r.quantity > 0)
+            .map((r) => ({
+              expiry: r.expiry,
+              quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
+              lot: r.lot ?? null,
+            }))
+        : null;
+    const requiredUnits = boxQty * packOf;
+    if (!remove && nextLots != null) {
+      const lotSum = nextLots.reduce((n, r) => n + r.quantity, 0);
+      if (lotSum !== requiredUnits) {
+        toast({
+          title: "Lot totals mismatch",
+          description: `Lot units must equal ${requiredUnits} (got ${lotSum}).`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    const lotsSame =
+      nextLots == null ||
+      (nextLots.length === line.lotRows.length &&
+        nextLots.every((r) => {
+          const prev = line.lotRows.find((p) => p.expiry === r.expiry);
+          return prev != null && prev.quantity === r.quantity;
+        }));
+    if (!remove && boxQty === line.boxes && packOf === line.packOf && priceSame && lotsSame) {
       toast({
         title: "No change",
         description: isAdmin
-          ? "Quantity, pack size, and price are the same as before."
+          ? "Quantity, pack size, price, and lots are the same as before."
           : "Quantity and pack size are the same as before.",
       });
       return;
@@ -259,6 +339,7 @@ export function WarehouseOutboundLineEditPanel({
         newBoxQuantity: boxQty,
         newPackOf: packOf,
         ...(unitPrice != null ? { newUnitPrice: unitPrice } : {}),
+        ...(nextLots != null ? { lotAllocations: nextLots } : {}),
         editedBy: String(operatorId),
         reason: trimmedReason,
         requireReason: !isAdmin,
@@ -384,7 +465,7 @@ export function WarehouseOutboundLineEditPanel({
         </CardTitle>
         <CardDescription className="text-xs">
           {isAdmin
-            ? "Edit qty / pack of / unit price, remove a line, or add another product. Reserved stock updates when units change."
+            ? "Edit qty / pack / unit price / lot split, remove a line, or add another product. Client reserved lots update when you save."
             : "Reduce qty, remove a SKU, or change qty / pack size before dispatch. Client inventory updates when total units change. Reason required."}
         </CardDescription>
       </CardHeader>
@@ -429,6 +510,15 @@ export function WarehouseOutboundLineEditPanel({
                       </span>
                     ) : null}
                   </p>
+                  {line.lotRows.length > 0 ? (
+                    <ul className="mt-1 space-y-0.5 text-[11px] text-amber-900">
+                      {line.lotRows.map((row) => (
+                        <li key={`${line.lineIndex}-${row.expiry}`}>
+                          {row.quantity} from {row.expiryLabel}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
                 {!editing ? (
                   <div className="flex gap-1">
@@ -457,7 +547,8 @@ export function WarehouseOutboundLineEditPanel({
               </div>
 
               {editing ? (
-                <div className="flex flex-wrap items-end gap-2 pt-1">
+                <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap items-end gap-2">
                   <div className="space-y-1">
                     <Label htmlFor={`boxes-${line.lineIndex}`} className="text-xs">
                       Qty
@@ -534,6 +625,47 @@ export function WarehouseOutboundLineEditPanel({
                   >
                     Cancel
                   </Button>
+                </div>
+                {isAdmin && editLotOptions.length > 0 ? (
+                  <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50/50 p-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-medium text-amber-950">Lot division</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px]"
+                        disabled={saving}
+                        onClick={() => {
+                          setEditLotsManual((v) => !v);
+                          if (editLotsManual) setEditLotAllocations([]);
+                        }}
+                      >
+                        {editLotsManual ? "Use Auto/FEFO (clear lots)" : "Edit lots…"}
+                      </Button>
+                    </div>
+                    {editLotsManual ? (
+                      <OutboundLotAllocationFields
+                        lots={editLotOptions}
+                        requiredUnits={
+                          Math.max(0, Math.floor(Number(newBoxes) || 0)) *
+                          Math.max(1, Math.floor(Number(newPackOf) || 0) || 1)
+                        }
+                        value={editLotAllocations}
+                        onChange={setEditLotAllocations}
+                        onTotalsChange={({ totalUnits }) => {
+                          if (totalUnits <= 0) return;
+                          setNewBoxes(String(totalUnits));
+                          setNewPackOf("1");
+                        }}
+                      />
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground">
+                        Line has no forced lot split — warehouse/client FEFO applies on reserve.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
                 </div>
               ) : null}
             </div>

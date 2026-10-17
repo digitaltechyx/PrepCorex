@@ -65,6 +65,7 @@ import {
   earliestExpiryFromBatches,
   expiryBatchIso,
   mergeExpiryBatch,
+  seedExpiryBatchesFromLegacy,
   type ExpiryBatch,
 } from "@/lib/inventory-expiry-batches";
 
@@ -1027,14 +1028,11 @@ export function AdminInventoryManagement({
 
       // FEFO: when admin sets an expiry on this restock, merge a dated batch.
       if (lotExpiry && values.quantity > 0) {
-        const prevBatches: ExpiryBatch[] = Array.isArray(currentData.expiryBatches)
-          ? (currentData.expiryBatches as ExpiryBatch[])
-          : (() => {
-              const legacy = expiryBatchIso(currentData.expiryDate);
-              return legacy && previousQuantity > 0
-                ? [{ expiry: legacy, quantity: previousQuantity, lot: null, requestId: null }]
-                : [];
-            })();
+        const prevBatches = seedExpiryBatchesFromLegacy(
+          currentData.expiryBatches as ExpiryBatch[] | undefined,
+          previousQuantity,
+          currentData.expiryDate
+        );
         const batches = mergeExpiryBatch(prevBatches, {
           expiry: lotExpiry,
           quantity: values.quantity,
@@ -1339,14 +1337,11 @@ export function AdminInventoryManagement({
         );
       }
 
-      let batches: ExpiryBatch[] = Array.isArray(currentData.expiryBatches)
-        ? (currentData.expiryBatches as ExpiryBatch[])
-        : (() => {
-            const legacy = expiryBatchIso(currentData.expiryDate);
-            return legacy && currentQty > 0
-              ? [{ expiry: legacy, quantity: currentQty, lot: null, requestId: null }]
-              : [];
-          })();
+      let batches: ExpiryBatch[] = seedExpiryBatchesFromLegacy(
+        currentData.expiryBatches as ExpiryBatch[] | undefined,
+        currentQty,
+        currentData.expiryDate
+      );
 
       if (oldExpiry || newExpiry) {
         if (oldExpiry && newExpiry && oldExpiry === newExpiry) {

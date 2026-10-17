@@ -12,37 +12,51 @@ import {
 import { db } from "@/lib/firebase";
 import {
   consumeExpiryBatches,
+  consumeExpiryBatchesFromAllocations,
   earliestExpiryFromBatches,
+  normalizeExpiryLotAllocations,
+  reconcileExpiryBatchesToOnHand,
   restoreExpiryBatches,
+  sumExpiryLotAllocations,
+  type ExpiryLotAllocation,
   type StockRotationPolicy,
 } from "@/lib/inventory-expiry-batches";
 import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import type { InventoryItem } from "@/types";
 
-export type { StockRotationPolicy };
+export type { StockRotationPolicy, ExpiryLotAllocation };
 
-/** Explicit fefo/fifo only — unused “auto” / empty falls through. */
+/** Explicit fefo/fifo/manual — unused “auto” / empty falls through. */
 function explicitStockRotationPolicy(value: unknown): StockRotationPolicy | null {
   const raw = String(value ?? "")
     .trim()
     .toLowerCase();
-  if (raw === "fefo" || raw === "fifo") return raw;
+  if (raw === "fefo" || raw === "fifo" || raw === "manual") return raw;
   return null;
+}
+
+export function lotAllocationsFromShipment(
+  shipment?: Record<string, unknown> | null
+): ExpiryLotAllocation[] {
+  return normalizeExpiryLotAllocations(shipment?.lotAllocations);
 }
 
 /**
  * Per-line override → request override → auto:
  * FEFO when the product has expiry lots, otherwise FIFO.
+ * Manual wins when the line has lotAllocations (or policy === manual).
  */
 export function resolveStockRotationPolicy(input: {
   shipment?: Record<string, unknown> | null;
   requestData?: Record<string, unknown> | null;
   expiryBatches?: Array<{ expiry?: string | null; quantity?: number | null }> | null;
 }): StockRotationPolicy {
+  const lineAllocs = lotAllocationsFromShipment(input.shipment);
+  if (lineAllocs.length > 0) return "manual";
   const fromLine = explicitStockRotationPolicy(input.shipment?.stockRotationPolicy);
   if (fromLine) return fromLine;
   const fromRequest = explicitStockRotationPolicy(input.requestData?.stockRotationPolicy);
-  if (fromRequest) return fromRequest;
+  if (fromRequest && fromRequest !== "manual") return fromRequest;
   const hasExpiryLot =
     Array.isArray(input.expiryBatches) &&
     input.expiryBatches.some(
@@ -260,7 +274,8 @@ function applyLocationDeduction(
   currentInventory: Omit<InventoryItem, "id">,
   totalUnits: number,
   selectedSourceLocationId: string,
-  stockRotationPolicy: StockRotationPolicy = "fefo"
+  stockRotationPolicy: StockRotationPolicy = "fefo",
+  lotAllocations?: ExpiryLotAllocation[] | null
 ): {
   newQuantity: number;
   newStatus: string;
@@ -310,10 +325,57 @@ function applyLocationDeduction(
     Object.keys(locationQuantities)[0] ||
     String(currentInventory.locationId || "").trim();
 
-  const batchResult = consumeExpiryBatches(
-    currentInventory.expiryBatches,
-    totalUnits,
-    stockRotationPolicy
+  const allocs = normalizeExpiryLotAllocations(lotAllocations);
+  const consumeOpts = {
+    onHandQuantity: currentInventory.quantity,
+    legacyExpiryDate: currentInventory.expiryDate,
+  };
+
+  let batchResult: {
+    batches: NonNullable<InventoryItem["expiryBatches"]>;
+    consumed: Array<{
+      expiry: string;
+      quantity: number;
+      lot?: string | null;
+      requestId?: string | null;
+    }>;
+    expiryDate: string | null;
+  };
+
+  if (stockRotationPolicy === "manual" || allocs.length > 0) {
+    if (allocs.length === 0) {
+      throw new Error(
+        `Choose lot quantities for ${currentInventory.productName || "this product"} (manual batch pick).`
+      );
+    }
+    const allocSum = sumExpiryLotAllocations(allocs);
+    if (allocSum !== totalUnits) {
+      throw new Error(
+        `Lot quantities for ${currentInventory.productName || "product"} must equal ${totalUnits} units (got ${allocSum}).`
+      );
+    }
+    batchResult = consumeExpiryBatchesFromAllocations(
+      currentInventory.expiryBatches,
+      allocs,
+      consumeOpts
+    );
+  } else {
+    batchResult = consumeExpiryBatches(
+      currentInventory.expiryBatches,
+      totalUnits,
+      stockRotationPolicy === "fifo" ? "fifo" : "fefo",
+      consumeOpts
+    );
+  }
+
+  // Heal lots left stale by older qty-only deducts (e.g. Shopify quick fulfill).
+  const reconcilePolicy: StockRotationPolicy =
+    stockRotationPolicy === "fifo" ? "fifo" : "fefo";
+  const reconciled = reconcileExpiryBatchesToOnHand(
+    batchResult.batches,
+    newQuantity,
+    batchResult.expiryDate ?? currentInventory.expiryDate,
+    reconcilePolicy
   );
 
   return {
@@ -321,9 +383,9 @@ function applyLocationDeduction(
     newStatus,
     locationQuantities,
     nextPrimaryLocationId,
-    expiryBatches: batchResult.batches,
-    expiryDate: batchResult.expiryDate,
-    consumedExpiryBatches: batchResult.consumed,
+    expiryBatches: reconciled.batches,
+    expiryDate: reconciled.expiryDate,
+    consumedExpiryBatches: [...batchResult.consumed, ...reconciled.consumed],
   };
 }
 
@@ -465,7 +527,8 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         working,
         row.totalUnits,
         selectedSourceLocationId,
-        rotationPolicy
+        rotationPolicy,
+        lotAllocationsFromShipment(row.shipment)
       );
       const packOf = effectivePackOfForShipment(input.requestData, row.shipment, row.index);
       const boxesShipped = shipmentBoxes(row.shipment);
@@ -497,11 +560,15 @@ function reserveDeductibleRowsGroupedByProduct(input: {
         packOf,
         boxesShipped,
         stockRotationPolicy: rotationPolicy,
+        lotAllocations:
+          rotationPolicy === "manual" ? lotAllocationsFromShipment(row.shipment) : null,
         consumedExpiryBatches: applied.consumedExpiryBatches,
         details: [
           outboundPackDetailsLine(boxesShipped, packOf),
           input.awaitingShipDetail,
-          `Rotation: ${rotationPolicy.toUpperCase()}`,
+          rotationPolicy === "manual"
+            ? "Rotation: MANUAL (chosen lots)"
+            : `Rotation: ${rotationPolicy.toUpperCase()}`,
           consumedDetail,
           service ? `Service: ${service}` : "",
           applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
@@ -1249,6 +1316,165 @@ export async function recordOutboundLineLayoutEdit(input: {
 }
 
 /**
+ * Replace a line’s reserved expiry lots (same or new total units).
+ * Restores prior consumedExpiryBatches, then consumes the new lotAllocations.
+ */
+export async function reapplyOutboundLineLotAllocations(input: {
+  clientUserId: string;
+  shipmentRequestId: string;
+  lineIndex: number;
+  productId: string;
+  lotAllocations: ExpiryLotAllocation[];
+  boxesAfter: number;
+  packOf: number;
+  reason: string;
+}): Promise<void> {
+  const allocs = normalizeExpiryLotAllocations(input.lotAllocations);
+  const newUnits = sumExpiryLotAllocations(allocs);
+  if (allocs.length === 0 || newUnits <= 0) {
+    throw new Error("Choose lot quantities that total the line units.");
+  }
+
+  const requestRef = doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId);
+  const inventoryRef = doc(db, `users/${input.clientUserId}/inventory`, input.productId);
+  const editAt = Timestamp.now();
+
+  await runTransaction(db, async (transaction) => {
+    const [requestSnap, inventorySnap] = await Promise.all([
+      transaction.get(requestRef),
+      transaction.get(inventoryRef),
+    ]);
+    if (!requestSnap.exists()) throw new Error("Order not found.");
+    if (!inventorySnap.exists()) throw new Error("Product not found in inventory.");
+
+    const data = requestSnap.data() as Record<string, unknown>;
+    if (!hasClientInventoryDeducted(data)) {
+      // Not reserved yet — just persist allocations on the line.
+      const shipments = Array.isArray(data.shipments)
+        ? ([...data.shipments] as Array<Record<string, unknown>>)
+        : [];
+      const shipment = shipments[input.lineIndex];
+      if (!shipment) throw new Error("Shipment line not found.");
+      shipments[input.lineIndex] = {
+        ...shipment,
+        stockRotationPolicy: "manual",
+        lotAllocations: allocs,
+        quantity: input.boxesAfter,
+        packOf: input.packOf,
+      };
+      transaction.update(requestRef, { shipments, updatedAt: editAt });
+      return;
+    }
+    if (data.warehouseDispatchStatus === "dispatched") {
+      throw new Error("Cannot change lots after dispatch.");
+    }
+
+    const base = inventorySnap.data() as Omit<InventoryItem, "id">;
+    const shipments = Array.isArray(data.shipments)
+      ? ([...data.shipments] as Array<Record<string, unknown>>)
+      : [];
+    const shipment = shipments[input.lineIndex];
+    if (!shipment) throw new Error("Shipment line not found.");
+
+    const oldUnits = shipmentUnits(data, shipment, input.lineIndex);
+    const preferredBatches = Array.isArray(shipment.consumedExpiryBatches)
+      ? (shipment.consumedExpiryBatches as Array<{
+          expiry?: string | null;
+          quantity?: number;
+          lot?: string | null;
+          requestId?: string | null;
+        }>)
+      : null;
+    const selectedSourceLocationId = String(shipment.sourceLocationId ?? "").trim();
+
+    let working = base;
+    if (oldUnits > 0) {
+      const restored = applyLocationRestore(
+        working,
+        oldUnits,
+        selectedSourceLocationId,
+        preferredBatches
+      );
+      working = {
+        ...working,
+        quantity: restored.newQuantity,
+        status: restored.newStatus as InventoryItem["status"],
+        locationId: restored.nextPrimaryLocationId,
+        locationQuantities: restored.locationQuantities,
+        expiryBatches: restored.expiryBatches,
+        expiryDate: restored.expiryDate ?? undefined,
+      };
+    }
+
+    const deducted = applyLocationDeduction(
+      working,
+      newUnits,
+      selectedSourceLocationId,
+      "manual",
+      allocs
+    );
+
+    shipments[input.lineIndex] = {
+      ...shipment,
+      quantity: input.boxesAfter,
+      packOf: input.packOf,
+      stockRotationPolicy: "manual",
+      lotAllocations: allocs,
+      consumedExpiryBatches: deducted.consumedExpiryBatches,
+    };
+
+    const changeLogRef = doc(
+      db,
+      "users",
+      input.clientUserId,
+      "inventoryChangeLogs",
+      `${input.shipmentRequestId}_${input.productId}_line${input.lineIndex}_lots_${editAt.toMillis()}`
+    );
+    const lotDetail = deducted.consumedExpiryBatches
+      .map((b) => `${b.quantity} from ${b.expiry}`)
+      .join(", ");
+
+    transaction.set(changeLogRef, {
+      inventoryId: input.productId,
+      productName: base.productName,
+      sku: base.sku ?? null,
+      eventType: "outbound_line_reserved",
+      qtyBefore: base.quantity,
+      qtyAfter: deducted.newQuantity,
+      qtyChange: deducted.newQuantity - base.quantity,
+      shipmentRequestId: input.shipmentRequestId,
+      packOf: input.packOf,
+      boxesShipped: input.boxesAfter,
+      stockRotationPolicy: "manual",
+      lotAllocations: allocs,
+      consumedExpiryBatches: deducted.consumedExpiryBatches,
+      details: [
+        "Outbound line lots corrected",
+        outboundPackDetailsLine(input.boxesAfter, input.packOf),
+        lotDetail,
+        input.reason ? `Reason: ${input.reason}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      at: editAt,
+    });
+
+    transaction.update(inventoryRef, {
+      quantity: deducted.newQuantity,
+      status: deducted.newStatus,
+      locationId: deducted.nextPrimaryLocationId,
+      locationQuantities: deducted.locationQuantities,
+      expiryBatches: deducted.expiryBatches ?? [],
+      expiryDate: deducted.expiryDate ?? null,
+    });
+    transaction.update(requestRef, {
+      shipments,
+      updatedAt: editAt,
+    });
+  });
+}
+
+/**
  * Partial client inventory reserve/restore when warehouse edits one outbound line before dispatch.
  * Positive unitDelta = reserve more; negative = restore to sellable.
  */
@@ -1339,9 +1565,24 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
           requestId?: string | null;
         }>)
       : null;
+    const lineAllocs = lotAllocationsFromShipment(shipment);
+    const allocsMatchDelta =
+      unitDelta > 0 &&
+      lineAllocs.length > 0 &&
+      sumExpiryLotAllocations(lineAllocs) === unitDelta;
     const applied =
       unitDelta > 0
-        ? applyLocationDeduction(base, unitDelta, selectedSourceLocationId, rotationPolicy)
+        ? applyLocationDeduction(
+            base,
+            unitDelta,
+            selectedSourceLocationId,
+            allocsMatchDelta
+              ? "manual"
+              : rotationPolicy === "manual"
+                ? "fefo"
+                : rotationPolicy,
+            allocsMatchDelta ? lineAllocs : null
+          )
         : applyLocationRestore(
             base,
             Math.abs(unitDelta),
@@ -1527,7 +1768,8 @@ export async function applyClientInventoryOnDispatch(input: {
             shipment: row.shipment as Record<string, unknown>,
             requestData: data,
             expiryBatches: currentInventory.expiryBatches,
-          })
+          }),
+          lotAllocationsFromShipment(row.shipment as Record<string, unknown>)
         );
         remainingQty = applied.newQuantity;
 

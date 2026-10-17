@@ -8,6 +8,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getValidEbayToken, getEbayApiBaseUrl } from "@/lib/ebay-api";
 import { deductWarehouseStockForQuickFulfill } from "@/lib/warehouse-quick-fulfill-deduct";
 import { resolveShopifyQuickFulfillDtcUnitPrice } from "@/lib/shopify-quick-fulfill-pricing";
+import { buildClientInventoryQtyDeductUpdate } from "@/lib/client-inventory-qty-deduct";
 import { DTC_FBM_SERVICE } from "@/types";
 import type { EbayInventoryPushHint } from "@/lib/ebay-inventory-sync";
 
@@ -241,8 +242,16 @@ export async function executeEbayQuickFulfill(input: {
     for (const row of fresh) {
       const currentQty = row.available;
       const shipQty = row.needed;
-      const newQuantity = currentQty - shipQty;
-      const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
+      const deducted = buildClientInventoryQtyDeductUpdate({
+        quantity: currentQty,
+        expiryBatches: Array.isArray(row.data.expiryBatches)
+          ? (row.data.expiryBatches as Array<{ expiry: string; quantity: number }>)
+          : null,
+        expiryDate: row.data.expiryDate,
+        shipQty,
+      });
+      const newQuantity = deducted.quantity;
+      const newStatus = deducted.status;
       const productName = String(row.data.productName || "Product");
       const sku = row.data.sku != null ? String(row.data.sku).trim() : "";
       const retailIdentifier =
@@ -252,6 +261,8 @@ export async function executeEbayQuickFulfill(input: {
       tx.update(row.ref, {
         quantity: newQuantity,
         status: newStatus,
+        expiryBatches: deducted.expiryBatches,
+        expiryDate: deducted.expiryDate,
         updatedAt: now,
       });
 
@@ -260,6 +271,12 @@ export async function executeEbayQuickFulfill(input: {
         .doc(ownerUserId)
         .collection("inventoryChangeLogs")
         .doc(`ebay_qf_${orderId}_${row.inventoryId}`);
+      const batchDetail =
+        deducted.consumedExpiryBatches.length > 0
+          ? ` · Batches: ${deducted.consumedExpiryBatches
+              .map((b) => `${b.quantity}× exp ${b.expiry}`)
+              .join(", ")}`
+          : "";
       tx.set(changeLogRef, {
         inventoryId: row.inventoryId,
         productName,
@@ -270,13 +287,15 @@ export async function executeEbayQuickFulfill(input: {
         qtyChange: -shipQty,
         ebayOrderId: orderId,
         shippedId: shippedRef.id,
-        details: `eBay quick fulfill · ${orderName}`,
+        consumedExpiryBatches: deducted.consumedExpiryBatches,
+        details: `eBay quick fulfill · ${orderName}${batchDetail}`,
         at: now,
       });
 
       items.push({
         productId: row.inventoryId,
         productName,
+        consumedExpiryBatches: deducted.consumedExpiryBatches,
         boxesShipped: shipQty,
         shippedQty: shipQty,
         packOf: 1,

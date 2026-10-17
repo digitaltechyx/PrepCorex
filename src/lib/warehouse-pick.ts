@@ -52,11 +52,23 @@ const PICKABLE_CARTON_STATUSES: WarehouseCartonStatus[] = [
 
 export type WarehousePickStatus = "ready" | "picking" | "picked" | "skipped";
 
+export type OutboundPickLotAllocation = {
+  expiry: string;
+  quantity: number;
+};
+
 export type OutboundPickLine = {
   sku: string;
   productName: string;
   quantityUnits: number;
   productId: string;
+  /** Client/admin chose specific expiry lots (e.g. "5× 2027-10-27, 100× 2028-02-03"). */
+  lotNote?: string | null;
+  /**
+   * When set, pick plan / one-click pick may only take from these expiry dates
+   * (quantities are sellable units). Empty/omitted → normal FEFO across all lots.
+   */
+  lotAllocations?: OutboundPickLotAllocation[];
 };
 
 export type OutboundPickOrder = {
@@ -589,6 +601,81 @@ export async function buildPickPlan(
   const steps: PickTaskStep[] = [];
   const shortfalls: PickPlan["shortfalls"] = [];
 
+  const expiryKey = (value: string | null | undefined): string | null => {
+    if (!hasLineExpiry(value)) return null;
+    return String(value).trim().slice(0, 10);
+  };
+
+  const pushFefoStepFromSources = (input: {
+    demand: OutboundPickLine;
+    sources: typeof pool;
+    needUnits: number;
+    stepLabel: string;
+    alreadyTowardLine: number;
+    lineNeeded: number;
+  }): number => {
+    const options: PickBatchOption[] = [];
+    let availableTotal = 0;
+    for (const source of input.sources) {
+      const key = batchOptionKey(source);
+      const used = consumed.get(key) ?? 0;
+      const available = source.quantity - used;
+      if (available <= 0) continue;
+      options.push({ ...sourceToBatchOption(source), quantity: available });
+      availableTotal += available;
+    }
+
+    if (options.length === 0) {
+      shortfalls.push({
+        sku: input.demand.sku,
+        productName: input.demand.productName,
+        needed: input.lineNeeded,
+        planned: input.alreadyTowardLine,
+      });
+      return 0;
+    }
+
+    const planned = Math.min(input.needUnits, availableTotal);
+    const suggested = options[0]!;
+    steps.push({
+      stepKey: `${input.stepLabel}:${input.demand.sku}:${steps.length}`,
+      sku: input.demand.sku,
+      productName: input.demand.productName,
+      lot: suggested.lot,
+      expiry: suggested.expiry,
+      condition: suggested.condition,
+      quantity: planned,
+      binId: suggested.binId,
+      binPath: suggested.binPath,
+      cartonId: suggested.cartonId,
+      cartonCode: suggested.cartonCode,
+      lineId: suggested.lineId,
+      sequence: 0,
+      receivedAtIso: suggested.receivedAtIso,
+      allowAnyBatch: true,
+      batchOptions: options,
+    });
+
+    let toReserve = planned;
+    for (const option of options) {
+      if (toReserve <= 0) break;
+      const take = Math.min(toReserve, option.quantity);
+      const key = batchOptionKey(option);
+      consumed.set(key, (consumed.get(key) ?? 0) + take);
+      toReserve -= take;
+    }
+
+    if (planned < input.needUnits) {
+      shortfalls.push({
+        sku: input.demand.sku,
+        productName: input.demand.productName,
+        needed: input.lineNeeded,
+        planned: input.alreadyTowardLine + planned,
+      });
+    }
+    return planned;
+  };
+
   for (const demand of order.lines) {
     const alreadyPicked = alreadyPickedBySku.get(demand.sku) ?? 0;
     let remaining = Math.max(0, demand.quantityUnits - alreadyPicked);
@@ -596,69 +683,51 @@ export async function buildPickPlan(
 
     const skuSources = pool.filter((source) => source.sku === demand.sku);
     const hasExpiryBatch = skuSources.some((source) => hasLineExpiry(source.expiry));
+    const preferredLots = Array.isArray(demand.lotAllocations)
+      ? demand.lotAllocations
+          .map((row) => ({
+            expiry: expiryKey(row.expiry) || String(row.expiry || "").trim(),
+            quantity: Math.max(0, Math.floor(Number(row.quantity) || 0)),
+          }))
+          .filter((row) => row.expiry && row.quantity > 0)
+      : [];
+
+    // Client/admin chose specific lots — only pick those expiries (still FEFO within each date).
+    if (preferredLots.length > 0) {
+      let alreadyLeft = alreadyPicked;
+      let plannedTotal = 0;
+      for (const alloc of preferredLots) {
+        let need = alloc.quantity;
+        const coverAlready = Math.min(need, alreadyLeft);
+        need -= coverAlready;
+        alreadyLeft -= coverAlready;
+        if (need <= 0) continue;
+
+        const matching = skuSources.filter(
+          (source) => expiryKey(source.expiry) === alloc.expiry
+        );
+        plannedTotal += pushFefoStepFromSources({
+          demand,
+          sources: matching,
+          needUnits: need,
+          stepLabel: `lot:${alloc.expiry}`,
+          alreadyTowardLine: alreadyPicked + plannedTotal,
+          lineNeeded: demand.quantityUnits,
+        });
+      }
+      continue;
+    }
 
     if (hasExpiryBatch) {
       // FEFO flexible: one step listing every putaway batch; picker chooses.
-      const options: PickBatchOption[] = [];
-      let availableTotal = 0;
-      for (const source of skuSources) {
-        const key = batchOptionKey(source);
-        const used = consumed.get(key) ?? 0;
-        const available = source.quantity - used;
-        if (available <= 0) continue;
-        options.push({ ...sourceToBatchOption(source), quantity: available });
-        availableTotal += available;
-      }
-
-      if (options.length === 0) {
-        shortfalls.push({
-          sku: demand.sku,
-          productName: demand.productName,
-          needed: demand.quantityUnits,
-          planned: alreadyPicked,
-        });
-        continue;
-      }
-
-      const planned = Math.min(remaining, availableTotal);
-      const suggested = options[0];
-      steps.push({
-        stepKey: `fefo:${demand.sku}:${steps.length}`,
-        sku: demand.sku,
-        productName: demand.productName,
-        lot: suggested.lot,
-        expiry: suggested.expiry,
-        condition: suggested.condition,
-        quantity: planned,
-        binId: suggested.binId,
-        binPath: suggested.binPath,
-        cartonId: suggested.cartonId,
-        cartonCode: suggested.cartonCode,
-        lineId: suggested.lineId,
-        sequence: 0,
-        receivedAtIso: suggested.receivedAtIso,
-        allowAnyBatch: true,
-        batchOptions: options,
+      pushFefoStepFromSources({
+        demand,
+        sources: skuSources,
+        needUnits: remaining,
+        stepLabel: "fefo",
+        alreadyTowardLine: alreadyPicked,
+        lineNeeded: demand.quantityUnits,
       });
-
-      // Reserve capacity across options so later SKU lines cannot double-count.
-      let toReserve = planned;
-      for (const option of options) {
-        if (toReserve <= 0) break;
-        const take = Math.min(toReserve, option.quantity);
-        const key = batchOptionKey(option);
-        consumed.set(key, (consumed.get(key) ?? 0) + take);
-        toReserve -= take;
-      }
-
-      if (planned < remaining) {
-        shortfalls.push({
-          sku: demand.sku,
-          productName: demand.productName,
-          needed: demand.quantityUnits,
-          planned: alreadyPicked + planned,
-        });
-      }
       continue;
     }
 

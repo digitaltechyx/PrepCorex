@@ -9,6 +9,7 @@ import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 import { getShopifyAccessTokenForUserShop } from "@/lib/shopify-access-token";
 import { deductWarehouseStockForQuickFulfill } from "@/lib/warehouse-quick-fulfill-deduct";
 import { resolveShopifyQuickFulfillDtcUnitPrice } from "@/lib/shopify-quick-fulfill-pricing";
+import { buildClientInventoryQtyDeductUpdate } from "@/lib/client-inventory-qty-deduct";
 import { DTC_FBM_SERVICE } from "@/types";
 
 export type QuickFulfillLineInput = {
@@ -333,8 +334,16 @@ export async function executeShopifyQuickFulfill(input: {
     for (const row of fresh) {
       const currentQty = row.available;
       const shipQty = row.needed;
-      const newQuantity = currentQty - shipQty;
-      const newStatus = newQuantity > 0 ? "In Stock" : "Out of Stock";
+      const deducted = buildClientInventoryQtyDeductUpdate({
+        quantity: currentQty,
+        expiryBatches: Array.isArray(row.data.expiryBatches)
+          ? (row.data.expiryBatches as Array<{ expiry: string; quantity: number }>)
+          : null,
+        expiryDate: row.data.expiryDate,
+        shipQty,
+      });
+      const newQuantity = deducted.quantity;
+      const newStatus = deducted.status;
       const productName = String(row.data.productName || "Product");
       const sku = row.data.sku != null ? String(row.data.sku).trim() : "";
       const retailIdentifier =
@@ -344,6 +353,8 @@ export async function executeShopifyQuickFulfill(input: {
       tx.update(row.ref, {
         quantity: newQuantity,
         status: newStatus,
+        expiryBatches: deducted.expiryBatches,
+        expiryDate: deducted.expiryDate,
         updatedAt: now,
       });
 
@@ -352,6 +363,12 @@ export async function executeShopifyQuickFulfill(input: {
         .doc(ownerUserId)
         .collection("inventoryChangeLogs")
         .doc(`shopify_qf_${orderId}_${row.inventoryId}`);
+      const batchDetail =
+        deducted.consumedExpiryBatches.length > 0
+          ? ` · Batches: ${deducted.consumedExpiryBatches
+              .map((b) => `${b.quantity}× exp ${b.expiry}`)
+              .join(", ")}`
+          : "";
       tx.set(changeLogRef, {
         inventoryId: row.inventoryId,
         productName,
@@ -364,7 +381,8 @@ export async function executeShopifyQuickFulfill(input: {
         shopifyOrderName: orderName,
         shop,
         shippedId: shippedRef.id,
-        details: `Shopify quick fulfill · ${orderName} · ${shop.replace(/\.myshopify\.com$/i, "")}`,
+        consumedExpiryBatches: deducted.consumedExpiryBatches,
+        details: `Shopify quick fulfill · ${orderName} · ${shop.replace(/\.myshopify\.com$/i, "")}${batchDetail}`,
         at: now,
       });
 
@@ -376,6 +394,7 @@ export async function executeShopifyQuickFulfill(input: {
         packOf: 1,
         unitPrice: dtcUnitPrice,
         remainingQty: newQuantity,
+        consumedExpiryBatches: deducted.consumedExpiryBatches,
         sku: sku || null,
         retailIdentifier: retailIdentifier || null,
         shopifyLineTitle: shopifyMeta?.shopifyLineTitle || null,

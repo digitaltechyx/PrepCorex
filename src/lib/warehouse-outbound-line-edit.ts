@@ -10,14 +10,21 @@ import { db } from "@/lib/firebase";
 import {
   adjustClientInventoryForOutboundLineEdit,
   hasClientInventoryDeducted,
+  reapplyOutboundLineLotAllocations,
   recordOutboundLineLayoutEdit,
   shipmentUnits,
 } from "@/lib/client-inventory-outbound-sync";
+import {
+  normalizeExpiryLotAllocations,
+  sumExpiryLotAllocations,
+  type ExpiryLotAllocation,
+} from "@/lib/inventory-expiry-batches";
 import {
   buildEditableShipmentLines,
   buildOrderLinesFromRequestData,
   formatOutboundPackLine,
   loadClientProductMap,
+  lotRowsFromShipment,
 } from "@/lib/warehouse-outbound-lines";
 import {
   getPickSourceHintsForSku,
@@ -91,6 +98,11 @@ export async function editOutboundLineAtWarehouse(input: {
   newPackOf?: number;
   /** When set, updates stored unit price on the shipment line (admin). */
   newUnitPrice?: number;
+  /**
+   * Admin: replace lot split for this line (units). Must sum to newBoxes × newPackOf.
+   * When set, client inventory lots are re-reserved from these allocations.
+   */
+  lotAllocations?: ExpiryLotAllocation[] | null;
   editedBy: string;
   reason?: string;
   /** When true (default), reason is required. Admin UI may pass false. */
@@ -171,14 +183,37 @@ export async function editOutboundLineAtWarehouse(input: {
   const oldUnits = shipmentUnits(data, shipment, lineIndex);
   const newUnits = newBoxQuantity * newPackOf;
   const unitDelta = newUnits - oldUnits;
+  const nextLotAllocations =
+    input.lotAllocations != null
+      ? normalizeExpiryLotAllocations(input.lotAllocations)
+      : null;
+  const prevLotRows = lotRowsFromShipment(shipment);
+  const lotsChanged =
+    nextLotAllocations != null &&
+    (nextLotAllocations.length !== prevLotRows.length ||
+      nextLotAllocations.some((row) => {
+        const prev = prevLotRows.find((p) => p.expiry === row.expiry);
+        return !prev || prev.quantity !== row.quantity;
+      }) ||
+      prevLotRows.some((p) => !nextLotAllocations.some((n) => n.expiry === p.expiry)));
+
+  if (nextLotAllocations != null && newBoxQuantity > 0) {
+    const allocSum = sumExpiryLotAllocations(nextLotAllocations);
+    if (allocSum !== newUnits) {
+      throw new Error(
+        `Lot units must equal line total (${newUnits}). Got ${allocSum}.`
+      );
+    }
+  }
 
   if (
     unitDelta === 0 &&
     newBoxQuantity === oldBoxes &&
     newPackOf === oldPackOf &&
-    !priceChanged
+    !priceChanged &&
+    !lotsChanged
   ) {
-    throw new Error("Nothing to update — qty, pack of, and price are unchanged.");
+    throw new Error("Nothing to update — qty, pack of, price, and lots are unchanged.");
   }
 
   const sku = lineMeta.sku;
@@ -236,41 +271,84 @@ export async function editOutboundLineAtWarehouse(input: {
       warehouseLineEditedBy: input.editedBy,
       warehouseLineEditReason: reason,
       ...(layoutChanged ? { warehouseLineEditFrom: layoutBefore } : {}),
+      ...(nextLotAllocations != null && !lotsChanged
+        ? {
+            stockRotationPolicy: "manual",
+            lotAllocations: nextLotAllocations,
+          }
+        : {}),
     };
   }
 
-  await updateDoc(requestRef, {
-    shipments: nextShipments,
-    updatedAt: serverTimestamp(),
-  });
-
-  if (layoutChanged && unitDelta === 0 && newBoxQuantity > 0) {
-    await recordOutboundLineLayoutEdit({
+  // Lot reapply updates shipments + inventory in one transaction — skip plain update when lots change.
+  if (nextLotAllocations != null && lotsChanged && newBoxQuantity > 0) {
+    await reapplyOutboundLineLotAllocations({
       clientUserId,
       shipmentRequestId,
       lineIndex,
       productId,
-      boxesBefore: oldBoxes,
-      packOfBefore: oldPackOf,
+      lotAllocations: nextLotAllocations,
       boxesAfter: newBoxQuantity,
-      packOfAfter: newPackOf,
-      reason,
-    });
-  }
-
-  if (hasClientInventoryDeducted(data) && unitDelta !== 0) {
-    await adjustClientInventoryForOutboundLineEdit({
-      clientUserId,
-      shipmentRequestId,
-      lineIndex,
-      productId,
-      unitDelta,
       packOf: newPackOf,
-      boxesAfter: newBoxQuantity,
-      boxesBefore: oldBoxes,
-      packOfBefore: oldPackOf,
       reason,
     });
+    // Price-only fields may still need a patch if reapply already wrote qty/lots.
+    if (priceChanged || priceProvided) {
+      const afterLots = await getDoc(requestRef);
+      if (afterLots.exists()) {
+        const afterData = afterLots.data() as Record<string, unknown>;
+        const afterShipments = Array.isArray(afterData.shipments)
+          ? ([...afterData.shipments] as Array<Record<string, unknown>>)
+          : [];
+        if (afterShipments[lineIndex]) {
+          afterShipments[lineIndex] = {
+            ...afterShipments[lineIndex],
+            unitPrice: newUnitPrice,
+            warehouseLineEditedAt: lineEditedAt,
+            warehouseLineEditedBy: input.editedBy,
+            warehouseLineEditReason: reason,
+          };
+          await updateDoc(requestRef, {
+            shipments: afterShipments,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+    }
+  } else {
+    await updateDoc(requestRef, {
+      shipments: nextShipments,
+      updatedAt: serverTimestamp(),
+    });
+
+    if (layoutChanged && unitDelta === 0 && newBoxQuantity > 0) {
+      await recordOutboundLineLayoutEdit({
+        clientUserId,
+        shipmentRequestId,
+        lineIndex,
+        productId,
+        boxesBefore: oldBoxes,
+        packOfBefore: oldPackOf,
+        boxesAfter: newBoxQuantity,
+        packOfAfter: newPackOf,
+        reason,
+      });
+    }
+
+    if (hasClientInventoryDeducted(data) && unitDelta !== 0) {
+      await adjustClientInventoryForOutboundLineEdit({
+        clientUserId,
+        shipmentRequestId,
+        lineIndex,
+        productId,
+        unitDelta,
+        packOf: newPackOf,
+        boxesAfter: newBoxQuantity,
+        boxesBefore: oldBoxes,
+        packOfBefore: oldPackOf,
+        reason,
+      });
+    }
   }
 
   const updatedSnap = await getDoc(requestRef);

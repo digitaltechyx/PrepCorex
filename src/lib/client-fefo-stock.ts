@@ -1,3 +1,5 @@
+import { reconcileExpiryBatchesToOnHand } from "@/lib/inventory-expiry-batches";
+
 export type ClientFefoStockRow = {
   key: string;
   sku: string;
@@ -55,7 +57,8 @@ function todayIso(today: Date): string {
 
 function addBatchQty(target: Map<string, number>, expiry: string, quantity: number) {
   const qty = Math.max(0, Math.floor(quantity));
-  if (!expiry || qty <= 0) return;
+  if (!expiry) return;
+  // Allow 0 so depleted FEFO lots still appear as 0 units.
   target.set(expiry, (target.get(expiry) || 0) + qty);
 }
 
@@ -115,14 +118,16 @@ export function buildClientFefoStockRows(
     groupByInventoryId.set(inventoryDoc.id, group);
     groupByProductName.set(productTitle.toLowerCase(), group);
 
-    // Preferred: explicit per-receive batches on the inventory doc.
+    // Preferred: explicit per-receive batches on the inventory doc (FEFO-reconciled to on-hand).
     if (Array.isArray(data.expiryBatches)) {
-      for (const raw of data.expiryBatches) {
-        if (!raw || typeof raw !== "object") continue;
-        const batch = raw as { expiry?: unknown; quantity?: unknown };
+      const reconciled = reconcileExpiryBatchesToOnHand(
+        data.expiryBatches as Array<{ expiry?: string; quantity?: number }>,
+        quantity,
+        data.expiryDate
+      );
+      for (const batch of reconciled.batches) {
         const expiry = fefoExpiryIso(batch.expiry);
-        const batchQty = Math.max(0, Number(batch.quantity) || 0);
-        if (expiry && batchQty > 0) addBatchQty(group.batchCandidates, expiry, batchQty);
+        if (expiry && batch.quantity > 0) addBatchQty(group.batchCandidates, expiry, batch.quantity);
       }
     }
 
@@ -201,13 +206,11 @@ export function buildClientFefoStockRows(
       fallbackNeeded -= quantity;
     }
 
-    // One row per expiry lot (earliest → latest). Keep stored lot qty so all
-    // dates stay visible even when batch totals exceed on-hand quantity.
+    // One row per expiry lot (earliest → latest), including 0-unit depleted lots.
     for (const [expiry, batchQuantity] of Array.from(candidates).sort(([a], [b]) =>
       a.localeCompare(b)
     )) {
       const quantity = Math.max(0, Math.floor(batchQuantity));
-      if (quantity <= 0) continue;
       rows.push({
         key: `${group.key}|${expiry}`,
         sku: group.sku,

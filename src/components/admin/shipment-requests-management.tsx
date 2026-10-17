@@ -62,6 +62,7 @@ import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
+import { lotRowsFromShipment } from "@/lib/warehouse-outbound-lines";
 
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
@@ -2315,6 +2316,41 @@ function ReviewShipmentDialog({
                               <span className="text-muted-foreground">Total Quantity (Quantity x Packs):</span>
                               <span className="ml-1 font-medium">{shipment.quantity} × {shipment.packOf} = {totalUnits} units</span>
                             </div>
+                            {(() => {
+                              const lotRows = lotRowsFromShipment(
+                                shipment as unknown as Record<string, unknown>
+                              );
+                              const rotation = String(
+                                (shipment as { stockRotationPolicy?: string }).stockRotationPolicy ||
+                                  (shipment as { stockRotationPolicyApplied?: string })
+                                    .stockRotationPolicyApplied ||
+                                  ""
+                              )
+                                .trim()
+                                .toUpperCase();
+                              if (lotRows.length === 0) return null;
+                              return (
+                                <div className="col-span-1 mt-2 rounded-md border border-amber-200 bg-amber-50/80 p-2 sm:col-span-2">
+                                  <p className="text-xs font-semibold text-amber-950">
+                                    Lots for this line
+                                    {rotation ? (
+                                      <span className="ml-1 font-normal text-amber-800/80">
+                                        ({rotation})
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                  <ul className="mt-1 space-y-0.5 text-xs text-amber-950">
+                                    {lotRows.map((row) => (
+                                      <li key={`${row.expiry}-${row.lot || ""}`}>
+                                        <span className="font-medium">{row.quantity} units</span>
+                                        {" from "}
+                                        <span className="font-medium">{row.expiryLabel}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -2456,6 +2492,24 @@ function ReviewShipmentDialog({
                                 {totalUnits} reserved for this request
                               </p>
                             ) : null}
+                            {(() => {
+                              const lotRows = lotRowsFromShipment(
+                                shipment as unknown as Record<string, unknown>
+                              );
+                              if (lotRows.length === 0) return null;
+                              return (
+                                <div className="mt-2 max-w-[220px] text-left text-[11px] leading-snug">
+                                  <p className="font-medium text-amber-900">Pick from lots</p>
+                                  <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                                    {lotRows.map((row) => (
+                                      <li key={`side-${row.expiry}-${row.lot || ""}`}>
+                                        {row.quantity} · {row.expiryLabel}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              );
+                            })()}
                             {hasEnoughStock ? (
                               <Badge
                                 variant="default"

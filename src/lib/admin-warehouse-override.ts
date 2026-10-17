@@ -759,8 +759,16 @@ export async function adminAutoPickAndPackOutbound(input: {
   if (pickStatus !== "picked" && pickStatus !== "skipped") {
     const pickPlan = await buildPickPlan(input.warehouse, order);
     if (pickPlan.shortfalls.length > 0) {
+      const hasChosenLots = order.lines.some(
+        (line) => Array.isArray(line.lotAllocations) && line.lotAllocations.length > 0
+      );
+      const detail = pickPlan.shortfalls
+        .map((s) => `${s.sku}: need ${s.needed}, planned ${s.planned}`)
+        .join("; ");
       throw new Error(
-        "Not enough bin stock — use Ship from client inventory or receive stock into bins first."
+        hasChosenLots
+          ? `Not enough bin stock for the chosen lot(s) — ${detail}. Receive those expiry lots into bins, or correct the lot split / use Ship from client inventory.`
+          : `Not enough bin stock — ${detail}. Use Ship from client inventory or receive stock into bins first.`
       );
     }
     if (pickPlan.steps.length === 0) {

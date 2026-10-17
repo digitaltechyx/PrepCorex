@@ -21,6 +21,7 @@ import {
   earliestExpiryFromBatches,
   expiryBatchIso,
   mergeExpiryBatch,
+  seedExpiryBatchesFromLegacy,
   type ExpiryBatch,
 } from "@/lib/inventory-expiry-batches";
 
@@ -380,16 +381,13 @@ async function syncPutawayLine(input: {
       const lineExpiry =
         expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate);
       if (lineExpiry && goodQty > 0) {
-        const prevBatches = Array.isArray(invSnap.data()?.expiryBatches)
-          ? (invSnap.data()?.expiryBatches as ExpiryBatch[])
-          : (() => {
-              // Seed from legacy single expiryDate so older stock stays visible as a batch.
-              const legacy = expiryBatchIso(invSnap.data()?.expiryDate);
-              const legacyQty = Math.max(0, Number(invSnap.data()?.quantity) || 0);
-              return legacy && legacyQty > 0
-                ? [{ expiry: legacy, quantity: legacyQty, lot: null, requestId: null }]
-                : [];
-            })();
+        // Seed empty/missing batches from legacy expiry so restock does not drop older lots.
+        // Use qty before this putaway (prevGood) so Jun 6 remainings stay intact when Dec 12 is added.
+        const prevBatches = seedExpiryBatchesFromLegacy(
+          invSnap.data()?.expiryBatches as ExpiryBatch[] | undefined,
+          prevGood,
+          invSnap.data()?.expiryDate
+        );
         const batches = mergeExpiryBatch(prevBatches, {
           expiry: lineExpiry,
           quantity: goodQty,

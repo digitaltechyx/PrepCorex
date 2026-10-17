@@ -799,6 +799,14 @@ export interface InventoryItem {
   locationId?: string;
   /** Internal per-location quantity allocation (admin-facing, hidden from user UI). */
   locationQuantities?: Record<string, number>;
+  /**
+   * When this row was merged into another product (keeper). Qty is usually 0;
+   * history logs stay on this doc id and are also shown on the keeper via mergedFromInventoryIds.
+   */
+  mergedIntoInventoryId?: string | null;
+  /** Inventory doc ids that were merged into this keeper (history reads include them). */
+  mergedFromInventoryIds?: string[];
+  mergedAt?: { seconds: number; nanoseconds: number } | string | Date;
 }
 
 /** Admin-only internal transfer between warehouse locations. */
@@ -1127,7 +1135,8 @@ export interface InventoryChangeLog {
     | "shopify_quick_fulfill"
     | "shopify_qf_product_correct_credit"
     | "shopify_qf_product_correct_debit"
-    | "ebay_quick_fulfill";
+    | "ebay_quick_fulfill"
+    | "inventory_product_merge";
   qtyBefore: number;
   qtyAfter: number;
   qtyChange: number;
@@ -1142,6 +1151,24 @@ export interface InventoryChangeLog {
   boxesShipped?: number | null;
   /** Pack size for the outbound line. */
   packOf?: number | null;
+  /** FEFO/FIFO/manual lots consumed for this outbound change. */
+  consumedExpiryBatches?: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+    requestId?: string | null;
+  }> | null;
+  stockRotationPolicy?: string | null;
+  lotAllocations?: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+  }> | null;
+  /** Set on inventory_product_merge — source inventory doc whose qty was absorbed. */
+  sourceInventoryId?: string | null;
+  sourceSku?: string | null;
+  sourceProductName?: string | null;
+  sourceQtyMerged?: number | null;
   at?: { seconds: number; nanoseconds: number } | string | Date;
 }
 

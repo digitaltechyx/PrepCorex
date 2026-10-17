@@ -208,6 +208,8 @@ export function InventoryHistoryDialog({
 
   const rows = useMemo(() => {
     if (!item) return [] as InventoryHistoryRow[];
+    // A’s trail only. Merge already records net +qty from B — do not interleave B’s −4/before/after
+    // into this timeline (that jumps 70 → 444 and breaks the running sequence).
     return buildInventoryHistory(
       item,
       {
@@ -224,7 +226,18 @@ export function InventoryHistoryDialog({
       },
       { includeInternalEvents: false }
     );
-  }, [item, editLogs, deleteLogs, restockHistory, shipped, inventoryRequests, recycledInventory, inventoryChangeLogs, inboundReceiveLogs, shipmentRequests]);
+  }, [
+    item,
+    editLogs,
+    deleteLogs,
+    restockHistory,
+    shipped,
+    inventoryRequests,
+    recycledInventory,
+    inventoryChangeLogs,
+    inboundReceiveLogs,
+    shipmentRequests,
+  ]);
 
   const filteredRows = useMemo(
     () => filterHistoryRows(rows, { search, eventType, fromDate, toDate, changeFilter }),

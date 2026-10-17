@@ -74,6 +74,10 @@ import { db } from "@/lib/firebase";
 import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
 import type { ClientFefoStockRow } from "@/lib/client-fefo-stock";
+import {
+  expiryBatchIso,
+  reconcileExpiryBatchesToOnHand,
+} from "@/lib/inventory-expiry-batches";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, inboundBatchLinesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
@@ -261,28 +265,34 @@ function formatExpiryLotLine(expiryLabel: string, quantity: number): string {
 }
 
 /** Prefer multi-lot expiryBatches; fall back to single expiryDate + on-hand qty. */
-function formatInventoryExpiryLots(item: {
-  expiryDate?: unknown;
-  quantity?: unknown;
-  expiryBatches?: Array<{ expiry?: unknown; quantity?: unknown }>;
-}): { lines: string[]; hasLots: boolean } {
+function formatInventoryExpiryLots(
+  item: {
+    expiryDate?: unknown;
+    quantity?: unknown;
+    expiryBatches?: Array<{ expiry?: unknown; quantity?: unknown }>;
+  },
+  knownExpiries?: string[]
+): { lines: string[]; hasLots: boolean } {
   const onHandQty = Math.max(0, Math.floor(Number(item.quantity) || 0));
-  const batches = Array.isArray(item.expiryBatches)
-    ? item.expiryBatches
-        .map((b) => {
-          const expiry = typeof b.expiry === "string" ? b.expiry.trim() : "";
-          const quantity = Math.max(0, Math.floor(Number(b.quantity) || 0));
-          if (!expiry || quantity <= 0) return null;
-          return { expiry, quantity };
-        })
-        .filter((b): b is { expiry: string; quantity: number } => Boolean(b))
-        .sort((a, b) => a.expiry.localeCompare(b.expiry))
-    : [];
+  // FEFO-reconcile so Expiry shows remaining units when lots drifted above Quantity.
+  // Depleted lots stay visible as "0 units" (including dates restored from history).
+  const reconciled = reconcileExpiryBatchesToOnHand(
+    Array.isArray(item.expiryBatches)
+      ? (item.expiryBatches as Array<{ expiry?: string; quantity?: number }>)
+      : [],
+    onHandQty,
+    item.expiryDate,
+    "fefo",
+    knownExpiries
+  );
+  const batches = reconciled.batches;
 
   if (batches.length > 0) {
     return {
       hasLots: true,
-      lines: batches.map((b) => formatExpiryLotLine(formatOptionalDate(b.expiry), b.quantity)),
+      lines: batches.map((b) =>
+        formatExpiryLotLine(formatOptionalDate(b.expiry), Math.max(0, Number(b.quantity) || 0))
+      ),
     };
   }
   if (item.expiryDate) {
@@ -293,6 +303,40 @@ function formatInventoryExpiryLots(item: {
     };
   }
   return { hasLots: false, lines: [] };
+}
+
+function knownExpiriesForInventoryItem(
+  item: {
+    id?: string;
+    sku?: string | null;
+    productName?: string | null;
+    expiryDate?: unknown;
+    expiryBatches?: Array<{ expiry?: unknown }>;
+  },
+  knownByKey: Map<string, string[]>
+): string[] {
+  const found = new Set<string>();
+  const addAll = (key: string | undefined | null) => {
+    const k = String(key || "").trim();
+    if (!k) return;
+    for (const expiry of knownByKey.get(k) || []) {
+      if (expiry) found.add(expiry);
+    }
+  };
+  addAll(item.id);
+  const sku = String(item.sku || "").trim().toLowerCase();
+  if (sku) addAll(`sku:${sku}`);
+  const name = String(item.productName || "").trim().toLowerCase();
+  if (name) addAll(`name:${name}`);
+  const legacy = expiryBatchIso(item.expiryDate);
+  if (legacy) found.add(legacy);
+  if (Array.isArray(item.expiryBatches)) {
+    for (const batch of item.expiryBatches) {
+      const expiry = expiryBatchIso(batch?.expiry);
+      if (expiry) found.add(expiry);
+    }
+  }
+  return Array.from(found).sort();
 }
 
 function toDateInputValue(date: unknown): string {
@@ -660,6 +704,11 @@ export function InventoryTable({
     shopifyQtyPullRef.current = null;
   }, [effectiveUserId]);
 
+  const [knownExpiriesByKey, setKnownExpiriesByKey] = useState<Map<string, string[]>>(
+    () => new Map()
+  );
+  const expiryHealRef = useRef<string | null>(null);
+
   // Keep Shopify-linked inventory qty in sync when opening Inventory (same as Manage products pull).
   useEffect(() => {
     if (!user || !effectiveUserId || data.length === 0) return;
@@ -857,6 +906,125 @@ export function InventoryTable({
   const { data: inboundBatches } = useCollection<InboundBatch>(
     effectiveUserId ? inboundBatchesPath(effectiveUserId) : ""
   );
+
+  // Collect every known lot date (receive / restock / inbound) so depleted lots still show as 0 units.
+  useEffect(() => {
+    if (!effectiveUserId) {
+      setKnownExpiriesByKey(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const map = new Map<string, Set<string>>();
+      const add = (key: string | undefined | null, expiryRaw: unknown) => {
+        const k = String(key || "").trim();
+        const expiry = expiryBatchIso(expiryRaw);
+        if (!k || !expiry) return;
+        if (!map.has(k)) map.set(k, new Set());
+        map.get(k)!.add(expiry);
+      };
+
+      for (const req of inventoryRequests) {
+        const sku = String((req as InventoryRequest & { sku?: string }).sku || "")
+          .trim()
+          .toLowerCase();
+        const name = String(req.productName || "").trim().toLowerCase();
+        const productId = String(
+          (req as InventoryRequest & { productId?: string }).productId || ""
+        ).trim();
+        add(productId, req.expiryDate);
+        if (sku) add(`sku:${sku}`, req.expiryDate);
+        if (name) add(`name:${name}`, req.expiryDate);
+      }
+
+      try {
+        const { getDocs, collection: fsCollection } = await import("firebase/firestore");
+        const [logsSnap, restockSnap] = await Promise.all([
+          getDocs(fsCollection(db, "users", effectiveUserId, "inboundReceiveLogs")),
+          getDocs(fsCollection(db, "users", effectiveUserId, "restockHistory")),
+        ]);
+        for (const d of logsSnap.docs) {
+          const row = d.data() as {
+            inventoryId?: string;
+            sku?: string;
+            productName?: string;
+            expiry?: unknown;
+          };
+          const sku = String(row.sku || "").trim().toLowerCase();
+          const name = String(row.productName || "").trim().toLowerCase();
+          add(row.inventoryId, row.expiry);
+          if (sku) add(`sku:${sku}`, row.expiry);
+          if (name) add(`name:${name}`, row.expiry);
+        }
+        for (const d of restockSnap.docs) {
+          const row = d.data() as {
+            productId?: string;
+            sku?: string;
+            productName?: string;
+            expiryDate?: unknown;
+          };
+          const sku = String(row.sku || "").trim().toLowerCase();
+          const name = String(row.productName || "").trim().toLowerCase();
+          add(row.productId, row.expiryDate);
+          if (sku) add(`sku:${sku}`, row.expiryDate);
+          if (name) add(`name:${name}`, row.expiryDate);
+        }
+      } catch (err) {
+        console.warn("[inventory] known expiry lot load failed", err);
+      }
+
+      if (cancelled) return;
+      const next = new Map<string, string[]>();
+      for (const [key, set] of map) {
+        next.set(key, Array.from(set).sort());
+      }
+      setKnownExpiriesByKey(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveUserId, inventoryRequests]);
+
+  // Persist FEFO remainings + restored 0-unit depleted lots onto inventory docs.
+  useEffect(() => {
+    if (!effectiveUserId || data.length === 0) return;
+    const healKey = `${effectiveUserId}:${data.length}:v3-zero:${knownExpiriesByKey.size}`;
+    if (expiryHealRef.current === healKey) return;
+    expiryHealRef.current = healKey;
+
+    const drifted = data
+      .map((item) => {
+        const onHand = Math.max(0, Math.floor(Number(item.quantity) || 0));
+        const known = knownExpiriesForInventoryItem(item as any, knownExpiriesByKey);
+        const reconciled = reconcileExpiryBatchesToOnHand(
+          item.expiryBatches,
+          onHand,
+          item.expiryDate,
+          "fefo",
+          known
+        );
+        if (!reconciled.adjusted) return null;
+        return { id: item.id, reconciled };
+      })
+      .filter(
+        (row): row is { id: string; reconciled: ReturnType<typeof reconcileExpiryBatchesToOnHand> } =>
+          Boolean(row?.id)
+      )
+      .slice(0, 40);
+
+    if (drifted.length === 0) return;
+
+    void Promise.all(
+      drifted.map(({ id, reconciled }) =>
+        updateDoc(doc(db, `users/${effectiveUserId}/inventory`, id), {
+          expiryBatches: reconciled.batches,
+          expiryDate: reconciled.expiryDate,
+        }).catch((err) => {
+          console.warn("[inventory] FEFO expiry heal skipped", id, err);
+        })
+      )
+    );
+  }, [data, effectiveUserId, knownExpiriesByKey]);
 
   // Legacy 1-line batches often lack mirrored inventoryRequests — client can create for self.
   useEffect(() => {
@@ -1779,6 +1947,11 @@ export function InventoryTable({
   // Filtered and sorted aggregate inventory data (recent activity first: restock/update, else date added).
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
+      // Hide rows that were merged into another product (history stays on that doc).
+      const mergedInto = String((item as any).mergedIntoInventoryId || "").trim();
+      if (mergedInto && !(item as any).isRequest && !(item as any).isBatch) {
+        return false;
+      }
       const query = searchTerm.toLowerCase();
       const productName = (item.productName || "").toLowerCase();
       const sku = (((item as any).sku as string) || "").toLowerCase();
@@ -1997,7 +2170,10 @@ export function InventoryTable({
               const rowId = String(item.id);
               const isExpanded = expandedMobileIds.has(rowId);
               const sourceMeta = inventorySourceMeta(item as InventorySourceRow);
-              const expiryLots = formatInventoryExpiryLots(item as any);
+              const expiryLots = formatInventoryExpiryLots(
+                item as any,
+                knownExpiriesForInventoryItem(item as any, knownExpiriesByKey)
+              );
               const unitLine = [formatUnitDimensions(item as any), formatUnitWeight(item as any)]
                 .filter(Boolean)
                 .join(" · ");
@@ -2486,7 +2662,10 @@ export function InventoryTable({
                     <TableCell className="hidden xl:table-cell whitespace-nowrap">
                       <div className="flex items-start gap-1">
                         {(() => {
-                          const lots = formatInventoryExpiryLots(item as any);
+                          const lots = formatInventoryExpiryLots(
+                            item as any,
+                            knownExpiriesForInventoryItem(item as any, knownExpiriesByKey)
+                          );
                           if (lots.lines.length === 0) {
                             return <span>N/A</span>;
                           }

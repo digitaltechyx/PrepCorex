@@ -52,11 +52,71 @@ export function formatOutboundPackLine(boxes: number, packOf: number): string {
   return `${qty} × pack of ${pack}`;
 }
 
+function formatLotExpiryLabel(expiry: string): string {
+  const iso = String(expiry || "").trim();
+  if (!iso) return "—";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    try {
+      const [y, m, d] = iso.split("-").map(Number);
+      return new Date(y!, m! - 1, d!).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch {
+      return iso;
+    }
+  }
+  return iso;
+}
+
+export type LotAllocationRow = {
+  expiry: string;
+  expiryLabel: string;
+  quantity: number;
+  lot?: string | null;
+};
+
+/** Parse lotAllocations or consumedExpiryBatches into display rows. */
+export function parseLotAllocationRows(raw: unknown): LotAllocationRow[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  return raw
+    .map((row) => {
+      const rec = row as { expiry?: unknown; quantity?: unknown; lot?: unknown };
+      const expiry = String(rec.expiry || "").trim();
+      const quantity = Math.max(0, Math.floor(Number(rec.quantity) || 0));
+      if (!expiry || quantity <= 0) return null;
+      const lot = rec.lot != null && String(rec.lot).trim() ? String(rec.lot).trim() : null;
+      return {
+        expiry,
+        expiryLabel: formatLotExpiryLabel(expiry),
+        quantity,
+        lot,
+      };
+    })
+    .filter(Boolean) as LotAllocationRow[];
+}
+
+/** Prefer explicit client allocations, then consumed batches after reserve. */
+export function lotRowsFromShipment(shipment: Record<string, unknown> | null | undefined): LotAllocationRow[] {
+  if (!shipment) return [];
+  const fromAlloc = parseLotAllocationRows(shipment.lotAllocations);
+  if (fromAlloc.length > 0) return fromAlloc;
+  return parseLotAllocationRows(shipment.consumedExpiryBatches);
+}
+
+export function formatLotAllocationsNote(raw: unknown): string | null {
+  const rows = parseLotAllocationRows(raw);
+  if (rows.length === 0) return null;
+  return rows.map((row) => `${row.quantity}× ${row.expiryLabel}`).join(", ");
+}
+
 export function formatOutboundLineLabel(line: {
   sku: string;
   productName: string;
   quantityUnits: number;
   productId?: string;
+  lotNote?: string | null;
 }): string {
   const sku = String(line.sku ?? "").trim();
   const name = String(line.productName ?? "").trim();
@@ -69,14 +129,20 @@ export function formatOutboundLineLabel(line: {
 
   const niceName = name && !looksLikeDocId(name) ? name : "";
   const niceSku = sku && !looksLikeDocId(sku) ? sku : "";
+  const lotNote = String(line.lotNote ?? "").trim();
 
+  let base = "";
   if (niceName && niceSku && niceName !== niceSku) {
-    return `${line.quantityUnits}× ${niceName} (${niceSku})`;
+    base = `${line.quantityUnits}× ${niceName} (${niceSku})`;
+  } else if (niceName) {
+    base = `${line.quantityUnits}× ${niceName}`;
+  } else if (niceSku) {
+    base = `${line.quantityUnits}× ${niceSku}`;
+  } else {
+    // Last resort — avoid dumping raw Firestore IDs in the queue list.
+    base = `${line.quantityUnits}× product`;
   }
-  if (niceName) return `${line.quantityUnits}× ${niceName}`;
-  if (niceSku) return `${line.quantityUnits}× ${niceSku}`;
-  // Last resort — avoid dumping raw Firestore IDs in the queue list.
-  return `${line.quantityUnits}× product`;
+  return lotNote ? `${base} · Lots: ${lotNote}` : base;
 }
 
 export type EditableOutboundShipmentLine = {
@@ -90,6 +156,9 @@ export type EditableOutboundShipmentLine = {
   productId?: string;
   isPrepOnly: boolean;
   removedAtWarehouse: boolean;
+  /** Client-chosen / reserved expiry lots for this line. */
+  lotRows: LotAllocationRow[];
+  stockRotationPolicy?: string | null;
 };
 
 export function buildEditableShipmentLines(
@@ -115,6 +184,7 @@ export function buildEditableShipmentLines(
     const quantityUnits = boxes * packOf;
     const unitPrice = Number(shipment.unitPrice);
     if (!productId && !isPrep) return;
+    const lotRows = lotRowsFromShipment(shipment);
     lines.push({
       lineIndex,
       sku,
@@ -127,6 +197,10 @@ export function buildEditableShipmentLines(
       productId: productId || undefined,
       isPrepOnly: isPrep,
       removedAtWarehouse,
+      lotRows,
+      stockRotationPolicy:
+        String(shipment.stockRotationPolicy ?? shipment.stockRotationPolicyApplied ?? "").trim() ||
+        null,
     });
   });
   return lines;
@@ -157,12 +231,23 @@ export function buildOrderLinesFromRequestData(
     const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
     const quantityUnits = qty * packOf;
     if (quantityUnits < 1) continue;
+    const lotRows = lotRowsFromShipment(shipment);
+    const lotNote = formatLotAllocationsNote(lotRows);
     lines.push({
       sku,
       productName:
         String(shipment.productName ?? product?.productName ?? sku).trim() || sku,
       quantityUnits,
       productId: productId || sku,
+      lotNote,
+      ...(lotRows.length > 0
+        ? {
+            lotAllocations: lotRows.map((row) => ({
+              expiry: row.expiry,
+              quantity: row.quantity,
+            })),
+          }
+        : {}),
     });
   }
   return lines;

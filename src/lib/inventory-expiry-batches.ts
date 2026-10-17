@@ -59,7 +59,8 @@ export function mergeExpiryBatch(
           lot: b.lot ?? null,
           requestId: b.requestId ?? null,
         }))
-        .filter((b) => b.expiry && b.quantity > 0)
+        // Keep 0-qty lots so Expiry can still show "0 units" and restock can refill them.
+        .filter((b) => Boolean(b.expiry))
     : [];
 
   const lotKey = (incoming.lot ?? "").trim();
@@ -85,7 +86,7 @@ export function mergeExpiryBatch(
 
 /**
  * Add or remove quantity from a single expiry lot (lot key optional).
- * Negative deltas remove units; empty lots are dropped.
+ * Negative deltas remove units; lots at 0 are kept (shown as 0 units).
  */
 export function adjustExpiryBatchQuantity(
   existing: ExpiryBatch[] | undefined | null,
@@ -105,7 +106,7 @@ export function adjustExpiryBatchQuantity(
           lot: b.lot ?? null,
           requestId: b.requestId ?? null,
         }))
-        .filter((b) => b.expiry && b.quantity > 0)
+        .filter((b) => Boolean(b.expiry))
     : [];
 
   const lotKey = (change.lot ?? "").trim();
@@ -114,9 +115,8 @@ export function adjustExpiryBatchQuantity(
   );
 
   if (idx >= 0) {
-    const qty = next[idx]!.quantity + delta;
-    if (qty <= 0) next.splice(idx, 1);
-    else next[idx] = { ...next[idx]!, quantity: qty };
+    const qty = Math.max(0, next[idx]!.quantity + delta);
+    next[idx] = { ...next[idx]!, quantity: qty };
   } else if (delta > 0) {
     next.push({
       expiry,
@@ -138,7 +138,34 @@ export function earliestExpiryFromBatches(batches: ExpiryBatch[]): string | null
   return dates[0] ?? null;
 }
 
-export type StockRotationPolicy = "fefo" | "fifo";
+export type StockRotationPolicy = "fefo" | "fifo" | "manual";
+
+/** Explicit units to take from a dated lot (outbound “choose lots”). */
+export type ExpiryLotAllocation = {
+  expiry: string;
+  quantity: number;
+  lot?: string | null;
+};
+
+export function normalizeExpiryLotAllocations(
+  raw: unknown
+): ExpiryLotAllocation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const rec = row as { expiry?: unknown; quantity?: unknown; lot?: unknown };
+      return {
+        expiry: String(rec.expiry || "").trim(),
+        quantity: Math.max(0, Math.floor(Number(rec.quantity) || 0)),
+        lot: rec.lot != null && String(rec.lot).trim() ? String(rec.lot).trim() : null,
+      };
+    })
+    .filter((row) => Boolean(row.expiry) && row.quantity > 0);
+}
+
+export function sumExpiryLotAllocations(allocations: ExpiryLotAllocation[]): number {
+  return allocations.reduce((sum, row) => sum + Math.max(0, row.quantity), 0);
+}
 
 function normalizeExpiryBatches(existing: ExpiryBatch[] | undefined | null): ExpiryBatch[] {
   if (!Array.isArray(existing)) return [];
@@ -149,7 +176,163 @@ function normalizeExpiryBatches(existing: ExpiryBatch[] | undefined | null): Exp
       lot: b.lot ?? null,
       requestId: b.requestId ?? null,
     }))
-    .filter((b) => b.expiry && b.quantity > 0);
+    // Keep 0-qty lots so UI can show "Jun 6 · 0 units" after FEFO depletes a batch.
+    .filter((b) => Boolean(b.expiry));
+}
+
+/**
+ * Build working expiry lots before ship/restock.
+ * - Empty/missing batches + legacy expiryDate → one lot with on-hand qty
+ * - Batch sum short of on-hand → fill the gap onto legacy (or earliest) expiry
+ * So FEFO can always split across dates (e.g. 23 from Jun 6, then 77 from Dec 12).
+ */
+export function prepareExpiryBatchesForDeduction(
+  existing: ExpiryBatch[] | undefined | null,
+  onHandQuantity: number,
+  legacyExpiryDate?: unknown
+): ExpiryBatch[] {
+  const onHand = Math.max(0, Math.floor(Number(onHandQuantity) || 0));
+  let next = normalizeExpiryBatches(existing);
+  const legacy = expiryBatchIso(legacyExpiryDate);
+
+  if (next.length === 0) {
+    if (legacy && onHand > 0) {
+      return [{ expiry: legacy, quantity: onHand, lot: null, requestId: null }];
+    }
+    return [];
+  }
+
+  const sum = next.reduce((total, batch) => total + Math.max(0, batch.quantity), 0);
+  if (sum < onHand) {
+    const fillExpiry = legacy || earliestExpiryFromBatches(next);
+    if (fillExpiry) {
+      next = mergeExpiryBatch(next, {
+        expiry: fillExpiry,
+        quantity: onHand - sum,
+      });
+    }
+  }
+
+  return next.sort((a, b) => a.expiry.localeCompare(b.expiry));
+}
+
+/**
+ * Prefer stored expiryBatches; if empty/missing, seed from legacy expiryDate + qty.
+ * Used by restock/receive so an empty [] does not wipe older undated-as-batch stock.
+ */
+export function seedExpiryBatchesFromLegacy(
+  existing: ExpiryBatch[] | undefined | null,
+  onHandQuantityBeforeChange: number,
+  legacyExpiryDate?: unknown
+): ExpiryBatch[] {
+  const normalized = normalizeExpiryBatches(existing);
+  if (normalized.length > 0) return normalized;
+  const legacy = expiryBatchIso(legacyExpiryDate);
+  const qty = Math.max(0, Math.floor(Number(onHandQuantityBeforeChange) || 0));
+  if (legacy && qty > 0) {
+    return [{ expiry: legacy, quantity: qty, lot: null, requestId: null }];
+  }
+  return [];
+}
+
+/**
+ * Ensure every known expiry date appears in the lot list.
+ * Missing dates are added as quantity 0 so Expiry can show "Jun 6 · 0 units".
+ */
+export function preserveKnownExpiryLots(
+  existing: ExpiryBatch[] | undefined | null,
+  knownExpiries: Array<string | null | undefined> | undefined | null
+): ExpiryBatch[] {
+  const next = normalizeExpiryBatches(existing);
+  const byExpiry = new Map(next.map((batch) => [batch.expiry, { ...batch }]));
+  for (const raw of knownExpiries || []) {
+    const expiry = expiryBatchIso(raw);
+    if (!expiry) continue;
+    if (!byExpiry.has(expiry)) {
+      byExpiry.set(expiry, {
+        expiry,
+        quantity: 0,
+        lot: null,
+        requestId: null,
+      });
+    }
+  }
+  return Array.from(byExpiry.values()).sort((a, b) => a.expiry.localeCompare(b.expiry));
+}
+
+/**
+ * When lot totals drifted above sellable on-hand (qty-only ships / quick fulfill),
+ * FEFO-consume the excess so each expiry shows remaining units.
+ * Example: lots 23 (Jun 6) + 348 (Dec 12), on-hand 267 → Jun 6 · 0 + Dec 12 · 267.
+ * Pass knownExpiries to keep depleted dates that were previously dropped from the doc.
+ */
+export function reconcileExpiryBatchesToOnHand(
+  existing: ExpiryBatch[] | undefined | null,
+  onHandQuantity: number,
+  legacyExpiryDate?: unknown,
+  policy: StockRotationPolicy = "fefo",
+  knownExpiries?: Array<string | null | undefined> | null
+): {
+  batches: ExpiryBatch[];
+  expiryDate: string | null;
+  adjusted: boolean;
+  consumed: ExpiryBatch[];
+} {
+  const onHand = Math.max(0, Math.floor(Number(onHandQuantity) || 0));
+  const prepared = preserveKnownExpiryLots(existing, knownExpiries);
+  if (prepared.length === 0) {
+    if (legacyExpiryDate && onHand > 0) {
+      const legacy = expiryBatchIso(legacyExpiryDate);
+      if (legacy) {
+        return {
+          batches: [{ expiry: legacy, quantity: onHand, lot: null, requestId: null }],
+          expiryDate: legacy,
+          adjusted: true,
+          consumed: [],
+        };
+      }
+    }
+    return { batches: [], expiryDate: null, adjusted: false, consumed: [] };
+  }
+
+  const positiveSum = prepared.reduce(
+    (total, batch) => total + Math.max(0, batch.quantity),
+    0
+  );
+  const hadMissingKnown =
+    (knownExpiries || []).some((raw) => {
+      const expiry = expiryBatchIso(raw);
+      return Boolean(expiry) && !normalizeExpiryBatches(existing).some((b) => b.expiry === expiry);
+    });
+
+  if (positiveSum === onHand) {
+    return {
+      batches: prepared.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+      expiryDate: earliestExpiryFromBatches(prepared),
+      adjusted: hadMissingKnown,
+      consumed: [],
+    };
+  }
+  if (positiveSum < onHand) {
+    // Do not invent lot qty on reconcile — only shrink when lots are ahead of on-hand.
+    return {
+      batches: prepared.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+      expiryDate: earliestExpiryFromBatches(prepared),
+      adjusted: hadMissingKnown,
+      consumed: [],
+    };
+  }
+
+  const result = consumeExpiryBatches(prepared, positiveSum - onHand, policy);
+  return {
+    batches: preserveKnownExpiryLots(result.batches, [
+      ...(knownExpiries || []),
+      ...prepared.map((b) => b.expiry),
+    ]),
+    expiryDate: result.expiryDate,
+    adjusted: true,
+    consumed: result.consumed,
+  };
 }
 
 function batchReceiveKey(batch: ExpiryBatch): string {
@@ -158,21 +341,105 @@ function batchReceiveKey(batch: ExpiryBatch): string {
   return requestId || batch.expiry;
 }
 
+export type ConsumeExpiryBatchesOptions = {
+  /** Current sellable on-hand (seeds missing lots so FEFO can run). */
+  onHandQuantity?: number;
+  /** Legacy single expiryDate when expiryBatches is empty. */
+  legacyExpiryDate?: unknown;
+};
+
+/**
+ * Remove units from expiry lots by explicit allocation (manual lot pick).
+ * Throws if a lot is missing or does not have enough remaining units.
+ */
+export function consumeExpiryBatchesFromAllocations(
+  existing: ExpiryBatch[] | undefined | null,
+  allocations: ExpiryLotAllocation[],
+  options?: ConsumeExpiryBatchesOptions
+): {
+  batches: ExpiryBatch[];
+  consumed: ExpiryBatch[];
+  expiryDate: string | null;
+} {
+  const allocs = normalizeExpiryLotAllocations(allocations);
+  const next =
+    options && (options.onHandQuantity != null || options.legacyExpiryDate != null)
+      ? prepareExpiryBatchesForDeduction(
+          existing,
+          options.onHandQuantity ?? 0,
+          options.legacyExpiryDate
+        )
+      : normalizeExpiryBatches(existing);
+
+  if (allocs.length === 0) {
+    return {
+      batches: next.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+      consumed: [],
+      expiryDate: earliestExpiryFromBatches(next),
+    };
+  }
+
+  const consumed: ExpiryBatch[] = [];
+  for (const alloc of allocs) {
+    const lotKey = (alloc.lot ?? "").trim();
+    let idx = next.findIndex(
+      (b) => b.expiry === alloc.expiry && (b.lot ?? "").trim() === lotKey
+    );
+    if (idx < 0 && !lotKey) {
+      idx = next.findIndex((b) => b.expiry === alloc.expiry && b.quantity > 0);
+    }
+    if (idx < 0) {
+      throw new Error(`Expiry lot ${alloc.expiry} is not available on this product.`);
+    }
+    if (next[idx]!.quantity < alloc.quantity) {
+      throw new Error(
+        `Not enough units on lot ${alloc.expiry}. Available: ${next[idx]!.quantity}, Requested: ${alloc.quantity}.`
+      );
+    }
+    next[idx]!.quantity -= alloc.quantity;
+    consumed.push({
+      expiry: next[idx]!.expiry,
+      quantity: alloc.quantity,
+      lot: next[idx]!.lot ?? null,
+      requestId: next[idx]!.requestId ?? null,
+    });
+  }
+
+  const batches = next.sort((a, b) => a.expiry.localeCompare(b.expiry));
+  return {
+    batches,
+    consumed,
+    expiryDate: earliestExpiryFromBatches(batches),
+  };
+}
+
 /**
  * Remove units from expiry lots.
- * FEFO = earliest expiry first; FIFO = earliest received/request id, then expiry.
+ * FEFO = earliest expiry first (split across lots: e.g. take all of Jun 6, then Dec 12).
+ * FIFO = earliest received/request id, then expiry.
+ * manual = use consumeExpiryBatchesFromAllocations instead.
+ * Depleted lots stay at quantity 0 (shown as "0 units"); summary expiryDate = next lot with qty > 0.
  */
 export function consumeExpiryBatches(
   existing: ExpiryBatch[] | undefined | null,
   units: number,
-  policy: StockRotationPolicy = "fefo"
+  policy: StockRotationPolicy = "fefo",
+  options?: ConsumeExpiryBatchesOptions
 ): {
   batches: ExpiryBatch[];
   consumed: ExpiryBatch[];
   expiryDate: string | null;
 } {
   const take = Math.max(0, Math.floor(units));
-  const next = normalizeExpiryBatches(existing);
+  const next =
+    options && (options.onHandQuantity != null || options.legacyExpiryDate != null)
+      ? prepareExpiryBatchesForDeduction(
+          existing,
+          options.onHandQuantity ?? 0,
+          options.legacyExpiryDate
+        )
+      : normalizeExpiryBatches(existing);
+
   if (take <= 0 || next.length === 0) {
     return {
       batches: next.sort((a, b) => a.expiry.localeCompare(b.expiry)),
@@ -181,8 +448,11 @@ export function consumeExpiryBatches(
     };
   }
 
+  // "manual" without allocations falls back to FEFO.
+  const effectivePolicy: "fefo" | "fifo" = policy === "fifo" ? "fifo" : "fefo";
+
   const ordered = [...next].sort((a, b) => {
-    if (policy === "fifo") {
+    if (effectivePolicy === "fifo") {
       const byReceive = batchReceiveKey(a).localeCompare(batchReceiveKey(b));
       if (byReceive !== 0) return byReceive;
     }
@@ -193,6 +463,7 @@ export function consumeExpiryBatches(
   const consumed: ExpiryBatch[] = [];
   for (const batch of ordered) {
     if (remaining <= 0) break;
+    if (batch.quantity <= 0) continue;
     const qty = Math.min(batch.quantity, remaining);
     if (qty <= 0) continue;
     batch.quantity -= qty;
@@ -205,9 +476,7 @@ export function consumeExpiryBatches(
     });
   }
 
-  const batches = ordered
-    .filter((b) => b.quantity > 0)
-    .sort((a, b) => a.expiry.localeCompare(b.expiry));
+  const batches = ordered.sort((a, b) => a.expiry.localeCompare(b.expiry));
 
   return {
     batches,

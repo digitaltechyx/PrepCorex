@@ -3,8 +3,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
 import * as z from "zod";
-import { collection, addDoc, Timestamp } from "firebase/firestore";
+import { Timestamp } from "firebase/firestore";
 import { useMemo, useState, useEffect } from "react";
+import { createOutboundRequestWithClientReserve } from "@/lib/client-inventory-outbound-sync";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,7 +15,6 @@ import { ChevronsUpDown, ChevronDown, Loader2, X, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
-import { db } from "@/lib/firebase";
 import type { ServiceType, ProductType, UserPricing, UserBoxForwardingPricing, UserPalletForwardingPricing, UserPalletExistingInventoryPricing, UserAdditionalServicesPricing } from "@/types";
 import { DTC_FBM_SERVICE, isDtcFbmService } from "@/types";
 
@@ -687,9 +687,13 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       });
 
       // Remove all undefined values before saving to Firestore
-      const cleanedRequestData = removeUndefined(requestData);
+      const cleanedRequestData = removeUndefined(requestData) as Record<string, unknown>;
 
-      await addDoc(collection(db, `users/${user.uid}/shipmentRequests`), cleanedRequestData);
+      // Reserve sellable qty immediately with FEFO (earliest expiry first across lots).
+      await createOutboundRequestWithClientReserve({
+        clientUserId: user.uid,
+        requestData: cleanedRequestData,
+      });
 
       toast({
         title: "Success",

@@ -53,6 +53,10 @@ import {
   buildClientFefoStockRows,
   fefoLotsForProduct,
 } from "@/lib/client-fefo-stock";
+import {
+  OutboundLotAllocationFields,
+  type OutboundLotAllocationValue,
+} from "@/components/dashboard/outbound-lot-allocation-fields";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import {
   readProductUnitMeasurements,
@@ -81,10 +85,19 @@ const shipmentItemSchema = z.object({
   /** Set when line is created from a pending / not-yet-received inbound. */
   sourceInventoryRequestId: z.string().optional(),
   /**
-   * Admin-only optional override. Omit / "auto" → system picks FEFO when the
-   * product has expiry lots, otherwise FIFO.
+   * Optional override. Omit / "auto" → FEFO when expiry lots exist, else FIFO.
+   * "manual" → lotAllocations must sum to line units (qty × packOf).
    */
-  stockRotationPolicy: z.enum(["auto", "fefo", "fifo"]).optional(),
+  stockRotationPolicy: z.enum(["auto", "fefo", "fifo", "manual"]).optional(),
+  lotAllocations: z
+    .array(
+      z.object({
+        expiry: z.string().min(1),
+        quantity: z.coerce.number().int().nonnegative(),
+        lot: z.string().nullable().optional(),
+      })
+    )
+    .optional(),
 });
 
 const shipmentGroupSchema = z.object({
@@ -121,6 +134,23 @@ const shipmentGroupSchema = z.object({
             code: z.ZodIssueCode.custom,
             message: "Unit price must be a positive number.",
             path: ["shipments", i, "unitPrice"],
+          });
+        }
+      }
+      if (s.stockRotationPolicy === "manual") {
+        const need =
+          Math.max(1, Math.floor(Number(s.quantity) || 0)) *
+          Math.max(1, Math.floor(Number(s.packOf) || 1));
+        const allocs = Array.isArray(s.lotAllocations) ? s.lotAllocations : [];
+        const sum = allocs.reduce(
+          (n, row) => n + Math.max(0, Math.floor(Number(row.quantity) || 0)),
+          0
+        );
+        if (sum !== need) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Lot units must total ${need} (got ${sum}).`,
+            path: ["shipments", i, "lotAllocations"],
           });
         }
       }
@@ -203,12 +233,11 @@ export function CreateShipmentWithLabelsForm({
     ownerId ? `users/${ownerId}/inventoryRequests` : ""
   );
   const { data: inboundReceiveLogs } = useCollection<InboundReceiveLog>(
-    ownerId && isAdminCreatingForClient ? `users/${ownerId}/inboundReceiveLogs` : ""
+    ownerId ? `users/${ownerId}/inboundReceiveLogs` : ""
   );
 
   /** Same lot reconstruction as the FEFO tab (batches + receive logs + inbound). */
-  const adminFefoRows = useMemo(() => {
-    if (!isAdminCreatingForClient) return [];
+  const productFefoRows = useMemo(() => {
     return buildClientFefoStockRows(
       inventory.map((item) => ({
         id: item.id,
@@ -230,7 +259,7 @@ export function CreateShipmentWithLabelsForm({
         data: log as unknown as Record<string, unknown>,
       }))
     );
-  }, [isAdminCreatingForClient, inventory, inboundRequests, inboundReceiveLogs]);
+  }, [inventory, inboundRequests, inboundReceiveLogs]);
 
   type SelectableOutboundProduct = {
     id: string;
@@ -1097,12 +1126,23 @@ export function CreateShipmentWithLabelsForm({
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
             }
-            // Admin optional per-line override only (users never set this).
             if (
-              isAdminCreatingForClient &&
-              (shipment.stockRotationPolicy === "fefo" || shipment.stockRotationPolicy === "fifo")
+              shipment.stockRotationPolicy === "fefo" ||
+              shipment.stockRotationPolicy === "fifo" ||
+              shipment.stockRotationPolicy === "manual"
             ) {
               cleaned.stockRotationPolicy = shipment.stockRotationPolicy;
+            }
+            if (shipment.stockRotationPolicy === "manual" && Array.isArray(shipment.lotAllocations)) {
+              cleaned.lotAllocations = shipment.lotAllocations
+                .map((row) => ({
+                  expiry: String(row.expiry || "").trim(),
+                  quantity: Math.max(0, Math.floor(Number(row.quantity) || 0)),
+                  ...(row.lot != null && String(row.lot).trim()
+                    ? { lot: String(row.lot).trim() }
+                    : {}),
+                }))
+                .filter((row) => row.expiry && row.quantity > 0);
             }
             return cleaned;
           });
@@ -1765,9 +1805,8 @@ export function CreateShipmentWithLabelsForm({
                                                   customDimensions: undefined,
                                                   selectedAdditionalServices: undefined,
                                         sourceInventoryRequestId: item.sourceInventoryRequestId,
-                                        ...(isAdminCreatingForClient
-                                          ? { stockRotationPolicy: "auto" as const }
-                                          : {}),
+                                        stockRotationPolicy: "auto" as const,
+                                        lotAllocations: [] as OutboundLotAllocationValue[],
                                       };
                                     };
 
@@ -1848,10 +1887,9 @@ export function CreateShipmentWithLabelsForm({
                               <div className="text-sm font-medium">Selected Product Details</div>
                               <p className="text-xs text-muted-foreground">
                                 Set qty and pack size per line. Use &quot;Pack line&quot; above to add another pack
-                                config for the same product.
-                                {isAdminCreatingForClient
-                                  ? " Batch priority is optional per product (Auto uses FEFO when expiry lots exist)."
-                                  : ""}
+                                config for the same product. When a product has expiry lots, choose Auto / FEFO /
+                                FIFO, or Choose lots to take units from specific dates (e.g. 5 from one lot and
+                                100 from another).
                               </p>
                               <div className="max-h-[44vh] overflow-auto rounded-md border mouse-both-scroll">
                                 <div className="min-w-0 md:min-w-[1100px]">
@@ -1910,7 +1948,7 @@ export function CreateShipmentWithLabelsForm({
                                         const invDoc =
                                           inventory.find((item) => item.id === selectedProduct.id) ||
                                           selectedProduct;
-                                        const fromFefo = fefoLotsForProduct(adminFefoRows, {
+                                        const fromFefo = fefoLotsForProduct(productFefoRows, {
                                           id: invDoc.id,
                                           sku: invDoc.sku,
                                           productName: invDoc.productName,
@@ -1937,6 +1975,31 @@ export function CreateShipmentWithLabelsForm({
                                         form.watch(
                                           `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.stockRotationPolicy`
                                         ) || "auto";
+                                      const lineQty = Math.max(
+                                        1,
+                                        Math.floor(
+                                          Number(
+                                            form.watch(
+                                              `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`
+                                            ) || 1
+                                          ) || 1
+                                        )
+                                      );
+                                      const linePackOf = Math.max(
+                                        1,
+                                        Math.floor(
+                                          Number(
+                                            form.watch(
+                                              `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`
+                                            ) || 1
+                                          ) || 1
+                                        )
+                                      );
+                                      const requiredUnits = lineQty * linePackOf;
+                                      const lineLotAllocations =
+                                        (form.watch(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.lotAllocations`
+                                        ) as OutboundLotAllocationValue[] | undefined) || [];
 
                                       return (
                                         <div
@@ -1955,17 +2018,24 @@ export function CreateShipmentWithLabelsForm({
                                             <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
                                               Line {shipmentIndex + 1}
                                             </span>
-                                            {isAdminCreatingForClient && !isPrepLine ? (
+                                            {!isPrepLine && expiryLots.length > 0 ? (
                                               <div className="mt-1.5 space-y-1">
                                                 <Select
                                                   value={lineRotation}
-                                                  onValueChange={(value) =>
+                                                  onValueChange={(value) => {
                                                     form.setValue(
                                                       `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.stockRotationPolicy`,
-                                                      value as "auto" | "fefo" | "fifo",
-                                                      { shouldValidate: false }
-                                                    )
-                                                  }
+                                                      value as "auto" | "fefo" | "fifo" | "manual",
+                                                      { shouldValidate: true }
+                                                    );
+                                                    if (value !== "manual") {
+                                                      form.setValue(
+                                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.lotAllocations`,
+                                                        [],
+                                                        { shouldValidate: true }
+                                                      );
+                                                    }
+                                                  }}
                                                 >
                                                   <SelectTrigger className="h-7 text-[10px]">
                                                     <SelectValue placeholder="Batch: Auto" />
@@ -1976,21 +2046,49 @@ export function CreateShipmentWithLabelsForm({
                                                     </SelectItem>
                                                     <SelectItem value="fefo">FEFO — first expire</SelectItem>
                                                     <SelectItem value="fifo">FIFO — first received</SelectItem>
+                                                    <SelectItem value="manual">Choose lots…</SelectItem>
                                                   </SelectContent>
                                                 </Select>
-                                                {expiryLots.length > 0 ? (
+                                                {lineRotation === "manual" ? (
+                                                  <OutboundLotAllocationFields
+                                                    lots={expiryLots}
+                                                    requiredUnits={requiredUnits}
+                                                    value={lineLotAllocations}
+                                                    onChange={(next) =>
+                                                      form.setValue(
+                                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.lotAllocations`,
+                                                        next,
+                                                        { shouldValidate: true }
+                                                      )
+                                                    }
+                                                    onTotalsChange={({ totalUnits }) => {
+                                                      if (totalUnits <= 0) return;
+                                                      // Keep line qty×pack in sync with lot total (units as qty × pack 1).
+                                                      form.setValue(
+                                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.quantity`,
+                                                        totalUnits,
+                                                        { shouldValidate: true }
+                                                      );
+                                                      form.setValue(
+                                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.packOf`,
+                                                        1,
+                                                        { shouldValidate: true }
+                                                      );
+                                                    }}
+                                                  />
+                                                ) : (
                                                   <p className="text-[10px] font-normal leading-snug text-muted-foreground">
                                                     Lots:{" "}
                                                     {expiryLots
                                                       .map((b) => `${b.expiry} (${b.quantity})`)
                                                       .join(" · ")}
                                                   </p>
-                                                ) : (
-                                                  <p className="text-[10px] font-normal text-muted-foreground">
-                                                    No expiry lots on file
-                                                  </p>
                                                 )}
                                               </div>
+                                            ) : !isPrepLine ? (
+                                              <p className="mt-1 text-[10px] font-normal text-muted-foreground">
+                                                No expiry lots on file
+                                              </p>
                                             ) : null}
                                           </div>
                                           <div className="min-w-0 space-y-1">
