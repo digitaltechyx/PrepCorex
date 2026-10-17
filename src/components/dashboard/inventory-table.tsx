@@ -325,15 +325,18 @@ function InventoryExpiryLotsPreview({
   const visible = lines.slice(0, MAX_VISIBLE_EXPIRY_LOTS);
   const hasMore = lines.length > MAX_VISIBLE_EXPIRY_LOTS;
   return (
-    <div className="flex items-start gap-0.5 min-w-0">
-      <div className="min-w-0 space-y-0.5">
+    <div className="flex items-start gap-0.5">
+      <div className="space-y-0.5">
         {visible.map((line) => (
-          <div key={line} className={cn("text-sm leading-snug", lineClassName)}>
+          <div
+            key={line}
+            className={cn("whitespace-nowrap text-sm leading-snug", lineClassName)}
+          >
             {line}
           </div>
         ))}
         {hasMore ? (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="whitespace-nowrap text-[10px] text-muted-foreground">
             +{lines.length - MAX_VISIBLE_EXPIRY_LOTS} more
           </p>
         ) : null}
@@ -2599,7 +2602,9 @@ export function InventoryTable({
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell w-[92px]">Source</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell">SKU</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden lg:table-cell">Identifier</TableHead>
-                <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Expiry</TableHead>
+                <TableHead className="text-xs sm:text-sm hidden xl:table-cell min-w-[10.5rem]">
+                  Expiry
+                </TableHead>
                 <TableHead className="text-xs sm:text-sm hidden xl:table-cell">Unit size</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Quantity</TableHead>
                 <TableHead className="text-xs sm:text-sm hidden sm:table-cell">Date Added</TableHead>
@@ -2716,8 +2721,8 @@ export function InventoryTable({
                     <TableCell className="hidden lg:table-cell whitespace-nowrap">
                       {(item as any).retailIdentifier || "N/A"}
                     </TableCell>
-                    <TableCell className="hidden xl:table-cell align-top">
-                      <div className="flex items-start gap-1">
+                    <TableCell className="hidden xl:table-cell align-top min-w-[10.5rem]">
+                      <div className="flex items-start gap-1 whitespace-nowrap">
                         {(() => {
                           const lots = formatInventoryExpiryLots(
                             item as any,
