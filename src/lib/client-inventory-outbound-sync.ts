@@ -1812,7 +1812,7 @@ export async function applyClientInventoryOnDispatch(input: {
           boxesShipped,
           details: [
             outboundPackDetailsLine(boxesShipped, packOf),
-            "Outbound dispatched",
+            "Shipped",
             service ? `Service: ${service}` : "",
             shipTo ? `Ship to: ${shipTo}` : "",
             applied.newStatus === "Out of Stock" ? "Now out of stock" : "",
@@ -1904,7 +1904,7 @@ export async function applyClientInventoryOnDispatch(input: {
             boxesShipped,
             details: [
               outboundPackDetailsLine(boxesShipped, packOf),
-              "Outbound dispatched",
+              "Shipped",
               service ? `Service: ${service}` : "",
               shipTo ? `Ship to: ${shipTo}` : "",
             ]
