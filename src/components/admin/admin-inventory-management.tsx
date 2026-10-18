@@ -17,7 +17,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc, Timestamp } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, addDoc, collection, getDoc, getDocs, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import imageCompression from "browser-image-compression";
@@ -43,14 +43,29 @@ import { InventoryTable } from "@/components/dashboard/inventory-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
-import type { InventoryItem, ShippedItem, UserProfile, RestockHistory, RecycledShippedItem, RecycledRestockHistory, RecycledInventoryItem, DeleteLog, DeleteRequest, EditLog, Location, InventoryTransfer } from "@/types";
+import type {
+  InventoryItem,
+  ShippedItem,
+  UserProfile,
+  RestockHistory,
+  RecycledShippedItem,
+  RecycledRestockHistory,
+  RecycledInventoryItem,
+  DeleteLog,
+  DeleteRequest,
+  EditLog,
+  Location,
+  InventoryTransfer,
+  InventoryRequest,
+  InventoryChangeLog,
+  InboundReceiveLog,
+  ShipmentRequest,
+} from "@/types";
 import {
   arrayToCSV,
   downloadCSV,
   formatDateForCSV,
   formatInventoryExpiryLotsForCsv,
-  INVENTORY_CSV_HEADERS,
-  type InventoryCSVRow,
   type ShippedCSVRow,
 } from "@/lib/csv-utils";
 import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
@@ -1781,8 +1796,8 @@ export function AdminInventoryManagement({
   const paginatedRecycledInventory = filteredRecycledInventory.slice(recycleStartIndex, recycleEndIndex);
   const resetRecyclePagination = () => setRecyclePage(1);
 
-  // Download functions — warehouse PrepCorex stock only (no Shopify/Amazon/etc.), with expiry lots.
-  const handleDownloadInventory = () => {
+  // Download: warehouse stock only + history on the same sheet (one row per history event).
+  const handleDownloadInventory = async () => {
     const warehouseRows = filteredInventory.filter(
       (item) => !isIntegrationInventorySource((item as { source?: string }).source)
     );
@@ -1795,24 +1810,80 @@ export function AdminInventoryManagement({
       return;
     }
 
-    const csvData: InventoryCSVRow[] = warehouseRows.map((item) => ({
-      "Product Name": item.productName,
-      SKU: String(item.sku ?? "").trim(),
-      Quantity: item.quantity,
-      Status: item.status,
-      "Expiry Lots": formatInventoryExpiryLotsForCsv(item),
-      "Date Added": formatDateForCSV(item.dateAdded),
-    }));
+    try {
+      toast({
+        title: "Preparing download",
+        description: "Building Excel file with History dropdowns…",
+      });
 
-    const csvContent = arrayToCSV(csvData, INVENTORY_CSV_HEADERS);
-    const filename = `${selectedUser.name}_inventory_${new Date().toISOString().split('T')[0]}.csv`;
-    
-    downloadCSV(csvContent, filename);
-    
-    toast({
-      title: "Download Started",
-      description: `Warehouse inventory for ${selectedUser.name} is downloading (${warehouseRows.length} products).`,
-    });
+      const uid = selectedUser.uid;
+      const [reqSnap, changeSnap, inboundSnap, shipmentReqSnap] = await Promise.all([
+        getDocs(collection(db, `users/${uid}/inventoryRequests`)),
+        getDocs(collection(db, `users/${uid}/inventoryChangeLogs`)),
+        getDocs(collection(db, `users/${uid}/inboundReceiveLogs`)),
+        getDocs(collection(db, `users/${uid}/shipmentRequests`)),
+      ]);
+
+      const inventoryRequests = reqSnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as InventoryRequest)
+      );
+      const inventoryChangeLogs = changeSnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as InventoryChangeLog)
+      );
+      const inboundReceiveLogs = inboundSnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as InboundReceiveLog)
+      );
+      const shipmentRequests = shipmentReqSnap.docs.map(
+        (d) => ({ id: d.id, ...d.data() } as ShipmentRequest)
+      );
+
+      const historySources = {
+        editLogs,
+        deleteLogs,
+        restockHistory,
+        shipped,
+        inventoryRequests,
+        inventoryTransfers: [],
+        recycledInventory,
+        inventoryChangeLogs,
+        inboundReceiveLogs,
+        shipmentRequests,
+      };
+
+      const products = warehouseRows.map((item) => ({
+        item,
+        fields: {
+          productName: item.productName,
+          sku: String(item.sku ?? "").trim(),
+          quantity: item.quantity,
+          status: item.status,
+          expiryLots: formatInventoryExpiryLotsForCsv(item),
+          dateAdded: formatDateForCSV(item.dateAdded),
+        },
+      }));
+
+      const { buildInventoryHistoryWorkbook, downloadExcelBuffer } = await import(
+        "@/lib/inventory-export-xlsx"
+      );
+      const buffer = await buildInventoryHistoryWorkbook({
+        products,
+        sources: historySources,
+        sheetName: "Inventory",
+      });
+      const filename = `${selectedUser.name}_inventory_${new Date().toISOString().split("T")[0]}.xlsx`;
+      downloadExcelBuffer(buffer, filename);
+
+      toast({
+        title: "Download Started",
+        description: `Excel file for ${selectedUser.name} (${warehouseRows.length} products). Open History column ▼ to browse events.`,
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Download failed",
+        description: error instanceof Error ? error.message : "Could not build inventory Excel file.",
+      });
+    }
   };
 
   const aggregateAdditionalServices = (shipments: any[]) => {
@@ -2693,7 +2764,7 @@ export function AdminInventoryManagement({
             className="flex min-h-[44px] w-full items-center gap-2 sm:min-h-9 sm:w-auto"
           >
             <Download className="h-4 w-4" />
-            Download CSV
+            Download Excel
           </Button>
         </div>
         {loading ? (

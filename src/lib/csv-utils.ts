@@ -2,7 +2,10 @@
  * Utility functions for CSV generation and download
  */
 
-import { reconcileExpiryBatchesToOnHand } from "@/lib/inventory-expiry-batches";
+import {
+  reconcileExpiryBatchesToOnHand,
+  type ExpiryBatch,
+} from "@/lib/inventory-expiry-batches";
 
 export interface InventoryCSVRow {
   'Product Name': string;
@@ -23,6 +26,21 @@ export const INVENTORY_CSV_HEADERS: (keyof InventoryCSVRow)[] = [
   "Date Added",
 ];
 
+/** Single-sheet inventory export: one product row, full history in one cell. */
+export interface InventoryWithHistoryCSVRow extends InventoryCSVRow {
+  History: string;
+}
+
+export const INVENTORY_WITH_HISTORY_CSV_HEADERS: (keyof InventoryWithHistoryCSVRow)[] = [
+  "Product Name",
+  "SKU",
+  "Quantity",
+  "Status",
+  "Expiry Lots",
+  "Date Added",
+  "History",
+];
+
 /**
  * Format FEFO expiry lots for CSV, e.g. "2026-10-31 (135); 2026-11-01 (10)".
  * Falls back to a single expiryDate when batches are missing.
@@ -34,7 +52,7 @@ export function formatInventoryExpiryLotsForCsv(item: {
 }): string {
   const onHand = Math.max(0, Math.floor(Number(item.quantity) || 0));
   const { batches } = reconcileExpiryBatchesToOnHand(
-    Array.isArray(item.expiryBatches) ? item.expiryBatches : [],
+    Array.isArray(item.expiryBatches) ? (item.expiryBatches as ExpiryBatch[]) : [],
     onHand,
     item.expiryDate,
     "fefo"
@@ -53,45 +71,56 @@ export interface ShippedCSVRow {
   'Remarks': string;
 }
 
+/** RFC 4180 / Excel-safe field quoting (always quote strings). */
+export function csvEscapeField(value: unknown): string {
+  const s = value == null ? "" : String(value);
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 /**
- * Convert array of objects to CSV string
+ * Excel-advanced multiline cell without raw newlines in the CSV file.
+ * Opens as a formula that joins lines with CHAR(10) so Wrap Text shows history
+ * while keeping one physical CSV row per product (avoids broken columns).
+ */
+export function excelMultilineCsvFormula(lines: string[]): string {
+  const parts = lines
+    .map((line) => String(line ?? "").replace(/\r\n/g, " ").replace(/[\r\n]+/g, " ").trim())
+    .filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return `=${parts.map((line) => `"${line.replace(/"/g, '""')}"`).join("&CHAR(10)&")}`;
+}
+
+/**
+ * Convert array of objects to CSV string (CRLF, always-quoted fields for Excel).
  */
 export function arrayToCSV<T extends Record<string, any>>(
   data: T[],
   headers: (keyof T)[]
 ): string {
-  if (data.length === 0) return '';
-  
-  // Create header row
-  const headerRow = headers.join(',');
-  
-  // Create data rows
-  const dataRows = data.map(row => 
-    headers.map(header => {
-      const value = row[header];
-      // Escape commas and quotes in values
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-        return `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    }).join(',')
+  if (data.length === 0) return "";
+
+  const headerRow = headers.map((h) => csvEscapeField(String(h))).join(",");
+  const dataRows = data.map((row) =>
+    headers.map((header) => csvEscapeField(row[header])).join(",")
   );
-  
-  return [headerRow, ...dataRows].join('\n');
+
+  return [headerRow, ...dataRows].join("\r\n");
 }
 
 /**
- * Download CSV file
+ * Download CSV file (UTF-8 BOM so Excel keeps Unicode + formulas).
  */
 export function downloadCSV(csvContent: string, filename: string): void {
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  
+  const withBom = csvContent.startsWith("\uFEFF") ? csvContent : `\uFEFF${csvContent}`;
+  const blob = new Blob([withBom], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+
   if (link.download !== undefined) {
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.style.visibility = 'hidden';
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

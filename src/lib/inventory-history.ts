@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { excelMultilineCsvFormula } from "@/lib/csv-utils";
 import { getReceivedQuantity, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import type {
   DeleteLog,
@@ -1387,6 +1388,75 @@ export function downloadInventoryHistoryCsv(
   a.download = `inventory-history-${slug || "product"}-${format(new Date(), "yyyy-MM-dd")}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export type InventorySheetProductFields = {
+  productName: string;
+  sku: string;
+  quantity: number;
+  status: string;
+  expiryLots: string;
+  dateAdded: string;
+};
+
+/**
+ * History for one Excel/CSV cell: one compact line per event, then joined with
+ * Excel CHAR(10) formula so the sheet stays 1 row/product and Wrap Text works.
+ */
+export function formatInventoryHistoryForCsvCell(rows: InventoryHistoryRow[]): string {
+  if (rows.length === 0) return "";
+  const lines = rows.map((r) => {
+    const change = formatChangeCell(r.qtyChange);
+    const before = formatQtyCell(r.qtyBefore);
+    const after = formatQtyCell(r.qtyAfter);
+    const stock =
+      before || change || after
+        ? ` | ${before || "—"} → ${change || "—"} → ${after || "—"}`
+        : "";
+    const details = String(r.details ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
+    const user = String(r.user ?? "").trim();
+    return [
+      `${r.seq}. ${r.dateLabel} ${r.timeLabel} · ${r.event}${stock}`,
+      details || null,
+      user ? `By: ${user}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  });
+  return excelMultilineCsvFormula(lines);
+}
+
+/**
+ * One sheet, one row per product; full history in a single multiline History cell.
+ */
+export function buildInventoryWithHistorySheetRows(
+  products: Array<{ item: InventoryItem; fields: InventorySheetProductFields }>,
+  sources: InventoryHistorySources
+): Array<{
+  "Product Name": string;
+  SKU: string;
+  Quantity: number;
+  Status: string;
+  "Expiry Lots": string;
+  "Date Added": string;
+  History: string;
+}> {
+  return products.map(({ item, fields }) => {
+    const history = buildInventoryHistory(item, sources, { includeInternalEvents: false }).filter(
+      (r) => r.eventType !== "transfer"
+    );
+    return {
+      "Product Name": fields.productName,
+      SKU: fields.sku,
+      Quantity: fields.quantity,
+      Status: fields.status,
+      "Expiry Lots": fields.expiryLots,
+      "Date Added": fields.dateAdded,
+      History: formatInventoryHistoryForCsvCell(history),
+    };
+  });
 }
 
 /** Inbound putaway logs linked to this inventory row (SKU, request, or id). */
