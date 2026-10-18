@@ -543,18 +543,66 @@ function findShippedLineForChangeLog(
   return null;
 }
 
-function appendHistoryLineNumber(details: string, line: number): string {
+/** Parse `…_line22_edit_…` / `…_line0` from inventoryChangeLogs doc ids. */
+function shipmentLineIndexFromChangeLogId(id: string | null | undefined): number | null {
+  const m = String(id ?? "").match(/_line(\d+)(?:_|$)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+/**
+ * Annotate with the real shipment-request line index (0-based in Firestore → display as #N+1
+ * so admins can find the row on the request). Do not reuse history sequence numbers — that
+ * previously showed e.g. "Line #15" when the actual request line was 22.
+ */
+function appendShipmentRequestLineNumber(details: string, lineIndex0: number): string {
+  const displayLine = lineIndex0 + 1;
   const text = String(details ?? "").trim();
-  const label = `Line #${line}`;
+  const label = `Request line #${displayLine}`;
   if (!text || text === "—") return label;
-  if (text.includes(label)) return text;
-  // Put Line # right after qty so it is easy to scan next to the history # column.
+  if (text.includes(label) || text.includes(`Line #${displayLine}`)) return text;
   const qtyMatch = text.match(/^(qty\s+\d+\s+pack\s+of\s+\d+)/i);
   if (qtyMatch) {
     const rest = text.slice(qtyMatch[1].length).replace(/^\s*·\s*/, "");
     return rest ? `${qtyMatch[1]} · ${label} · ${rest}` : `${qtyMatch[1]} · ${label}`;
   }
   return `${label} · ${text}`;
+}
+
+/**
+ * True when this change log did not move sellable stock (noise in Overview).
+ * Dispatch docs often omit qtyChange when stock was already reserved at create —
+ * those still render as "Shipped … 0" unless we drop them here.
+ */
+function isZeroStockChangeLog(log: InventoryChangeLog): boolean {
+  if (isPackDetailsChangeLog(log)) return true;
+  const hasChangeField = log.qtyChange != null && Number.isFinite(Number(log.qtyChange));
+  const change = hasChangeField ? Math.trunc(Number(log.qtyChange)) : null;
+  if (change === 0) return true;
+  const before = Number(log.qtyBefore);
+  const after = Number(log.qtyAfter);
+  if (Number.isFinite(before) && Number.isFinite(after) && before === after) {
+    return true;
+  }
+  // Upgrade-only dispatch/ship/cancel rows (no qty fields) — not a second stock move.
+  if (
+    change == null &&
+    (log.eventType === "outbound_dispatch" ||
+      log.eventType === "outbound_shipped" ||
+      log.eventType === "outbound_restored")
+  ) {
+    return true;
+  }
+  const details = String(log.details ?? "").toLowerCase();
+  if (
+    (log.eventType === "outbound_dispatch" || log.eventType === "outbound_shipped") &&
+    details.includes("reserved at request create") &&
+    (change == null || change === 0)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function outboundEventSortKey(e: RawEvent): number {
@@ -780,22 +828,13 @@ function applyRunningBalances(
 
   const withSeq = rows.map((r, i) => ({ ...r, seq: i + 1 }));
 
-  // Line # = history sequence of the first awaiting-ship row for that request id.
-  const lineByRequest = new Map<string, number>();
-  for (const r of withSeq) {
-    const id = String(r.shipmentRequestId ?? "").trim();
-    if (!id || r.outboundLinkKind !== "reserve") continue;
-    if (!lineByRequest.has(id)) lineByRequest.set(id, r.seq);
-  }
-
   return withSeq.map(({ outboundLinkKind, ...r }) => {
-    const id = String(r.shipmentRequestId ?? "").trim();
-    if (!id || !outboundLinkKind) return r;
-    const line = lineByRequest.get(id) ?? (outboundLinkKind === "reserve" ? r.seq : null);
-    if (line == null) return r;
+    if (!outboundLinkKind) return r;
+    const lineIndex = shipmentLineIndexFromChangeLogId(r.sourceId);
+    if (lineIndex == null) return r;
     return {
       ...r,
-      details: appendHistoryLineNumber(r.details, line),
+      details: appendShipmentRequestLineNumber(r.details, lineIndex),
     };
   });
 }
@@ -816,6 +855,17 @@ export function buildInventoryHistory(
             .trim()
             .toLowerCase() === "dispatched"
       )
+      .map((r) => r.id)
+  );
+  /** Rejected / cancelled outbound requests — reserve rows stay for audit but are labeled clearly. */
+  const cancelledOutboundRequestIds = new Set(
+    (sources.shipmentRequests ?? [])
+      .filter((r) => {
+        const status = String(r.status ?? "")
+          .trim()
+          .toLowerCase();
+        return status === "rejected" || status === "cancelled";
+      })
       .map((r) => r.id)
   );
 
@@ -972,28 +1022,52 @@ export function buildInventoryHistory(
     }
     const packDetailsChange = isPackDetailsChangeLog(log);
 
+    // Hide no-op cancel-restore and zero-delta dispatch (stock already moved on reserve).
+    if (
+      !packDetailsChange &&
+      isZeroStockChangeLog(log) &&
+      (log.eventType === "outbound_restored" ||
+        log.eventType === "outbound_dispatch" ||
+        log.eventType === "outbound_shipped")
+    ) {
+      continue;
+    }
+
+    const reqIdForLabel = String(log.shipmentRequestId ?? "").trim();
     const awaitingButDispatched =
       log.eventType === "outbound_awaiting_ship" &&
-      log.shipmentRequestId &&
-      dispatchedOutboundRequestIds.has(String(log.shipmentRequestId));
+      reqIdForLabel &&
+      dispatchedOutboundRequestIds.has(reqIdForLabel);
+
+    const awaitingButCancelled =
+      log.eventType === "outbound_awaiting_ship" &&
+      reqIdForLabel &&
+      cancelledOutboundRequestIds.has(reqIdForLabel);
+
+    const requestAlreadyDispatched =
+      Boolean(reqIdForLabel) && dispatchedOutboundRequestIds.has(reqIdForLabel);
 
     const eventLabel = packDetailsChange
       ? "Pack details change"
       : awaitingButDispatched
         ? "Shipped"
-        : log.eventType === "outbound_awaiting_ship"
-          ? "Outbound Scheduled"
-          : log.eventType === "outbound_restored"
-            ? "Outbound cancelled — restored"
-            : log.eventType === "outbound_line_restored"
-              ? "Outbound line edited — restored"
-              : log.eventType === "outbound_line_reserved"
-                ? "Outbound line edited — additional reserve"
-                : log.eventType === "outbound_dispatch"
-                  ? "Shipped"
-                  : log.eventType === "outbound_shipped"
+        : awaitingButCancelled
+          ? "Outbound Scheduled (cancelled)"
+          : log.eventType === "outbound_awaiting_ship"
+            ? "Outbound Scheduled"
+            : log.eventType === "outbound_restored"
+              ? "Outbound cancelled — restored"
+              : log.eventType === "outbound_line_restored"
+                ? "Outbound line edited — restored"
+                : log.eventType === "outbound_line_reserved"
+                  ? requestAlreadyDispatched
+                    ? "Shipped — admin added units to request"
+                    : "Outbound line edited — additional reserve"
+                  : log.eventType === "outbound_dispatch"
                     ? "Shipped"
-                    : log.eventType === "dispose"
+                    : log.eventType === "outbound_shipped"
+                      ? "Shipped"
+                      : log.eventType === "dispose"
                     ? "Disposed"
                     : log.eventType === "shopify_quick_fulfill" ||
                         log.eventType === "shopify_qf_product_correct_credit" ||
@@ -1078,9 +1152,20 @@ export function buildInventoryHistory(
       String(log.details ?? "").toLowerCase().includes("reserved at request create") &&
       (log.qtyChange == null || Number(log.qtyChange) === 0);
 
-    // Prefer selected ship date from the linked shipped row (Quick Ship / backdated outbound).
+    // Never show reserved-at-create dispatch as a 0-change Shipped row.
+    if (isReservedAtCreateDispatch) {
+      continue;
+    }
+
+    // Line edits must use write time so Overview order matches Date/Time.
+    // Only pure dispatch/ship rows may prefer the selected ship date.
+    const isLineEditEvent =
+      log.eventType === "outbound_line_reserved" ||
+      log.eventType === "outbound_line_restored" ||
+      log.eventType === "outbound_line_pack_updated" ||
+      log.eventType === "outbound_restored";
     const linkedShipped =
-      log.shippedId != null
+      !isLineEditEvent && log.shippedId != null
         ? sources.shipped.find((s) => s.id === String(log.shippedId).trim())
         : undefined;
     const changeLogTimestamp = linkedShipped
@@ -1091,13 +1176,9 @@ export function buildInventoryHistory(
       timestamp: changeLogTimestamp,
       event: eventLabel,
       eventType: historyEventType,
-      qtyBefore: isPackLayoutOnly || isReservedAtCreateDispatch ? null : log.qtyBefore,
-      qtyAfter: isPackLayoutOnly || isReservedAtCreateDispatch ? null : log.qtyAfter,
-      qtyChange: isPackLayoutOnly
-        ? null
-        : isReservedAtCreateDispatch
-          ? 0
-          : log.qtyChange,
+      qtyBefore: isPackLayoutOnly ? null : log.qtyBefore,
+      qtyAfter: isPackLayoutOnly ? null : log.qtyAfter,
+      qtyChange: isPackLayoutOnly ? null : log.qtyChange,
       details,
       user: isProductMerge ? "System" : "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
@@ -1194,21 +1275,24 @@ export function buildInventoryHistory(
       Boolean(String((s as ShippedItem & { returnRequestId?: string }).returnRequestId ?? "").trim());
 
     for (const line of lines) {
+      const qtyChange = returnDirectShip ? 0 : -line.units;
+      // Skip zero-stock "Shipped" rows (already reserved/dispatched elsewhere).
+      if (!returnDirectShip && qtyChange === 0) continue;
       raw.push({
         timestamp: shippedEventTimestamp(s),
         event: "Shipped",
         eventType: "shipped",
         qtyBefore: returnDirectShip ? null : line.qtyBefore,
         qtyAfter: returnDirectShip ? null : line.qtyAfter,
-        qtyChange: returnDirectShip ? 0 : -line.units,
+        qtyChange,
         details: returnDirectShip
           ? [
               `Shipped ${line.units} units`,
               s.shipTo ? `to ${s.shipTo}` : "",
               "Product return (not taken from on-hand stock)",
               s.remarks?.trim() || "",
-        ]
-          .filter(Boolean)
+            ]
+              .filter(Boolean)
               .join(" · ")
           : formatOutboundShipmentDetails({
               units: line.units,
