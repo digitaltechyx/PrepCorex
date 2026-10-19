@@ -22,20 +22,27 @@ import {
   getPricingProfileCollectionPath,
   resolveUserPricingProfileId,
 } from "@/lib/pricing-profiles";
-import type { FbaPackAddOnConfig } from "@/lib/pricing-utils";
 import {
   downloadOutboundBulkTemplate,
+  groupOutboundBulkRows,
   isOutboundTemplateEligible,
-  outboundBulkRowToFirestoreDoc,
-  parseOutboundBulkCsv,
+  outboundBulkGroupToFirestoreDoc,
+  parseOutboundBulkFile,
   validateOutboundBulkRows,
+  type FbaPackAddOnConfig,
+  type OutboundBulkRequestGroup,
   type OutboundBulkRowError,
   type OutboundBulkValidatedRow,
 } from "@/lib/outbound-bulk-import";
 import type { InventoryItem, UserProfile } from "@/types";
-import { formatServiceLabel } from "@/types";
+import { formatServiceLabel, formatShipmentPreferenceLabel } from "@/types";
 
-type FbaPackAddOnPricingDoc = FbaPackAddOnConfig & { id: string };
+type FbaPackAddOnPricingDoc = {
+  id: string;
+  pack2to3AddOn?: unknown;
+  pack4to12AddOn?: unknown;
+  updatedAt?: { seconds?: number } | null;
+};
 
 type OutboundBulkImportDialogProps = {
   open: boolean;
@@ -61,10 +68,12 @@ export function OutboundBulkImportDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [validRows, setValidRows] = useState<OutboundBulkValidatedRow[]>([]);
+  const [requestGroups, setRequestGroups] = useState<OutboundBulkRequestGroup[]>([]);
   const [rowErrors, setRowErrors] = useState<OutboundBulkRowError[]>([]);
   const [rowWarnings, setRowWarnings] = useState<OutboundBulkRowError[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const resolvedPricingUser = useMemo(
     () => pricingUser ?? { uid: ownerId, pricingProfileId: null },
@@ -92,8 +101,8 @@ export function OutboundBulkImportDialog({
         : standardFbaPackAddOnPricing || [];
     if (list.length === 0) return undefined;
     const sorted = [...list].sort((a, b) => {
-      const aT = (a as FbaPackAddOnPricingDoc).updatedAt?.seconds ?? 0;
-      const bT = (b as FbaPackAddOnPricingDoc).updatedAt?.seconds ?? 0;
+      const aT = a.updatedAt?.seconds ?? 0;
+      const bT = b.updatedAt?.seconds ?? 0;
       return bT - aT;
     });
     const latest = sorted[0];
@@ -106,6 +115,7 @@ export function OutboundBulkImportDialog({
   const resetState = useCallback(() => {
     setFileName("");
     setValidRows([]);
+    setRequestGroups([]);
     setRowErrors([]);
     setRowWarnings([]);
     setParseErrors([]);
@@ -117,23 +127,30 @@ export function OutboundBulkImportDialog({
     onOpenChange(next);
   };
 
-  const processFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".csv")) {
+  const handleDownloadTemplate = async () => {
+    if (!ownerId) return;
+    setDownloading(true);
+    try {
+      await downloadOutboundBulkTemplate(inventory);
+    } catch (e) {
       toast({
         variant: "destructive",
-        title: "Invalid file",
-        description: "Please upload a .csv file.",
+        title: "Download failed",
+        description: e instanceof Error ? e.message : "Could not build the Excel template.",
       });
-      return;
+    } finally {
+      setDownloading(false);
     }
+  };
 
-    const text = await file.text();
-    const { rows, errors: parseErrs } = parseOutboundBulkCsv(text);
+  const processFile = async (file: File) => {
+    const { rows, errors: parseErrs } = await parseOutboundBulkFile(file);
     setParseErrors(parseErrs);
     setFileName(file.name);
 
     if (parseErrs.length > 0) {
       setValidRows([]);
+      setRequestGroups([]);
       setRowErrors([]);
       setRowWarnings([]);
       return;
@@ -145,6 +162,7 @@ export function OutboundBulkImportDialog({
       packConfig: latestFbaPackAddOnConfig,
     });
     setValidRows(valid);
+    setRequestGroups(groupOutboundBulkRows(valid));
     setRowErrors(errors);
     setRowWarnings(warnings);
   };
@@ -153,8 +171,19 @@ export function OutboundBulkImportDialog({
     if (validRows.length === 0 && rowErrors.length === 0 && parseErrors.length === 0) {
       return null;
     }
-    return { valid: validRows.length, invalid: rowErrors.length, warnings: rowWarnings.length };
-  }, [validRows.length, rowErrors.length, rowWarnings.length, parseErrors.length]);
+    return {
+      lines: validRows.length,
+      requests: requestGroups.length,
+      invalid: rowErrors.length,
+      warnings: rowWarnings.length,
+    };
+  }, [
+    validRows.length,
+    requestGroups.length,
+    rowErrors.length,
+    rowWarnings.length,
+    parseErrors.length,
+  ]);
 
   const shippableCount = useMemo(
     () => inventory.filter(isOutboundTemplateEligible).length,
@@ -162,7 +191,13 @@ export function OutboundBulkImportDialog({
   );
 
   const handleSubmit = async () => {
-    if (!user || !ownerId || validRows.length === 0 || rowErrors.length > 0 || parseErrors.length > 0) {
+    if (
+      !user ||
+      !ownerId ||
+      requestGroups.length === 0 ||
+      rowErrors.length > 0 ||
+      parseErrors.length > 0
+    ) {
       return;
     }
 
@@ -170,8 +205,8 @@ export function OutboundBulkImportDialog({
     try {
       const requestedAt = Timestamp.now();
 
-      for (const row of validRows) {
-        const requestData = outboundBulkRowToFirestoreDoc(row, {
+      for (const group of requestGroups) {
+        const requestData = outboundBulkGroupToFirestoreDoc(group, {
           ownerId,
           ownerDisplayName,
           requestedAt,
@@ -182,9 +217,11 @@ export function OutboundBulkImportDialog({
         });
       }
 
+      const lineCount = validRows.length;
+      const reqCount = requestGroups.length;
       toast({
         title: "Import successful",
-        description: `${validRows.length} outbound shipment request${validRows.length === 1 ? "" : "s"} submitted. Inventory reserved until ship or cancel.`,
+        description: `${reqCount} outbound request${reqCount === 1 ? "" : "s"} submitted (${lineCount} pack line${lineCount === 1 ? "" : "s"}). Inventory reserved until ship or cancel.`,
       });
       onSuccess?.();
       handleOpenChange(false);
@@ -208,10 +245,11 @@ export function OutboundBulkImportDialog({
             Bulk import outbound shipments
           </DialogTitle>
           <DialogDescription>
-            Download a template with your in-stock products. Fill Service, Shipping Date, Shipment
-            Preference (SPD/LTL), and Quantity only on rows you want to ship — leave other rows blank.
-            Each filled row creates one pending outbound request. FBA rows use the master-case label
-            workflow; upload labels after warehouse posts case details.
+            Download the Excel template with warehouse stock (products, boxes, pallets — marketplace
+            Other resources excluded). Service includes FBA/WFS/TFS, DTC/FBM, Carton Forwarding, and
+            Pallet Forwarding. For Lot Selection → Choose lots…, pick up to 3 lots from each row’s Lot
+            1/2/3 dropdowns (that product’s expiry lots) and enter Qty beside each. Copy a row for
+            another pack line so lot dropdowns stay correct.
           </DialogDescription>
         </DialogHeader>
 
@@ -220,18 +258,22 @@ export function OutboundBulkImportDialog({
             type="button"
             variant="outline"
             className="w-full"
-            disabled={!ownerId || shippableCount === 0}
-            onClick={() => downloadOutboundBulkTemplate(inventory)}
+            disabled={!ownerId || shippableCount === 0 || downloading}
+            onClick={() => void handleDownloadTemplate()}
           >
-            <Download className="mr-2 h-4 w-4" />
-            Download template ({shippableCount} product{shippableCount === 1 ? "" : "s"})
+            {downloading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Download Excel template ({shippableCount} product{shippableCount === 1 ? "" : "s"})
           </Button>
 
           <div className="rounded-lg border border-dashed bg-muted/30 p-4">
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -246,10 +288,10 @@ export function OutboundBulkImportDialog({
               onClick={() => fileInputRef.current?.click()}
             >
               <FileUp className="mr-2 h-4 w-4" />
-              {fileName ? "Choose a different file" : "Upload filled CSV"}
+              {fileName ? "Choose a different file" : "Upload filled Excel / CSV"}
             </Button>
             {fileName && (
-              <p className="mt-2 text-center text-xs text-muted-foreground truncate">{fileName}</p>
+              <p className="mt-2 truncate text-center text-xs text-muted-foreground">{fileName}</p>
             )}
           </div>
 
@@ -268,7 +310,11 @@ export function OutboundBulkImportDialog({
             <div className="rounded-lg border bg-card p-3 text-sm">
               <p>
                 <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                  {previewSummary.valid} valid row{previewSummary.valid === 1 ? "" : "s"}
+                  {previewSummary.requests} request{previewSummary.requests === 1 ? "" : "s"}
+                </span>
+                {" · "}
+                <span className="font-medium">
+                  {previewSummary.lines} pack line{previewSummary.lines === 1 ? "" : "s"}
                 </span>
                 {previewSummary.invalid > 0 && (
                   <>
@@ -292,7 +338,7 @@ export function OutboundBulkImportDialog({
 
           {rowWarnings.length > 0 && (
             <div className="max-h-28 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm">
-              <p className="font-medium mb-2 text-amber-900">Warnings</p>
+              <p className="mb-2 font-medium text-amber-900">Warnings</p>
               <ul className="space-y-1">
                 {rowWarnings.map((err) => (
                   <li key={`${err.rowNumber}-${err.message}`} className="text-amber-800">
@@ -305,11 +351,12 @@ export function OutboundBulkImportDialog({
 
           {rowErrors.length > 0 && (
             <div className="max-h-40 overflow-y-auto rounded-lg border bg-muted/20 p-3 text-sm">
-              <p className="font-medium mb-2">Row errors</p>
+              <p className="mb-2 font-medium">Row errors</p>
               <ul className="space-y-1">
                 {rowErrors.map((err) => (
                   <li key={`${err.rowNumber}-${err.message}`} className="text-destructive">
-                    Row {err.rowNumber}: {err.message}
+                    {err.rowNumber > 0 ? `Row ${err.rowNumber}: ` : ""}
+                    {err.message}
                   </li>
                 ))}
               </ul>
@@ -319,26 +366,32 @@ export function OutboundBulkImportDialog({
           {validRows.length > 0 && rowErrors.length === 0 && (
             <div className="max-h-36 overflow-y-auto rounded-lg border text-xs">
               <table className="w-full">
-                <thead className="bg-muted/50 sticky top-0">
+                <thead className="sticky top-0 bg-muted/50">
                   <tr>
                     <th className="px-2 py-1.5 text-left font-medium">Product</th>
                     <th className="px-2 py-1.5 text-left font-medium">Service</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Pref</th>
                     <th className="px-2 py-1.5 text-right font-medium">Qty</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Pack</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {validRows.slice(0, 8).map((row) => (
+                  {validRows.slice(0, 10).map((row) => (
                     <tr key={row.rowNumber} className="border-t">
-                      <td className="px-2 py-1 truncate max-w-[140px]">{row.productName}</td>
+                      <td className="max-w-[120px] truncate px-2 py-1">{row.productName}</td>
                       <td className="px-2 py-1">{formatServiceLabel(row.service)}</td>
+                      <td className="px-2 py-1">
+                        {formatShipmentPreferenceLabel(row.shipmentPreference)}
+                      </td>
                       <td className="px-2 py-1 text-right tabular-nums">{row.quantity}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{row.packOf}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {validRows.length > 8 && (
-                <p className="px-2 py-1 text-muted-foreground border-t">
-                  +{validRows.length - 8} more rows
+              {validRows.length > 10 && (
+                <p className="border-t px-2 py-1 text-muted-foreground">
+                  +{validRows.length - 10} more pack lines
                 </p>
               )}
             </div>
@@ -346,7 +399,12 @@ export function OutboundBulkImportDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={submitting}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={submitting}
+          >
             Cancel
           </Button>
           <Button
@@ -355,14 +413,17 @@ export function OutboundBulkImportDialog({
               submitting ||
               !user ||
               !ownerId ||
-              validRows.length === 0 ||
+              requestGroups.length === 0 ||
               rowErrors.length > 0 ||
               parseErrors.length > 0
             }
             onClick={() => void handleSubmit()}
           >
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Submit {validRows.length > 0 ? `${validRows.length} request${validRows.length === 1 ? "" : "s"}` : ""}
+            Submit{" "}
+            {requestGroups.length > 0
+              ? `${requestGroups.length} request${requestGroups.length === 1 ? "" : "s"}`
+              : ""}
           </Button>
         </DialogFooter>
       </DialogContent>
