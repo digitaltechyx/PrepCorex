@@ -83,7 +83,10 @@ import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, i
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
 import {
   formatInboundRequestRowQuantity,
+  formatOpenInboundInventoryQuantity,
+  openInboundQuantityParts,
   inboundRequestDisplayStatus,
+  isOpenProductInboundRequest,
   shouldShowApprovedInboundRequestRow,
   expectedApprovedInboundQty,
   type InboundTableDisplayStatus,
@@ -113,8 +116,16 @@ function formatRowQuantity(item: {
   isRequest?: boolean;
   status?: string;
   requestData?: InventoryRequest;
+  openInboundRequest?: InventoryRequest;
 }): string {
   if (!item.isRequest) {
+    if (item.openInboundRequest) {
+      const parts = openInboundQuantityParts(
+        item.openInboundRequest,
+        Number(item.quantity) || 0
+      );
+      return `${parts.available} · ${parts.received}/${parts.expected}`;
+    }
     const q = Number(item.quantity);
     return String(Number.isFinite(q) ? q : 0);
   }
@@ -143,6 +154,64 @@ function formatRowQuantity(item: {
     isRequest: status === "pending",
     status,
   });
+}
+
+/** Quantity cell: available on-hand + received/requested for open inbound, with eye detail. */
+function InventoryQuantityCell({
+  item,
+  lowStockClassName,
+  compact = false,
+}: {
+  item: {
+    quantity?: number;
+    isRequest?: boolean;
+    status?: string;
+    requestData?: InventoryRequest;
+    openInboundRequest?: InventoryRequest;
+    requestedQuantity?: number;
+    receivedQuantity?: number;
+  };
+  lowStockClassName?: string;
+  compact?: boolean;
+}) {
+  const openReq = !item.isRequest ? item.openInboundRequest : undefined;
+  if (openReq) {
+    const parts = openInboundQuantityParts(openReq, Number(item.quantity) || 0);
+    return (
+      <div
+        className={cn(
+          "min-w-0 tabular-nums",
+          compact ? "text-right" : "",
+          lowStockClassName
+        )}
+      >
+        <div
+          className={cn(
+            "font-semibold leading-tight whitespace-nowrap",
+            compact ? "text-base" : "text-sm"
+          )}
+          title="Available (sellable on hand)"
+        >
+          {parts.available}
+          <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+            avail
+          </span>
+        </div>
+        <div
+          className="text-[10px] leading-tight text-muted-foreground whitespace-nowrap"
+          title="Received / requested on this inbound"
+        >
+          {parts.received}/{parts.expected} recv
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <span className={cn("tabular-nums whitespace-nowrap", lowStockClassName)}>
+      {formatRowQuantity(item)}
+    </span>
+  );
 }
 
 function inboundVideoRequestId(item: {
@@ -547,10 +616,11 @@ type InventorySourceRow = {
   source?: string;
   shop?: string;
   isRequest?: boolean;
+  openInboundRequest?: InventoryRequest;
 };
 
 function inventorySourceKey(item: InventorySourceRow): string {
-  if (item.isRequest) return "inbound";
+  if (item.isRequest || item.openInboundRequest) return "inbound";
   if (item.source === "shopify") return "shopify";
   if (item.source === "ebay") return "ebay";
   if (item.source === "woocommerce") return "woocommerce";
@@ -559,10 +629,10 @@ function inventorySourceKey(item: InventorySourceRow): string {
 }
 
 function inventorySourceMeta(item: InventorySourceRow) {
-  if (item.isRequest) {
+  if (item.isRequest || item.openInboundRequest) {
     return {
       label: "Inbound",
-      detail: "Warehouse request",
+      detail: item.openInboundRequest ? "Receiving" : "Warehouse request",
       className: "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
     };
   }
@@ -1836,6 +1906,10 @@ export function InventoryTable({
         remarksPhotoAt: getRemarksPhotoAt(req),
       }));
 
+    const openInboundByRequestId = new Map(
+      approvedRequests.filter((req) => isOpenProductInboundRequest(req)).map((req) => [req.id, req])
+    );
+
     const awaitingInboundItems = approvedRequests
       .filter((req) => shouldShowApprovedInboundRequestRow(req, data))
       .map((req) => ({
@@ -1912,11 +1986,19 @@ export function InventoryTable({
         matchingRequest?.receivingDate ||
         matchingRequest?.approvedAt ||
         undefined;
+
+      const sourceRequestId = String((item as any).sourceRequestId ?? "").trim();
+      const openInboundRequest =
+        (sourceRequestId ? openInboundByRequestId.get(sourceRequestId) : undefined) ??
+        (matchingRequest && isOpenProductInboundRequest(matchingRequest)
+          ? matchingRequest
+          : undefined);
       
       return {
         ...item,
         status: item.status as "Pending" | "In Stock" | "Out of Stock" | "Rejected",
         isRequest: false,
+        openInboundRequest,
         requestedQuantity:
           (item as any).requestedQuantity ??
           (matchingRequest as any)?.requestedQuantity ??
@@ -2297,17 +2379,23 @@ export function InventoryTable({
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
-                      <span
-                        className={cn(
-                          "text-base font-semibold tabular-nums leading-none",
-                          isLowStockVisual && lowStockQtyClass
-                        )}
-                      >
-                        {formatRowQuantity(item as any)}
-                      </span>
-                      <span className={cn("text-[10px] text-muted-foreground", isLowStockVisual && lowStockTextClass)}>
-                        qty
-                      </span>
+                      <InventoryQuantityCell
+                        item={item as any}
+                        compact
+                        lowStockClassName={
+                          isLowStockVisual ? lowStockQtyClass : undefined
+                        }
+                      />
+                      {!(item as any).openInboundRequest ? (
+                        <span
+                          className={cn(
+                            "text-[10px] text-muted-foreground",
+                            isLowStockVisual && lowStockTextClass
+                          )}
+                        >
+                          qty
+                        </span>
+                      ) : null}
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -2695,14 +2783,20 @@ export function InventoryTable({
                           </p>
                         )}
                         <div className="sm:hidden mt-1 space-y-0.5">
-                          <span
+                          <div
                             className={cn(
                               "text-xs",
                               isLowStockVisual ? lowStockQtyClass : "text-gray-500"
                             )}
                           >
-                            Qty: {formatRowQuantity(item as any)}
-                          </span>
+                            <span className="mr-1">Qty:</span>
+                            <InventoryQuantityCell
+                              item={item as any}
+                              lowStockClassName={
+                                isLowStockVisual ? lowStockQtyClass : undefined
+                              }
+                            />
+                          </div>
                           <br />
                           <span className="text-gray-500 text-xs">Added: {formatDate(item.dateAdded)}</span>
                           {item.receivingDate && (
@@ -2811,7 +2905,12 @@ export function InventoryTable({
                         isLowStockVisual && lowStockQtyClass
                       )}
                     >
-                      {formatRowQuantity(item as any)}
+                      <InventoryQuantityCell
+                        item={item as any}
+                        lowStockClassName={
+                          isLowStockVisual ? lowStockQtyClass : undefined
+                        }
+                      />
                     </TableCell>
                     <TableCell className="hidden sm:table-cell whitespace-nowrap">
                       {formatDate(item.dateAdded)}

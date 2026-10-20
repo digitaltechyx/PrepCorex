@@ -49,7 +49,7 @@ import {
   formatChangeCell,
   formatInboundLogDate,
   formatQtyCell,
-  getInboundRequestReceivedTotal,
+  inboundReceivedAfterPutaway,
   inboundReceiveLogsForItem,
   mergeInboundReceiveLogs,
   type InventoryHistoryEventType,
@@ -529,9 +529,7 @@ export function InventoryHistoryDialog({
                       ? inboundRequestById.get(rowRequestId) ?? null
                       : null;
                     const requestedQty = linkedRequest ? getRequestedQuantity(linkedRequest) : null;
-                    const receivedTotal = linkedRequest
-                      ? getInboundRequestReceivedTotal(linkedRequest) || row.totalReceived
-                      : row.totalReceived;
+                    const receivedTotal = inboundReceivedAfterPutaway(row);
                     return (
                       <div
                         key={row.id}
@@ -631,9 +629,7 @@ export function InventoryHistoryDialog({
                         ? inboundRequestById.get(rowRequestId) ?? null
                         : null;
                       const requestedQty = linkedRequest ? getRequestedQuantity(linkedRequest) : null;
-                      const receivedTotal = linkedRequest
-                        ? getInboundRequestReceivedTotal(linkedRequest) || row.totalReceived
-                        : row.totalReceived;
+                      const receivedTotal = inboundReceivedAfterPutaway(row);
                       return (
                       <TableRow key={row.id}>
                         <TableCell className="whitespace-nowrap py-2.5 text-xs">

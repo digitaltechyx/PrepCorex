@@ -257,20 +257,25 @@ export async function recordInboundReceiveEvents(input: {
     .toLowerCase();
   // Box/pallet (and closed cross-dock) are received as physical units at the dock —
   // they may go Send to Pack without bin putaway, so close fulfillment here.
+  // Product/container qty is authoritative only after putaway sync — do not bump
+  // warehouseGoodReceivedQty here or partial receives double-count (e.g. 20+20 → 80).
   const isStorageUnit = invType === "box" || invType === "pallet";
+  const isPutawayTracked = invType === "product" || invType === "container" || invType === "";
   const hasClosedCrossdockLine = input.entries.some(
     (e) => String(e.sku || "").trim().toUpperCase() === "CLOSED"
   );
   const shouldClose =
     data?.fulfillmentStatus === "closed" ||
-    (expected > 0 && nextGood >= expected) ||
-    ((isStorageUnit || hasClosedCrossdockLine) && addQty > 0);
+    ((isStorageUnit || hasClosedCrossdockLine) && addQty > 0) ||
+    (!isPutawayTracked && expected > 0 && nextGood >= expected);
 
   const patch: Record<string, unknown> = {
     receivingDate: serverTimestamp(),
-    warehouseGoodReceivedQty: nextGood,
     updatedAt: serverTimestamp(),
   };
+  if (!isPutawayTracked) {
+    patch.warehouseGoodReceivedQty = nextGood;
+  }
   if (shouldClose) {
     patch.fulfillmentStatus = "closed";
   }

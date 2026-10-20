@@ -314,11 +314,25 @@ export function reconcileExpiryBatchesToOnHand(
     };
   }
   if (positiveSum < onHand) {
-    // Do not invent lot qty on reconcile — only shrink when lots are ahead of on-hand.
+    // Fill short lots onto legacy/earliest expiry (partial putaway may have missed a merge).
+    const fillExpiry =
+      expiryBatchIso(legacyExpiryDate) || earliestExpiryFromBatches(prepared);
+    if (!fillExpiry) {
+      return {
+        batches: prepared.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+        expiryDate: earliestExpiryFromBatches(prepared),
+        adjusted: hadMissingKnown,
+        consumed: [],
+      };
+    }
+    const filled = mergeExpiryBatch(prepared, {
+      expiry: fillExpiry,
+      quantity: onHand - positiveSum,
+    });
     return {
-      batches: prepared.sort((a, b) => a.expiry.localeCompare(b.expiry)),
-      expiryDate: earliestExpiryFromBatches(prepared),
-      adjusted: hadMissingKnown,
+      batches: filled.sort((a, b) => a.expiry.localeCompare(b.expiry)),
+      expiryDate: earliestExpiryFromBatches(filled),
+      adjusted: true,
       consumed: [],
     };
   }

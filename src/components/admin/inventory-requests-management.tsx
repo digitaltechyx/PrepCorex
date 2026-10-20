@@ -72,7 +72,7 @@ import { format } from "date-fns";
 import { Archive, Boxes, Check, Clock, Eye, Filter, Loader2, Package, PackageCheck, Search, Truck, Upload, X, ImageOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import imageCompression from "browser-image-compression";
-import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
+import { getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
 import {
   compareQueueSortKeys,
@@ -83,7 +83,11 @@ import {
 import {
   adminInboundRequestDisplayStatus,
   adminInboundRequestStatusLabel,
+  expectedApprovedInboundQty,
+  formatAdminInboundRequestQuantity,
+  warehouseGoodReceivedQty,
 } from "@/lib/inventory-inbound-display";
+import { healInboundReceivedQtyFromPutawayLogs } from "@/lib/client-inventory-inbound-sync";
 
 function formatDate(date: InventoryRequest["addDate"] | InventoryRequest["requestedAt"] | InventoryRequest["receivingDate"]) {
   if (!date) return "N/A";
@@ -227,6 +231,34 @@ export function InventoryRequestsManagement({
   const { data: currentInventory } = useCollection<InventoryItemLite>(
     isValidUserId ? `users/${userId}/inventory` : ""
   );
+
+  // One-time per client: align warehouseGoodReceivedQty with putaway logs (fixes 100/100 vs 60).
+  const healedReceivedQtyUserRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!isValidUserId || !userId || loading || requests.length === 0) return;
+    if (healedReceivedQtyUserRef.current === userId) return;
+    healedReceivedQtyUserRef.current = userId;
+    const targets = requests
+      .filter((req) => {
+        if (req.status !== "approved") return false;
+        if (req.inventoryType && req.inventoryType !== "product") return false;
+        return (
+          Number(req.inboundWorkflowVersion ?? 0) >= 2 ||
+          req.fulfillmentStatus === "open" ||
+          req.fulfillmentStatus === "closed" ||
+          typeof req.warehouseGoodReceivedQty === "number"
+        );
+      })
+      .slice(0, 50);
+    void Promise.allSettled(
+      targets.map((req) =>
+        healInboundReceivedQtyFromPutawayLogs({
+          clientUserId: userId,
+          requestId: req.id,
+        })
+      )
+    );
+  }, [isValidUserId, userId, loading, requests]);
 
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
@@ -1258,12 +1290,7 @@ export function InventoryRequestsManagement({
                   );
                   const displayStatus = adminInboundRequestDisplayStatus(request);
                   const label = adminInboundRequestStatusLabel(displayStatus);
-                  const qtyLabel = formatInboundQuantityDisplay({
-                    quantity: request.quantity,
-                    requestedQuantity: (request as any).requestedQuantity,
-                    receivedQuantity: (request as any).receivedQuantity,
-                    status: request.status,
-                  });
+                  const qtyLabel = formatAdminInboundRequestQuantity(request);
                   const metaBits = [
                     `Qty ${qtyLabel}`,
                     request.receivingDate ? formatDate(request.receivingDate) : null,
@@ -1488,12 +1515,7 @@ export function InventoryRequestsManagement({
                         {(request as any).expiryDate ? formatOptionalDate((request as any).expiryDate) : "N/A"}
                       </TableCell>
                       <TableCell className="font-medium tabular-nums">
-                        {formatInboundQuantityDisplay({
-                          quantity: request.quantity,
-                          requestedQuantity: (request as any).requestedQuantity,
-                          receivedQuantity: (request as any).receivedQuantity,
-                          status: request.status,
-                        })}
+                        {formatAdminInboundRequestQuantity(request)}
                       </TableCell>
                       <TableCell>{formatDate(request.requestedAt)}</TableCell>
                       <TableCell>
@@ -1704,10 +1726,56 @@ function ReviewRequestDialog({
   const readOnly = request.status !== "pending";
   const displayStatus = adminInboundRequestDisplayStatus(request);
   const isPendingReceive = displayStatus === "pending_receive";
+  const [healedWarehouseGoodQty, setHealedWarehouseGoodQty] = useState<number | null>(null);
 
   useEffect(() => {
     setAction(null);
   }, [request.id, request.status, request.fulfillmentStatus]);
+
+  // Heal inflated warehouseGoodReceivedQty from putaway logs so detail shows 60/100 not 100/100.
+  useEffect(() => {
+    if (request.status !== "approved" || !clientUserId) {
+      setHealedWarehouseGoodQty(null);
+      return;
+    }
+    const v2 =
+      Number(request.inboundWorkflowVersion ?? 0) >= 2 ||
+      request.fulfillmentStatus === "open" ||
+      request.fulfillmentStatus === "closed" ||
+      typeof request.warehouseGoodReceivedQty === "number";
+    if (!v2) {
+      setHealedWarehouseGoodQty(null);
+      return;
+    }
+    let cancelled = false;
+    setHealedWarehouseGoodQty(null);
+    void healInboundReceivedQtyFromPutawayLogs({
+      clientUserId,
+      requestId: request.id,
+    })
+      .then((totals) => {
+        if (!cancelled) setHealedWarehouseGoodQty(totals.good);
+      })
+      .catch((err) => {
+        console.warn("[inbound request detail] received-qty heal skipped", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clientUserId,
+    request.id,
+    request.status,
+    request.fulfillmentStatus,
+    request.inboundWorkflowVersion,
+    request.warehouseGoodReceivedQty,
+  ]);
+
+  const displayReceivedQty =
+    healedWarehouseGoodQty != null
+      ? healedWarehouseGoodQty
+      : warehouseGoodReceivedQty(request);
+  const displayRequestedQty = expectedApprovedInboundQty(request);
 
   const compressImage = async (file: File): Promise<File> => {
     const options = {
@@ -2007,12 +2075,12 @@ function ReviewRequestDialog({
                 </div>
                 {request.status === "approved" && (
                   <div className="mt-2 grid gap-1 text-sm">
-                    {(request as any).receivedQuantity != null && (
-                      <p>
-                        <span className="text-muted-foreground">Received qty:</span>{" "}
-                        <span className="font-medium tabular-nums">{(request as any).receivedQuantity}</span>
-                      </p>
-                    )}
+                    <p>
+                      <span className="text-muted-foreground">Received / requested:</span>{" "}
+                      <span className="font-medium tabular-nums">
+                        {displayReceivedQty}/{displayRequestedQty}
+                      </span>
+                    </p>
                     {request.receivingDate && (
                       <p>
                         <span className="text-muted-foreground">Receiving date:</span>{" "}
@@ -2024,6 +2092,20 @@ function ReviewRequestDialog({
                         <span className="text-muted-foreground">Approved:</span> {formatDate(request.approvedAt)}
                       </p>
                     )}
+                    {request.closeReason ? (
+                      <p>
+                        <span className="text-muted-foreground">Close reason:</span>{" "}
+                        {request.closeReason}
+                      </p>
+                    ) : null}
+                    {request.closeRemarks?.trim() ? (
+                      <p>
+                        <span className="text-muted-foreground">Close remarks:</span>{" "}
+                        <span className="whitespace-pre-wrap break-words">
+                          {request.closeRemarks.trim()}
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 )}
                 {request.status === "rejected" && (request.rejectionReason || request.remarks) && (

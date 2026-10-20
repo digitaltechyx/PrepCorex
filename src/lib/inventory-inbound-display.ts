@@ -88,8 +88,8 @@ export function inboundRequestDisplayStatus(req: InventoryRequest): InboundTable
   return "Awaiting Receiving";
 }
 
-/** Hide request row once warehouse good qty meets approved expectation and inventory exists.
- *  Container handling rows hide once closed (products from inside show as normal inventory). */
+/** Hide request row once linked inventory exists (partial or full) so the table
+ *  keeps one product line. Container handling rows stay visible until closed. */
 export function shouldShowApprovedInboundRequestRow(
   req: InventoryRequest,
   inventory: InventoryItem[]
@@ -106,24 +106,82 @@ export function shouldShowApprovedInboundRequestRow(
     return true;
   }
 
-  const expected = expectedApprovedInboundQty(req);
-  const good = warehouseGoodReceivedQty(req);
   const linked = inventory.some(
-    (item) => String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "") === req.id
+    (item) =>
+      String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "") ===
+      req.id
   );
 
-  // Legacy admin approvals created inventory immediately and predate the
-  // Warehouse Ops fulfillmentStatus field. Keep the real linked inventory row
-  // (In Stock / Out of Stock) and hide the synthetic Awaiting Receiving row.
-  if (req.fulfillmentStatus !== "open" && linked) return false;
+  // Once putaway created/linked stock, show only the inventory row (with 40/100 progress).
+  if (linked) return false;
 
-  if (good >= expected && expected > 0 && linked) return false;
   return true;
 }
 
+/** Compact one-line qty for inventory table: `40/100` (received/requested). */
 export function formatInboundRequestRowQuantity(req: InventoryRequest): string {
   const expected = expectedApprovedInboundQty(req);
   const good = warehouseGoodReceivedQty(req);
-  if (good <= 0) return `0/${expected}`;
   return `${good}/${expected}`;
+}
+
+/**
+ * Admin Inbound Requests table / detail: putaway counter vs requested.
+ * Do not use approved `receivedQuantity` (that is the expected approve amount, often = requested).
+ */
+export function formatAdminInboundRequestQuantity(req: InventoryRequest): string {
+  const expected = expectedApprovedInboundQty(req);
+  const status = String(req.status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status === "pending" || status === "pending_approval" || status === "rejected") {
+    return String(expected);
+  }
+
+  const usesWarehouseReceive =
+    Number(req.inboundWorkflowVersion ?? 0) >= 2 ||
+    req.fulfillmentStatus === "open" ||
+    req.fulfillmentStatus === "closed" ||
+    typeof req.warehouseGoodReceivedQty === "number";
+
+  if (usesWarehouseReceive && status === "approved") {
+    return `${warehouseGoodReceivedQty(req)}/${expected}`;
+  }
+
+  // Legacy admin-fulfilled approve path.
+  const approvedReceived =
+    typeof req.receivedQuantity === "number" && req.receivedQuantity > 0
+      ? req.receivedQuantity
+      : null;
+  if (approvedReceived != null) return `${approvedReceived}/${expected}`;
+  return String(expected);
+}
+
+/** Received progress + sellable on-hand for an open inbound linked to inventory. */
+export function openInboundQuantityParts(
+  req: InventoryRequest,
+  inventoryQuantity: number
+): { received: number; expected: number; available: number } {
+  const expected = expectedApprovedInboundQty(req);
+  const recorded = warehouseGoodReceivedQty(req);
+  const available = Math.max(0, Math.floor(Number(inventoryQuantity) || 0));
+  // Prefer putaway counter; fall back to on-hand when counter not set yet.
+  // Cap legacy dock+putaway double-count when recorded is clearly above on-hand
+  // (≈2×) — do not clamp to expected so over-receive (e.g. 120/100) still shows.
+  let received = recorded > 0 ? recorded : available;
+  if (recorded > available && available > 0 && recorded >= available * 2) {
+    received = available;
+  }
+  return { received: Math.max(0, received), expected, available };
+}
+
+/**
+ * Compact progress string `40/100` (received/requested) for open inbound inventory rows.
+ */
+export function formatOpenInboundInventoryQuantity(
+  req: InventoryRequest,
+  inventoryQuantity: number
+): string {
+  const { received, expected } = openInboundQuantityParts(req, inventoryQuantity);
+  return `${received}/${expected}`;
 }

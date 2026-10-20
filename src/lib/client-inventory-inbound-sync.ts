@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -114,6 +115,124 @@ function expectedRequestQty(req: InventoryRequest): number {
     return req.requestedQuantity;
   }
   return Math.max(0, req.quantity ?? 0);
+}
+
+/** Sum prior putaway logs for a request (excludes the current syncKey write). */
+async function sumPutawayQtyForRequest(
+  clientUserId: string,
+  requestId: string
+): Promise<{ good: number; damaged: number }> {
+  const snap = await getDocs(
+    query(
+      collection(db, "users", clientUserId, "inboundReceiveLogs"),
+      where("inventoryRequestId", "==", requestId)
+    )
+  );
+  let good = 0;
+  let damaged = 0;
+  for (const d of snap.docs) {
+    good += Math.max(0, Math.floor(Number(d.data()?.goodQty) || 0));
+    damaged += Math.max(0, Math.floor(Number(d.data()?.damagedQty) || 0));
+  }
+  return { good, damaged };
+}
+
+/**
+ * Reset warehouseGood/DamagedReceivedQty from putaway logs.
+ * Heals legacy dock+putaway double-counts; reopens product requests that were
+ * auto-closed as "fully received" while putaway qty is still under requested
+ * (admin-only close — those should stay Pending receive).
+ */
+export async function healInboundReceivedQtyFromPutawayLogs(input: {
+  clientUserId: string;
+  requestId: string;
+}): Promise<{ good: number; damaged: number; reopened: boolean }> {
+  const totals = await sumPutawayQtyForRequest(input.clientUserId, input.requestId);
+  const requestRef = doc(
+    db,
+    "users",
+    input.clientUserId,
+    "inventoryRequests",
+    input.requestId
+  );
+  const snap = await getDoc(requestRef);
+  if (!snap.exists()) return { ...totals, reopened: false };
+  const data = snap.data() as InventoryRequest;
+  const prevGood = Math.max(0, Number(data.warehouseGoodReceivedQty ?? 0));
+  const prevDamaged = Math.max(0, Number(data.warehouseDamagedReceivedQty ?? 0));
+  const expected = expectedRequestQty(data);
+  const fulfillment = String(data.fulfillmentStatus ?? "")
+    .trim()
+    .toLowerCase();
+  const closedByAdmin = Boolean(String(data.closedBy ?? "").trim());
+  const shouldReopen =
+    data.inventoryType === "product" &&
+    fulfillment === "closed" &&
+    !closedByAdmin &&
+    expected > 0 &&
+    totals.good < expected;
+
+  const patch: Record<string, unknown> = {};
+  if (prevGood !== totals.good || prevDamaged !== totals.damaged) {
+    patch.warehouseGoodReceivedQty = totals.good;
+    patch.warehouseDamagedReceivedQty = totals.damaged;
+  }
+  if (shouldReopen) {
+    patch.fulfillmentStatus = "open";
+    patch.closedAt = deleteField();
+    patch.closeReason = deleteField();
+  }
+  if (Object.keys(patch).length === 0) {
+    return { ...totals, reopened: false };
+  }
+  patch.updatedAt = serverTimestamp();
+  await updateDoc(requestRef, patch);
+  return { ...totals, reopened: shouldReopen };
+}
+
+function applyPutawayExpiryBatches(input: {
+  prevBatches: ExpiryBatch[] | undefined;
+  prevGood: number;
+  legacyExpiry: unknown;
+  lineExpiry: string | null;
+  goodQty: number;
+  nextGood: number;
+  lot?: string | null;
+  requestId?: string | null;
+}): { batches: ExpiryBatch[]; earliest: string | null } | null {
+  const { goodQty, nextGood, lot, requestId } = input;
+  if (goodQty <= 0) return null;
+
+  const lineExpiry =
+    input.lineExpiry ||
+    expiryBatchIso(input.legacyExpiry) ||
+    earliestExpiryFromBatches(
+      seedExpiryBatchesFromLegacy(input.prevBatches, input.prevGood, input.legacyExpiry)
+    );
+  if (!lineExpiry) return null;
+
+  const prevBatches = seedExpiryBatchesFromLegacy(
+    input.prevBatches,
+    input.prevGood,
+    input.legacyExpiry
+  );
+  let batches = mergeExpiryBatch(prevBatches, {
+    expiry: lineExpiry,
+    quantity: goodQty,
+    lot: lot ?? null,
+    requestId: requestId || null,
+  });
+  // Keep lot totals aligned with sellable on-hand after this putaway.
+  const sum = batches.reduce((total, batch) => total + Math.max(0, batch.quantity), 0);
+  if (sum < nextGood) {
+    batches = mergeExpiryBatch(batches, {
+      expiry: lineExpiry,
+      quantity: nextGood - sum,
+      lot: lot ?? null,
+      requestId: requestId || null,
+    });
+  }
+  return { batches, earliest: earliestExpiryFromBatches(batches) };
 }
 
 /** After warehouse putaway — update client sellable stock (good) or damaged on hand. */
@@ -285,6 +404,13 @@ async function syncPutawayLine(input: {
         : requestData?.productId?.trim() || null,
   });
 
+  // Putaway logs are the source of truth for warehouseGoodReceivedQty (avoids
+  // double-count when dock receive previously bumped the same field).
+  const priorPutaway =
+    requestId && requestData?.inventoryType !== "container"
+      ? await sumPutawayQtyForRequest(clientUserId, requestId)
+      : { good: 0, damaged: 0 };
+
   await runTransaction(db, async (tx) => {
     const logSnap = await tx.get(logRef);
     if (logSnap.exists()) return;
@@ -332,17 +458,22 @@ async function syncPutawayLine(input: {
         invPatch.imageUrls = productPhotoUrls;
         invPatch.imageUrl = productPhotoUrls[0];
       }
-      const lineExpiry =
-        expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate);
-      if (lineExpiry && goodQty > 0) {
-        const batches = mergeExpiryBatch([], {
-          expiry: lineExpiry,
-          quantity: goodQty,
-          lot: input.line.lot ?? null,
-          requestId: requestId || null,
-        });
-        invPatch.expiryBatches = batches;
-        invPatch.expiryDate = lineExpiry;
+      const createdExpiry = applyPutawayExpiryBatches({
+        prevBatches: undefined,
+        prevGood: 0,
+        legacyExpiry: requestData?.expiryDate,
+        lineExpiry:
+          expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate),
+        goodQty,
+        nextGood,
+        lot: input.line.lot ?? null,
+        requestId: requestId || null,
+      });
+      if (createdExpiry) {
+        invPatch.expiryBatches = createdExpiry.batches;
+        if (createdExpiry.earliest) invPatch.expiryDate = createdExpiry.earliest;
+      } else if (requestData?.expiryDate) {
+        invPatch.expiryDate = requestData.expiryDate;
       }
       tx.set(inventoryRef, invPatch);
     } else {
@@ -378,25 +509,22 @@ async function syncPutawayLine(input: {
       if (invSnap.data()?.receivingDate) {
         delete invPatch.receivingDate;
       }
-      const lineExpiry =
-        expiryBatchIso(input.line.expiry) || expiryBatchIso(requestData?.expiryDate);
-      if (lineExpiry && goodQty > 0) {
-        // Seed empty/missing batches from legacy expiry so restock does not drop older lots.
-        // Use qty before this putaway (prevGood) so Jun 6 remainings stay intact when Dec 12 is added.
-        const prevBatches = seedExpiryBatchesFromLegacy(
-          invSnap.data()?.expiryBatches as ExpiryBatch[] | undefined,
-          prevGood,
-          invSnap.data()?.expiryDate
-        );
-        const batches = mergeExpiryBatch(prevBatches, {
-          expiry: lineExpiry,
-          quantity: goodQty,
-          lot: input.line.lot ?? null,
-          requestId: requestId || null,
-        });
-        invPatch.expiryBatches = batches;
-        const earliest = earliestExpiryFromBatches(batches);
-        if (earliest) invPatch.expiryDate = earliest;
+      const restockExpiry = applyPutawayExpiryBatches({
+        prevBatches: invSnap.data()?.expiryBatches as ExpiryBatch[] | undefined,
+        prevGood,
+        legacyExpiry: invSnap.data()?.expiryDate ?? requestData?.expiryDate,
+        lineExpiry:
+          expiryBatchIso(input.line.expiry) ||
+          expiryBatchIso(requestData?.expiryDate) ||
+          expiryBatchIso(invSnap.data()?.expiryDate),
+        goodQty,
+        nextGood,
+        lot: input.line.lot ?? null,
+        requestId: requestId || null,
+      });
+      if (restockExpiry) {
+        invPatch.expiryBatches = restockExpiry.batches;
+        if (restockExpiry.earliest) invPatch.expiryDate = restockExpiry.earliest;
       }
       tx.update(inventoryRef, invPatch);
     }
@@ -435,8 +563,13 @@ async function syncPutawayLine(input: {
       const prevReqGood = Math.max(0, Number(requestData.warehouseGoodReceivedQty ?? 0));
       const prevReqDamaged = Math.max(0, Number(requestData.warehouseDamagedReceivedQty ?? 0));
       // Container handling is 1 unit — don't inflate with product SKU quantities inside.
-      const nextReqGood = isContainerReq ? Math.max(prevReqGood, 1) : prevReqGood + goodQty;
-      const nextReqDamaged = isContainerReq ? prevReqDamaged : prevReqDamaged + damagedQty;
+      // Products: prior putaway logs + this putaway (heals dock+putaway double-counts).
+      const nextReqGood = isContainerReq
+        ? Math.max(prevReqGood, 1)
+        : priorPutaway.good + goodQty;
+      const nextReqDamaged = isContainerReq
+        ? prevReqDamaged
+        : priorPutaway.damaged + damagedQty;
       const expected = isContainerReq ? 1 : expectedRequestQty(requestData);
       const totalReceived = isContainerReq
         ? nextReqGood
@@ -449,19 +582,38 @@ async function syncPutawayLine(input: {
         updatedAt: serverTimestamp(),
       };
 
+      // Remember putaway destination for later partial receives (same bin by default).
+      const putawayBinPath = String(input.binPath ?? "").trim() || null;
+      const putawayArea =
+        String(input.stagingArea ?? input.line.stagingArea ?? "").trim() || null;
+      if (goodQty > 0) {
+        reqPatch.lastGoodPutawayWarehouseId = input.warehouseId;
+        reqPatch.lastGoodPutawayBinPath = putawayBinPath;
+        reqPatch.lastGoodPutawayBinId = putawayBinPath ? input.line.binId ?? null : null;
+        reqPatch.lastGoodPutawayAreaCode = putawayBinPath ? null : putawayArea;
+      }
+      if (damagedQty > 0) {
+        reqPatch.lastDamagedPutawayWarehouseId = input.warehouseId;
+        reqPatch.lastDamagedPutawayBinPath = putawayBinPath;
+        reqPatch.lastDamagedPutawayBinId = putawayBinPath
+          ? input.line.binId ?? null
+          : null;
+        reqPatch.lastDamagedPutawayAreaCode = putawayBinPath ? null : putawayArea;
+      }
+
+      // Product inbound stays open until an admin closes it (allows over-receive).
+      // Container handling still auto-closes once contents are put away.
       if (
+        isContainerReq &&
         totalReceived >= expected &&
         expected > 0 &&
         requestData.fulfillmentStatus !== "closed"
       ) {
         reqPatch.fulfillmentStatus = "closed";
         reqPatch.closedAt = serverTimestamp();
-        reqPatch.closeReason = isContainerReq
-          ? "Container contents put away — products added to inventory"
-          : "Fully received at warehouse";
-        if (isContainerReq) {
-          reqPatch.receivingDate = serverTimestamp();
-        }
+        reqPatch.closeReason =
+          "Container contents put away — products added to inventory";
+        reqPatch.receivingDate = serverTimestamp();
       }
 
       tx.update(reqRef, reqPatch);
@@ -560,14 +712,20 @@ async function findInventoryDocRef(
   return doc(inventoryCol);
 }
 
-/** Admin closes an inbound request (short ship or client done). */
+/** Admin closes an inbound request (short ship, over-receive, or client done). */
 export async function closeInventoryRequest(input: {
   clientUserId: string;
   requestId: string;
   closedBy: string;
   closeReason?: string | null;
+  /** Optional note visible to the client on inventory remarks. */
+  closeRemarks?: string | null;
 }): Promise<void> {
   const ref = doc(db, "users", input.clientUserId, "inventoryRequests", input.requestId);
+  const remarksNote = input.closeRemarks?.trim() || "";
+  let linkedInventoryId: string | null = null;
+  let nextInventoryRemarks: string | null = null;
+
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error("Request not found.");
@@ -575,12 +733,55 @@ export async function closeInventoryRequest(input: {
     if (data.status !== "approved") {
       throw new Error("Only approved requests can be closed.");
     }
-    tx.update(ref, {
+    if (String(data.fulfillmentStatus ?? "").trim().toLowerCase() === "closed") {
+      throw new Error("This inbound is already closed.");
+    }
+
+    const patch: Record<string, unknown> = {
       fulfillmentStatus: "closed",
       closedAt: Timestamp.now(),
       closedBy: input.closedBy,
       closeReason: input.closeReason?.trim() || "Closed by admin",
       updatedAt: serverTimestamp(),
-    });
+    };
+
+    if (remarksNote) {
+      patch.closeRemarks = remarksNote;
+      const existing = String(data.remarks || "").trim();
+      const tagged = `[Closed] ${remarksNote}`;
+      patch.remarks = existing ? `${existing}\n\n${tagged}` : tagged;
+    }
+
+    tx.update(ref, patch);
   });
+
+  if (!remarksNote) return;
+
+  // Mirror close note onto linked inventory so the client sees it in Remarks.
+  try {
+    const invCol = collection(db, "users", input.clientUserId, "inventory");
+    const bySource = await getDocs(
+      query(invCol, where("sourceRequestId", "==", input.requestId), limit(1))
+    );
+    const invDoc = bySource.docs[0];
+    if (!invDoc) return;
+    linkedInventoryId = invDoc.id;
+    const existing = String(invDoc.data()?.remarks || "").trim();
+    const tagged = `[Closed] ${remarksNote}`;
+    nextInventoryRemarks = existing.includes(tagged)
+      ? existing
+      : existing
+        ? `${existing}\n\n${tagged}`
+        : tagged;
+    await updateDoc(invDoc.ref, {
+      remarks: nextInventoryRemarks,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn(
+      "[closeInventoryRequest] could not mirror close remarks to inventory",
+      linkedInventoryId,
+      err
+    );
+  }
 }

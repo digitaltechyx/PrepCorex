@@ -973,9 +973,24 @@ export interface InventoryRequest {
   warehouseGoodReceivedQty?: number;
   /** Damaged units put away to quarantine / hold. */
   warehouseDamagedReceivedQty?: number;
+  /**
+   * Last good putaway destination for this open inbound — reused on later
+   * partial receives (admin / warehouse) so stock keeps landing in the same bin.
+   */
+  lastGoodPutawayWarehouseId?: string | null;
+  lastGoodPutawayBinId?: string | null;
+  lastGoodPutawayBinPath?: string | null;
+  lastGoodPutawayAreaCode?: string | null;
+  /** Last damaged / quarantine putaway destination for partial receives. */
+  lastDamagedPutawayWarehouseId?: string | null;
+  lastDamagedPutawayBinId?: string | null;
+  lastDamagedPutawayBinPath?: string | null;
+  lastDamagedPutawayAreaCode?: string | null;
   closedAt?: { seconds: number; nanoseconds: number } | string;
   closedBy?: string;
   closeReason?: string;
+  /** Optional admin note when closing (shown to the client on inventory remarks). */
+  closeRemarks?: string | null;
   /** When part of a batched inbound submission. */
   batchId?: string;
   batchLineId?: string;

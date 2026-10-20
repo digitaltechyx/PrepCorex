@@ -15,6 +15,7 @@ import type {
   ShopifyInventoryPushHint,
   EbayInventoryPushHint,
 } from "@/lib/client-inventory-inbound-sync";
+import { healInboundReceivedQtyFromPutawayLogs } from "@/lib/client-inventory-inbound-sync";
 import {
   binsEligibleForPutawayLine,
   findBinByPath,
@@ -142,7 +143,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
   const snap = await getDoc(requestRef);
   if (!snap.exists()) throw new Error("Inbound request not found.");
 
-  const request = { id: snap.id, ...snap.data() } as InventoryRequest;
+  let request = { id: snap.id, ...snap.data() } as InventoryRequest;
   const status = String(request.status ?? "").trim().toLowerCase();
   if (status !== "approved") {
     throw new Error("Only approved requests can be received.");
@@ -156,15 +157,24 @@ export async function adminCompleteInboundReceiveAndPutaway(
     );
   }
 
-  const remaining = remainingInboundQty(request);
-  if (remaining <= 0) {
-    throw new Error("Nothing left to receive on this request.");
-  }
+  // Heal dock+putaway double-count so remaining qty matches real putaways.
+  const healed = await healInboundReceivedQtyFromPutawayLogs({
+    clientUserId: input.clientUserId,
+    requestId: input.requestId,
+  });
+  request = {
+    ...request,
+    warehouseGoodReceivedQty: healed.good,
+    warehouseDamagedReceivedQty: healed.damaged,
+  };
 
-  const goodQty =
+  // Request stays open until admin closes it — over-receive past requested qty is allowed.
+  const remaining = remainingInboundQty(request);
+  const requestedGood =
     input.quantity == null
-      ? remaining
+      ? Math.max(1, remaining)
       : Math.max(0, Math.floor(input.quantity));
+  const goodQty = requestedGood;
   const damagedQty = Math.max(0, Math.floor(input.damagedQuantity ?? 0));
   if (goodQty + damagedQty < 1) {
     throw new Error("Enter at least 1 good or damaged unit.");
@@ -473,7 +483,7 @@ export async function adminCompleteInboundReceiveAndPutaway(
   ).filter((carton): carton is WarehouseCartonDoc => carton !== null);
 
   const putawayExpiryIso = input.expiry?.trim() || "";
-  await updateDoc(requestRef, {
+  const requestPutawayPatch: Record<string, unknown> = {
     warehouseProcessedVia: "admin_dashboard",
     warehouseProcessedBy: input.operatorId ?? null,
     warehouseProcessedAt: serverTimestamp(),
@@ -483,7 +493,26 @@ export async function adminCompleteInboundReceiveAndPutaway(
           expiryDate: Timestamp.fromDate(new Date(`${putawayExpiryIso}T12:00:00`)),
         }
       : {}),
-  });
+  };
+  // Remember destination so later partial receives default to the same bin.
+  if (qty > 0) {
+    requestPutawayPatch.lastGoodPutawayWarehouseId = input.warehouseId;
+    requestPutawayPatch.lastGoodPutawayBinId = destinationBin?.id ?? null;
+    requestPutawayPatch.lastGoodPutawayBinPath = destinationBin?.path ?? null;
+    requestPutawayPatch.lastGoodPutawayAreaCode = destinationBin
+      ? null
+      : stagingArea || null;
+  }
+  if (damagedQty > 0) {
+    requestPutawayPatch.lastDamagedPutawayWarehouseId = input.warehouseId;
+    requestPutawayPatch.lastDamagedPutawayBinId = damagedDestinationBin?.id ?? null;
+    requestPutawayPatch.lastDamagedPutawayBinPath =
+      damagedDestinationBin?.path ?? null;
+    requestPutawayPatch.lastDamagedPutawayAreaCode = damagedDestinationBin
+      ? null
+      : damagedStagingArea || null;
+  }
+  await updateDoc(requestRef, requestPutawayPatch);
 
   const goodDest = qty > 0 ? destinationBin?.path || stagingArea : "";
   const damagedDest =

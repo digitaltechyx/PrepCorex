@@ -1608,11 +1608,27 @@ export function getInboundRequestReceivedTotal(req: InventoryRequest): number {
   return 0;
 }
 
+/** Cumulative received after this putaway (sellable after, else this session total). */
+export function inboundReceivedAfterPutaway(
+  row: Pick<MergedInboundReceiveRow, "goodQtyAfter" | "totalReceived" | "goodQty" | "damagedQty">
+): number {
+  if (row.goodQtyAfter != null && Number.isFinite(row.goodQtyAfter)) {
+    return Math.max(0, Math.floor(row.goodQtyAfter));
+  }
+  return Math.max(0, Math.floor(Number(row.totalReceived) || row.goodQty + row.damagedQty || 0));
+}
+
 /** Overview / CSV details for one inbound putaway session. */
 export function formatInboundPutawayDetails(
   row: Pick<
     MergedInboundReceiveRow,
-    "goodQty" | "damagedQty" | "goodBinPath" | "damagedLocation" | "remarks" | "totalReceived"
+    | "goodQty"
+    | "damagedQty"
+    | "goodBinPath"
+    | "damagedLocation"
+    | "remarks"
+    | "totalReceived"
+    | "goodQtyAfter"
   >,
   request: InventoryRequest | null
 ): string {
@@ -1620,7 +1636,8 @@ export function formatInboundPutawayDetails(
   if (request) {
     const requested = getRequestedQuantity(request);
     if (requested > 0) {
-      const receivedTotal = getInboundRequestReceivedTotal(request) || row.totalReceived;
+      // Per-event cumulative after this putaway — not the (possibly double-counted) request total.
+      const receivedTotal = inboundReceivedAfterPutaway(row);
       parts.push(`Requested: ${requested} · Received: ${receivedTotal}`);
     }
   }

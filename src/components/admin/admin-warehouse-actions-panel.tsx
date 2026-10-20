@@ -9,6 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -49,7 +57,16 @@ import { pushShopifyInventoryHints } from "@/lib/shopify-inventory-sync";
 import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
 import { isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
+import {
+  expectedApprovedInboundQty,
+  warehouseGoodReceivedQty,
+} from "@/lib/inventory-inbound-display";
+import {
+  closeInventoryRequest,
+  healInboundReceivedQtyFromPutawayLogs,
+} from "@/lib/client-inventory-inbound-sync";
 import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
+import { cn } from "@/lib/utils";
 import type {
   InventoryRequest,
   ShipmentRequest,
@@ -67,6 +84,31 @@ type InboundProps = {
   request: InventoryRequest;
   onComplete?: () => void;
 };
+
+async function resolvePutawaySlotFromPath(
+  warehouseId: string,
+  binPath: string
+): Promise<PutawayLineSlot> {
+  const path = binPath.trim();
+  const bin = await findBinByPath(warehouseId, path);
+  if (!bin) {
+    return {
+      ...emptyPutawayLineSlot(),
+      binPath: path,
+      resolved: null,
+      loading: false,
+      error: `Bin "${path}" was not found.`,
+    };
+  }
+  const contents = await inspectBinContents(warehouseId, bin.id);
+  return {
+    ...emptyPutawayLineSlot(),
+    binPath: bin.path,
+    resolved: { bin, contents },
+    loading: false,
+    error: null,
+  };
+}
 
 type OutboundProps = {
   mode: "outbound";
@@ -125,7 +167,40 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
   const [busy, setBusy] = useState(false);
+  /** When false and a prior putaway exists, later partials land in the same bin. */
+  const [changeGoodPutaway, setChangeGoodPutaway] = useState(false);
+  const [changeDamagedPutaway, setChangeDamagedPutaway] = useState(false);
+  /** Putaway-log heal overrides inflated warehouseGoodReceivedQty in the UI. */
+  const [healedInboundGoodQty, setHealedInboundGoodQty] = useState<number | null>(null);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closeRemarks, setCloseRemarks] = useState("");
   const inboundRequest = props.mode === "inbound" ? props.request : null;
+
+  useEffect(() => {
+    if (props.mode !== "inbound") {
+      setHealedInboundGoodQty(null);
+      return;
+    }
+    let cancelled = false;
+    setHealedInboundGoodQty(null);
+    void healInboundReceivedQtyFromPutawayLogs({
+      clientUserId: props.clientUserId,
+      requestId: props.request.id,
+    })
+      .then((totals) => {
+        if (!cancelled) setHealedInboundGoodQty(totals.good);
+      })
+      .catch((err) => {
+        console.warn("[admin inbound] received-qty heal skipped", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    props.mode,
+    props.mode === "inbound" ? props.clientUserId : "",
+    props.mode === "inbound" ? props.request.id : "",
+  ]);
   const destinationLine = useMemo<WarehouseCartonLine>(
     () => ({
       lineId: "ADMIN-PREVIEW",
@@ -193,6 +268,40 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
 
         const inboundRequest =
           props.mode === "inbound" ? props.request : null;
+        const reusePath =
+          inboundRequest?.lastGoodPutawayWarehouseId === warehouseId
+            ? String(inboundRequest.lastGoodPutawayBinPath ?? "").trim()
+            : "";
+        const reuseArea =
+          inboundRequest?.lastGoodPutawayWarehouseId === warehouseId
+            ? String(inboundRequest.lastGoodPutawayAreaCode ?? "").trim()
+            : "";
+
+        if (reusePath) {
+          setChangeGoodPutaway(false);
+          setDestinationSlot({
+            ...emptyPutawayLineSlot(),
+            binPath: reusePath,
+            loading: true,
+          });
+          const slot = await resolvePutawaySlotFromPath(warehouseId, reusePath);
+          if (cancelled) return;
+          setDestinationSlot(slot);
+          return;
+        }
+
+        if (reuseArea) {
+          setChangeGoodPutaway(false);
+          setDestinationSlot({
+            ...emptyPutawayLineSlot(),
+            areaCode: reuseArea,
+            loading: false,
+            error: null,
+          });
+          return;
+        }
+
+        setChangeGoodPutaway(true);
         const probeLine = {
           lineId: "admin-default-good",
           sku: String((inboundRequest as { sku?: string } | null)?.sku ?? "PENDING").trim() || "PENDING",
@@ -222,18 +331,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           loading: true,
         });
         try {
-          const bin = await findBinByPath(warehouseId, first.path);
+          const slot = await resolvePutawaySlotFromPath(warehouseId, first.path);
           if (cancelled) return;
-          if (!bin) throw new Error("Default bin was not found.");
-          const contents = await inspectBinContents(warehouseId, bin.id);
-          if (cancelled) return;
-          setDestinationSlot({
-            ...emptyPutawayLineSlot(),
-            binPath: bin.path,
-            resolved: { bin, contents },
-            loading: false,
-            error: null,
-          });
+          setDestinationSlot(slot);
         } catch (error: unknown) {
           if (cancelled) return;
           setDestinationSlot({
@@ -266,73 +366,121 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
 
   useEffect(() => {
     if (props.mode !== "inbound") return;
-    setQty(remainingInboundQty(props.request));
+    const rem = remainingInboundQty(props.request);
+    // Default to remaining; if already at/over requested, start at 1 for over-receive.
+    setQty(rem > 0 ? rem : 1);
     setDamagedQty(0);
     setPackageCount(1);
     setLastInboundResult(null);
     setDamagedDestinationSlot(emptyPutawayLineSlot());
+    setChangeDamagedPutaway(true);
 
-    // Keep / refresh default storage bin when opening a request (admin can still change).
-    if (!warehouseId || bins.length === 0 || destinationsLoading) {
+    // Prefer the request's last putaway bin for later partials; otherwise first free bin.
+    if (!warehouseId || destinationsLoading) {
       setDestinationSlot(emptyPutawayLineSlot());
       return;
     }
-    const probeLine = {
-      lineId: "admin-default-good",
-      sku: String((props.request as { sku?: string }).sku ?? "PENDING").trim() || "PENDING",
-      productTitle: props.request.productName?.trim() || null,
-      quantity: 1,
-      lot: null,
-      expiry: null,
-      condition: "good" as const,
-      binId: null,
-      allocationStatus: "allocated" as const,
-      clientId: props.clientUserId,
-      inventoryRequestId: props.request.id,
-    };
-    const first = firstAvailablePutawayBin(areas, bins, probeLine, occupiedBinIds);
-    if (!first) {
-      setDestinationSlot(emptyPutawayLineSlot());
-      return;
-    }
+
+    const reusePath =
+      props.request.lastGoodPutawayWarehouseId === warehouseId
+        ? String(props.request.lastGoodPutawayBinPath ?? "").trim()
+        : "";
+    const reuseArea =
+      props.request.lastGoodPutawayWarehouseId === warehouseId
+        ? String(props.request.lastGoodPutawayAreaCode ?? "").trim()
+        : "";
+    const damagedReusePath =
+      props.request.lastDamagedPutawayWarehouseId === warehouseId
+        ? String(props.request.lastDamagedPutawayBinPath ?? "").trim()
+        : "";
+    const damagedReuseArea =
+      props.request.lastDamagedPutawayWarehouseId === warehouseId
+        ? String(props.request.lastDamagedPutawayAreaCode ?? "").trim()
+        : "";
+
     let cancelled = false;
-    setDestinationSlot({
-      ...emptyPutawayLineSlot(),
-      binPath: first.path,
-      loading: true,
-    });
     void (async () => {
-      try {
-        const bin = await findBinByPath(warehouseId, first.path);
-        if (cancelled) return;
-        if (!bin) throw new Error("Default bin was not found.");
-        const contents = await inspectBinContents(warehouseId, bin.id);
-        if (cancelled) return;
+      if (reusePath) {
+        setChangeGoodPutaway(false);
         setDestinationSlot({
           ...emptyPutawayLineSlot(),
-          binPath: bin.path,
-          resolved: { bin, contents },
+          binPath: reusePath,
+          loading: true,
+        });
+        const slot = await resolvePutawaySlotFromPath(warehouseId, reusePath);
+        if (cancelled) return;
+        setDestinationSlot(slot);
+      } else if (reuseArea) {
+        setChangeGoodPutaway(false);
+        setDestinationSlot({
+          ...emptyPutawayLineSlot(),
+          areaCode: reuseArea,
           loading: false,
           error: null,
         });
-      } catch (error: unknown) {
+      } else if (bins.length > 0) {
+        setChangeGoodPutaway(true);
+        const probeLine = {
+          lineId: "admin-default-good",
+          sku: String((props.request as { sku?: string }).sku ?? "PENDING").trim() || "PENDING",
+          productTitle: props.request.productName?.trim() || null,
+          quantity: 1,
+          lot: null,
+          expiry: null,
+          condition: "good" as const,
+          binId: null,
+          allocationStatus: "allocated" as const,
+          clientId: props.clientUserId,
+          inventoryRequestId: props.request.id,
+        };
+        const first = firstAvailablePutawayBin(areas, bins, probeLine, occupiedBinIds);
+        if (!first) {
+          setDestinationSlot(emptyPutawayLineSlot());
+        } else {
+          setDestinationSlot({
+            ...emptyPutawayLineSlot(),
+            binPath: first.path,
+            loading: true,
+          });
+          const slot = await resolvePutawaySlotFromPath(warehouseId, first.path);
+          if (cancelled) return;
+          setDestinationSlot(slot);
+        }
+      } else {
+        setChangeGoodPutaway(true);
+        setDestinationSlot(emptyPutawayLineSlot());
+      }
+
+      if (damagedReusePath) {
+        setChangeDamagedPutaway(false);
+        const slot = await resolvePutawaySlotFromPath(warehouseId, damagedReusePath);
         if (cancelled) return;
-        setDestinationSlot({
+        setDamagedDestinationSlot(slot);
+      } else if (damagedReuseArea) {
+        setChangeDamagedPutaway(false);
+        setDamagedDestinationSlot({
           ...emptyPutawayLineSlot(),
-          binPath: first.path,
-          resolved: null,
+          areaCode: damagedReuseArea,
           loading: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Could not validate the default storage bin.",
+          error: null,
         });
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [props]);
+  }, [
+    props.mode,
+    props.mode === "inbound" ? props.request.id : "",
+    props.mode === "inbound" ? props.request.warehouseGoodReceivedQty : 0,
+    props.mode === "inbound" ? props.request.lastGoodPutawayBinPath : "",
+    props.mode === "inbound" ? props.request.lastDamagedPutawayBinPath : "",
+    warehouseId,
+    destinationsLoading,
+    bins.length,
+    // areas / occupiedBinIds intentionally omitted — avoid resetting qty mid-edit
+  ]);
 
   if (!canOverride) return null;
 
@@ -342,9 +490,34 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     const isApproved = request.status === "approved";
     // Exact "open" only — missing status means legacy admin-fulfilled, not Warehouse Ops.
     const isOpen = String(request.fulfillmentStatus ?? "").trim().toLowerCase() === "open";
-    const remaining = remainingInboundQty(request);
+    const requestForQty =
+      healedInboundGoodQty != null
+        ? ({ ...request, warehouseGoodReceivedQty: healedInboundGoodQty } as InventoryRequest)
+        : request;
+    const remaining = remainingInboundQty(requestForQty);
+    const requestedTotal = expectedApprovedInboundQty(request);
+    const receivedSoFar = warehouseGoodReceivedQty(requestForQty);
+    const hasSavedGoodPutaway = Boolean(
+      (request.lastGoodPutawayBinPath || request.lastGoodPutawayAreaCode) &&
+        request.lastGoodPutawayWarehouseId === warehouseId
+    );
+    const hasSavedDamagedPutaway = Boolean(
+      (request.lastDamagedPutawayBinPath || request.lastDamagedPutawayAreaCode) &&
+        request.lastDamagedPutawayWarehouseId === warehouseId
+    );
+    const savedGoodLabel =
+      request.lastGoodPutawayBinPath?.trim() ||
+      (request.lastGoodPutawayAreaCode
+        ? `Area ${request.lastGoodPutawayAreaCode}`
+        : "");
+    const savedDamagedLabel =
+      request.lastDamagedPutawayBinPath?.trim() ||
+      (request.lastDamagedPutawayAreaCode
+        ? `Area ${request.lastDamagedPutawayAreaCode}`
+        : "");
 
-    if (!isProduct || !isApproved || !isOpen || remaining <= 0) return null;
+    if (!isProduct || !isApproved || !isOpen) return null;
+    const overReceived = receivedSoFar > requestedTotal && requestedTotal > 0;
     const goodDestinationReady =
       qty <= 0 ||
       isPutawayLineSlotReady(destinationLine, destinationSlot, { areas, bins });
@@ -391,6 +564,53 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           loading: false,
           error: error instanceof Error ? error.message : "Could not validate bin.",
         }));
+      }
+    };
+
+    const closeSummary =
+      receivedSoFar < requestedTotal
+        ? `Received ${receivedSoFar} of ${requestedTotal} requested (short).`
+        : receivedSoFar > requestedTotal
+          ? `Received ${receivedSoFar} of ${requestedTotal} requested (over-receive).`
+          : `Received ${receivedSoFar} of ${requestedTotal} requested.`;
+
+    const handleCloseInboundConfirm = async () => {
+      if (!user?.uid) {
+        toast({ variant: "destructive", title: "Sign in required" });
+        return;
+      }
+      setBusy(true);
+      try {
+        const closeReason =
+          receivedSoFar < requestedTotal
+            ? `Closed short by admin (${receivedSoFar}/${requestedTotal})`
+            : receivedSoFar > requestedTotal
+              ? `Closed by admin after over-receive (${receivedSoFar}/${requestedTotal})`
+              : "Closed by admin";
+        await closeInventoryRequest({
+          clientUserId,
+          requestId: request.id,
+          closedBy: user.uid,
+          closeReason,
+          closeRemarks: closeRemarks.trim() || null,
+        });
+        toast({
+          title: "Inbound closed",
+          description: closeRemarks.trim()
+            ? `${closeReason} · Remarks saved for the client.`
+            : closeReason,
+        });
+        setCloseDialogOpen(false);
+        setCloseRemarks("");
+        onComplete?.();
+      } catch (error: unknown) {
+        toast({
+          variant: "destructive",
+          title: "Could not close inbound",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+      } finally {
+        setBusy(false);
       }
     };
 
@@ -472,9 +692,25 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             });
           }
         }
+        const receivedAfter =
+          Math.max(
+            0,
+            Number(healedInboundGoodQty ?? request.warehouseGoodReceivedQty ?? 0)
+          ) + qty;
+        setHealedInboundGoodQty(receivedAfter);
+        const left = remainingInboundQty({
+          ...request,
+          warehouseGoodReceivedQty: receivedAfter,
+        } as InventoryRequest);
         toast({
-          title: "Stock added to client inventory",
-          description: `${result.quantityReceived} unit(s) received in ${result.cartonCodes.length} carton(s) → ${result.putawayDestination}.`,
+          title: "Receive complete — stock added",
+          description: `${result.quantityReceived} unit(s) → ${result.putawayDestination}. ${
+            left > 0
+              ? `${left} still under requested qty.`
+              : receivedAfter > requestedTotal
+                ? `Over requested (${receivedAfter}/${requestedTotal}). Close when done.`
+                : "Requested qty met — close when you are done receiving."
+          }`,
         });
         const selectedWarehouse = activeWarehouses.find(
           (warehouse) => warehouse.id === warehouseId
@@ -514,9 +750,37 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           Admin inbound processing
         </div>
         <p className="text-xs text-muted-foreground">
-          Uses the same receive, warehouse-label, putaway, and inventory sync as Warehouse Ops in one
-          faster form. {remaining} unit(s) remain on this request.
+          Receive in partials anytime — including more than requested. Request stays open until you
+          close it. First receive chooses the bin; later receives reuse it unless you change it.
         </p>
+        <div className="grid grid-cols-3 gap-2 rounded-md border bg-background/80 p-2 text-center text-xs">
+          <div>
+            <p className="text-muted-foreground">Requested</p>
+            <p className="text-sm font-semibold tabular-nums">{requestedTotal}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Received</p>
+            <p
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                overReceived ? "text-amber-700" : "text-emerald-700"
+              )}
+            >
+              {receivedSoFar}
+            </p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">{overReceived ? "Over by" : "Remaining"}</p>
+            <p
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                overReceived ? "text-amber-700" : "text-amber-700"
+              )}
+            >
+              {overReceived ? receivedSoFar - requestedTotal : remaining}
+            </p>
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label>Warehouse</Label>
@@ -552,18 +816,22 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Good qty</Label>
+            <Label>Good qty this receive</Label>
             <Input
               type="number"
               min={0}
-              max={remaining}
               value={qty}
               onChange={(e) =>
-                setQty(Math.max(0, Math.min(remaining, parseInt(e.target.value, 10) || 0)))
+                setQty(Math.max(0, parseInt(e.target.value, 10) || 0))
               }
             />
             <p className="text-[10px] text-muted-foreground">
-              Can leave at 0 if only damaged units were received
+              {remaining > 0
+                ? `Under requested by ${remaining}. You may enter more than remaining.`
+                : overReceived
+                  ? "Already over requested — more units still allowed until you close."
+                  : "Requested qty met — more units still allowed until you close."}{" "}
+              Leave 0 if only damaged arrived.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -596,70 +864,158 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           ) : null}
           {qty > 0 ? (
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Good putaway (storage)</Label>
-              <p className="text-xs text-muted-foreground">
-                Search and click a storage bin, or select an area when that zone has no bins.
-              </p>
-              <PutawayDestinationFields
-                line={destinationLine}
-                slot={destinationSlot}
-                warehouseAreas={areas}
-                warehouseBins={bins}
-                occupiedBinIds={occupiedBinIds}
-                occupancyLoading={destinationsLoading}
-                areasLoading={destinationsLoading}
-                onBinPathChange={(value) =>
-                  setDestinationSlot((previous) => ({
-                    ...previous,
-                    binPath: value,
-                    resolved: null,
-                    error: null,
-                  }))
-                }
-                onResolveBin={(path) => void resolveDestinationBin(path, "good")}
-                onAreaChange={(areaCode) =>
-                  setDestinationSlot((previous) => ({
-                    ...previous,
-                    areaCode,
-                    resolved: null,
-                    error: null,
-                  }))
-                }
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Good putaway (storage)</Label>
+                {hasSavedGoodPutaway ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const next = !changeGoodPutaway;
+                      setChangeGoodPutaway(next);
+                      if (!next && warehouseId && savedGoodLabel) {
+                        const path = String(request.lastGoodPutawayBinPath ?? "").trim();
+                        const area = String(request.lastGoodPutawayAreaCode ?? "").trim();
+                        if (path) {
+                          setDestinationSlot({
+                            ...emptyPutawayLineSlot(),
+                            binPath: path,
+                            loading: true,
+                          });
+                          void resolvePutawaySlotFromPath(warehouseId, path).then(setDestinationSlot);
+                        } else if (area) {
+                          setDestinationSlot({
+                            ...emptyPutawayLineSlot(),
+                            areaCode: area,
+                            loading: false,
+                            error: null,
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    {changeGoodPutaway ? "Use same bin again" : "Change bin"}
+                  </Button>
+                ) : null}
+              </div>
+              {hasSavedGoodPutaway && !changeGoodPutaway ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                  Adding this receive into the same location as before:{" "}
+                  <span className="font-semibold">{savedGoodLabel}</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    {hasSavedGoodPutaway
+                      ? "Pick a new storage bin for this and future receives."
+                      : "First receive — choose the storage bin. Later partials will reuse it."}
+                  </p>
+                  <PutawayDestinationFields
+                    line={destinationLine}
+                    slot={destinationSlot}
+                    warehouseAreas={areas}
+                    warehouseBins={bins}
+                    occupiedBinIds={occupiedBinIds}
+                    occupancyLoading={destinationsLoading}
+                    areasLoading={destinationsLoading}
+                    onBinPathChange={(value) =>
+                      setDestinationSlot((previous) => ({
+                        ...previous,
+                        binPath: value,
+                        resolved: null,
+                        error: null,
+                      }))
+                    }
+                    onResolveBin={(path) => void resolveDestinationBin(path, "good")}
+                    onAreaChange={(areaCode) =>
+                      setDestinationSlot((previous) => ({
+                        ...previous,
+                        areaCode,
+                        resolved: null,
+                        error: null,
+                      }))
+                    }
+                  />
+                </>
+              )}
             </div>
           ) : null}
           {damagedQty > 0 ? (
             <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-red-700">Damaged putaway (quarantine)</Label>
-              <p className="text-xs text-muted-foreground">
-                Damaged units must go to a quarantine bin or quarantine area, same as Warehouse Ops.
-              </p>
-              <PutawayDestinationFields
-                line={damagedDestinationLine}
-                slot={damagedDestinationSlot}
-                warehouseAreas={areas}
-                warehouseBins={bins}
-                occupiedBinIds={occupiedBinIds}
-                occupancyLoading={destinationsLoading}
-                areasLoading={destinationsLoading}
-                onBinPathChange={(value) =>
-                  setDamagedDestinationSlot((previous) => ({
-                    ...previous,
-                    binPath: value,
-                    resolved: null,
-                    error: null,
-                  }))
-                }
-                onResolveBin={(path) => void resolveDestinationBin(path, "damaged")}
-                onAreaChange={(areaCode) =>
-                  setDamagedDestinationSlot((previous) => ({
-                    ...previous,
-                    areaCode,
-                    resolved: null,
-                    error: null,
-                  }))
-                }
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-red-700">Damaged putaway (quarantine)</Label>
+                {hasSavedDamagedPutaway ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const next = !changeDamagedPutaway;
+                      setChangeDamagedPutaway(next);
+                      if (!next && warehouseId) {
+                        const path = String(request.lastDamagedPutawayBinPath ?? "").trim();
+                        const area = String(request.lastDamagedPutawayAreaCode ?? "").trim();
+                        if (path) {
+                          void resolvePutawaySlotFromPath(warehouseId, path).then(
+                            setDamagedDestinationSlot
+                          );
+                        } else if (area) {
+                          setDamagedDestinationSlot({
+                            ...emptyPutawayLineSlot(),
+                            areaCode: area,
+                            loading: false,
+                            error: null,
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    {changeDamagedPutaway ? "Use same bin again" : "Change quarantine bin"}
+                  </Button>
+                ) : null}
+              </div>
+              {hasSavedDamagedPutaway && !changeDamagedPutaway ? (
+                <div className="rounded-md border border-red-200 bg-red-50/80 px-3 py-2 text-xs text-red-900">
+                  Damaged units go to the same quarantine location:{" "}
+                  <span className="font-semibold">{savedDamagedLabel}</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Damaged units must go to a quarantine bin or quarantine area, same as Warehouse
+                    Ops.
+                  </p>
+                  <PutawayDestinationFields
+                    line={damagedDestinationLine}
+                    slot={damagedDestinationSlot}
+                    warehouseAreas={areas}
+                    warehouseBins={bins}
+                    occupiedBinIds={occupiedBinIds}
+                    occupancyLoading={destinationsLoading}
+                    areasLoading={destinationsLoading}
+                    onBinPathChange={(value) =>
+                      setDamagedDestinationSlot((previous) => ({
+                        ...previous,
+                        binPath: value,
+                        resolved: null,
+                        error: null,
+                      }))
+                    }
+                    onResolveBin={(path) => void resolveDestinationBin(path, "damaged")}
+                    onAreaChange={(areaCode) =>
+                      setDamagedDestinationSlot((previous) => ({
+                        ...previous,
+                        areaCode,
+                        resolved: null,
+                        error: null,
+                      }))
+                    }
+                  />
+                </>
+              )}
             </div>
           ) : null}
           <div className="space-y-1.5">
@@ -698,8 +1054,70 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             onClick={() => void handleReceive()}
           >
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
-            Receive &amp; put away
+            {remaining > 0 && qty + damagedQty >= remaining
+              ? "Receive remaining & put away"
+              : remaining <= 0
+                ? "Receive more & put away"
+                : "Receive partial & put away"}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              setCloseRemarks("");
+              setCloseDialogOpen(true);
+            }}
+          >
+            Close inbound request
+          </Button>
+          <Dialog
+            open={closeDialogOpen}
+            onOpenChange={(open) => {
+              if (busy) return;
+              setCloseDialogOpen(open);
+              if (!open) setCloseRemarks("");
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Close inbound request</DialogTitle>
+                <DialogDescription>
+                  {closeSummary} You will not be able to receive more on this request.
+                  Optional remarks are shown to the client on inventory.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-1.5">
+                <Label htmlFor="close-inbound-remarks">Remarks (optional)</Label>
+                <Textarea
+                  id="close-inbound-remarks"
+                  value={closeRemarks}
+                  onChange={(e) => setCloseRemarks(e.target.value)}
+                  placeholder="e.g. Short shipment — rest not arriving / Extra units from vendor"
+                  rows={3}
+                  disabled={busy}
+                />
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setCloseDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleCloseInboundConfirm()}
+                >
+                  {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Close request
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           {lastInboundResult ? (
             <Button
               type="button"
