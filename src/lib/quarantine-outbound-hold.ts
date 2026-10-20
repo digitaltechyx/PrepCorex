@@ -7,21 +7,28 @@ export type QuarantineLotHold = {
   byExpiry: Map<string, number>;
 };
 
-function isOpenQuarantineStatus(status: string | undefined | null): boolean {
-  return status === "pending" || status === "approved";
-}
-
 /**
- * Open "move to quarantine" requests reserve sellable units so they no longer
- * appear as shippable in outbound form / Excel — including before warehouse completes.
+ * Soft-hold sellable units for pending move-to-quarantine requests only.
+ * Once approved, client inventory is already deducted (clientInventoryAdjustedAt),
+ * so we must not subtract again for outbound.
  */
 export function buildOpenQuarantineHolds(
-  requests: Array<Pick<QuarantineRequest, "kind" | "status" | "productId" | "quantity" | "lotAllocations">>
+  requests: Array<
+    Pick<
+      QuarantineRequest,
+      "kind" | "status" | "productId" | "quantity" | "lotAllocations" | "clientInventoryAdjustedAt"
+    >
+  >
 ): Map<string, QuarantineLotHold> {
   const map = new Map<string, QuarantineLotHold>();
   for (const req of requests) {
     if (req.kind !== "quarantine") continue;
-    if (!isOpenQuarantineStatus(req.status)) continue;
+    // Pending: soft-hold. Approved without ledger apply (legacy): soft-hold.
+    // Approved with ledger apply: inventory already reduced — skip.
+    const shouldHold =
+      req.status === "pending" ||
+      (req.status === "approved" && !req.clientInventoryAdjustedAt);
+    if (!shouldHold) continue;
     const productId = String(req.productId || "").trim();
     if (!productId) continue;
 

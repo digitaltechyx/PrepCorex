@@ -1955,6 +1955,11 @@ export interface QuarantineRequest {
   approvedBy?: string;
   approvedByName?: string;
   approvedAt?: { seconds: number; nanoseconds: number } | string;
+  /**
+   * Set when client sellable qty / expiry lots were moved onto quarantine ledgers
+   * (on approve for move-to-quarantine). Warehouse complete must not double-apply.
+   */
+  clientInventoryAdjustedAt?: { seconds: number; nanoseconds: number } | string | null;
   rejectedBy?: string;
   rejectedByName?: string;
   rejectedAt?: { seconds: number; nanoseconds: number } | string;
@@ -1966,6 +1971,11 @@ export interface QuarantineRequest {
   completedAt?: { seconds: number; nanoseconds: number } | string;
   /** Units actually moved — may be less than `quantity` on a short pick. */
   completedQty?: number;
+  /**
+   * True when an admin marked the request completed from the admin UI
+   * without a warehouse carton pick / putaway (ledger-only close).
+   */
+  adminCompletedWithoutWarehouseOps?: boolean;
   /** Warehouse the operator completed it from. */
   warehouseId?: string | null;
   warehouseCode?: string | null;

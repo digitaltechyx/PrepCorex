@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { collection, query, where } from "firebase/firestore";
 import { format } from "date-fns";
 import { Loader2, Package, Plus, Search, ShieldAlert, X } from "lucide-react";
@@ -32,6 +32,7 @@ import { QuarantineRequestDialog } from "@/components/inventory/quarantine-reque
 import {
   QUARANTINE_REQUESTS,
   cancelQuarantineRequest,
+  ensureApprovedQuarantineInventoryApplied,
   openQuarantineProductIds,
   quarantineRequestKindLabel,
   requestSortMs,
@@ -105,6 +106,32 @@ export default function QuarantinePage() {
     [requests]
   );
   const openIds = useMemo(() => openQuarantineProductIds(requests), [requests]);
+
+  // Backfill: approved requests that never deducted sellable inventory.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      for (const req of requests) {
+        if (cancelled) return;
+        if (
+          req.kind !== "quarantine" ||
+          req.status !== "approved" ||
+          req.clientInventoryAdjustedAt
+        ) {
+          continue;
+        }
+        try {
+          await ensureApprovedQuarantineInventoryApplied(req);
+        } catch (err) {
+          console.warn("[quarantine] failed to apply approved inventory hold", err);
+        }
+      }
+    };
+    if (requests.length > 0) void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [requests]);
 
   const quarantinedItems = useMemo(
     () =>

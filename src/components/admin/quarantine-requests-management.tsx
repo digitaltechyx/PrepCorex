@@ -41,7 +41,9 @@ import { useCollection } from "@/hooks/use-collection";
 import { useToast } from "@/hooks/use-toast";
 import {
   QUARANTINE_REQUESTS,
+  adminCompleteQuarantineRequest,
   approveQuarantineRequest,
+  ensureApprovedQuarantineInventoryApplied,
   openQuarantineProductIds,
   quarantineRequestKindLabel,
   rejectQuarantineRequest,
@@ -115,6 +117,37 @@ export function QuarantineRequestsManagement({
     if (match) setSelectedRequest(match);
   }, [initialRequestId, requests]);
 
+  // Approved-before-fix requests: move sellable qty/lots onto quarantine ledger once.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const needing = requests.filter(
+        (r) =>
+          r.kind === "quarantine" &&
+          r.status === "approved" &&
+          !r.clientInventoryAdjustedAt
+      );
+      for (const req of needing) {
+        if (cancelled) return;
+        try {
+          const applied = await ensureApprovedQuarantineInventoryApplied(req);
+          if (applied && !cancelled) {
+            toast({
+              title: "Inventory updated",
+              description: `${req.quantity} unit${req.quantity === 1 ? "" : "s"} of "${req.productName}" moved to quarantine on the client ledger.`,
+            });
+          }
+        } catch (err) {
+          console.warn("[quarantine] failed to apply approved inventory hold", err);
+        }
+      }
+    };
+    if (requests.length > 0) void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [requests, toast]);
+
   const openIds = useMemo(() => openQuarantineProductIds(requests), [requests]);
 
   const filtered = useMemo(() => {
@@ -159,13 +192,40 @@ export function QuarantineRequestsManagement({
       });
       toast({
         title: "Request approved",
-        description: `Warehouse ops can now move "${request.productName}" and mark it completed.`,
+        description: `Client inventory is updated. Mark it completed here, or let warehouse ops finish the floor move.`,
+      });
+      setSelectedRequest({ ...request, status: "approved" });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Approval failed",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAdminComplete = async (request: QuarantineRequest) => {
+    if (!adminProfile) return;
+    setIsProcessing(true);
+    try {
+      const result = await adminCompleteQuarantineRequest({
+        request,
+        adminUid: adminProfile.uid,
+        adminName: adminProfile.name || "Admin",
+      });
+      toast({
+        title: "Request completed",
+        description: `${result.completedQty} unit${
+          result.completedQty === 1 ? "" : "s"
+        } of "${request.productName}" completed without warehouse ops.`,
       });
       setSelectedRequest(null);
     } catch (err) {
       toast({
         variant: "destructive",
-        title: "Approval failed",
+        title: "Could not complete",
         description: err instanceof Error ? err.message : "Please try again.",
       });
     } finally {
@@ -432,8 +492,10 @@ export function QuarantineRequestsManagement({
             <DialogTitle>Quarantine request</DialogTitle>
             <DialogDescription>
               {selectedRequest?.status === "pending"
-                ? "Approve to release this to the warehouse floor, or reject to leave the stock as is."
-                : "Review this quarantine request."}
+                ? "Approve to update client inventory, reject to leave stock as is, or approve & complete without warehouse ops."
+                : selectedRequest?.status === "approved"
+                  ? "Mark completed here without warehouse ops, or leave it for the floor to finish the physical move."
+                  : "Review this quarantine request."}
             </DialogDescription>
           </DialogHeader>
 
@@ -499,9 +561,11 @@ export function QuarantineRequestsManagement({
                     <span className="text-muted-foreground">Completed:</span>{" "}
                     {selectedRequest.completedQty ?? selectedRequest.quantity} units by{" "}
                     {selectedRequest.completedByName || "warehouse"}
-                    {selectedRequest.destBinPath || selectedRequest.destAreaCode
-                      ? ` → ${selectedRequest.destBinPath || selectedRequest.destAreaCode}`
-                      : ""}
+                    {selectedRequest.adminCompletedWithoutWarehouseOps
+                      ? " (admin, no warehouse ops)"
+                      : selectedRequest.destBinPath || selectedRequest.destAreaCode
+                        ? ` → ${selectedRequest.destBinPath || selectedRequest.destAreaCode}`
+                        : ""}
                   </p>
                 ) : null}
               </div>
@@ -520,7 +584,7 @@ export function QuarantineRequestsManagement({
                       rows={2}
                     />
                   </div>
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:flex-wrap">
                     <Button
                       variant="outline"
                       onClick={() => handleReject(selectedRequest)}
@@ -533,16 +597,54 @@ export function QuarantineRequestsManagement({
                       )}
                       Reject
                     </Button>
-                    <Button onClick={() => handleApprove(selectedRequest)} disabled={isProcessing}>
+                    <Button
+                      variant="secondary"
+                      onClick={() => handleApprove(selectedRequest)}
+                      disabled={isProcessing}
+                    >
                       {isProcessing ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <Check className="mr-2 h-4 w-4" />
                       )}
-                      Approve
+                      Approve only
+                    </Button>
+                    <Button
+                      onClick={() => handleAdminComplete(selectedRequest)}
+                      disabled={isProcessing}
+                    >
+                      {isProcessing ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="mr-2 h-4 w-4" />
+                      )}
+                      Approve & complete
                     </Button>
                   </div>
                 </>
+              ) : null}
+
+              {selectedRequest.status === "approved" ? (
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedRequest(null)}
+                    disabled={isProcessing}
+                  >
+                    Leave for warehouse
+                  </Button>
+                  <Button
+                    onClick={() => handleAdminComplete(selectedRequest)}
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="mr-2 h-4 w-4" />
+                    )}
+                    Mark completed
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}

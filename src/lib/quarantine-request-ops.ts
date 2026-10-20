@@ -167,6 +167,77 @@ export async function submitQuarantineRequest(input: {
   return ref.id;
 }
 
+function requestHasClientInventoryAdjusted(
+  request: Pick<QuarantineRequest, "clientInventoryAdjustedAt">
+): boolean {
+  return Boolean(request.clientInventoryAdjustedAt);
+}
+
+/**
+ * Move sellable units (and lots) onto the client's quarantine ledger.
+ * Called on approve so Inventory / outbound update immediately; warehouse
+ * complete only does the physical carton move afterward.
+ */
+export async function applyClientInventoryForQuarantineMove(
+  request: QuarantineRequest
+): Promise<void> {
+  if (request.kind !== "quarantine") return;
+  if (requestHasClientInventoryAdjusted(request)) return;
+  const qty = Math.max(0, Math.floor(Number(request.quantity) || 0));
+  if (qty < 1) return;
+
+  await shiftClientQuantities({
+    userId: request.userId,
+    productId: request.productId,
+    sku: request.sku,
+    goodDelta: -qty,
+    damagedDelta: qty,
+    kind: "quarantine",
+    lotAllocations: normalizeExpiryLotAllocations(request.lotAllocations),
+    movedQty: qty,
+  });
+
+  await updateDoc(doc(db, QUARANTINE_REQUESTS, request.id), {
+    clientInventoryAdjustedAt: Timestamp.now(),
+  });
+}
+
+async function reverseClientInventoryForQuarantineMove(
+  request: QuarantineRequest
+): Promise<void> {
+  if (request.kind !== "quarantine") return;
+  if (!requestHasClientInventoryAdjusted(request)) return;
+  const qty = Math.max(0, Math.floor(Number(request.quantity) || 0));
+  if (qty < 1) return;
+
+  // Release path: quarantine ledger → sellable
+  await shiftClientQuantities({
+    userId: request.userId,
+    productId: request.productId,
+    sku: request.sku,
+    goodDelta: qty,
+    damagedDelta: -qty,
+    kind: "release",
+    lotAllocations: normalizeExpiryLotAllocations(request.lotAllocations),
+    movedQty: qty,
+  });
+}
+
+/**
+ * Self-heal: approved move-to-quarantine requests created before approve-time
+ * inventory apply still have full sellable qty — apply once and stamp the flag.
+ */
+export async function ensureApprovedQuarantineInventoryApplied(
+  request: QuarantineRequest
+): Promise<boolean> {
+  if (request.kind !== "quarantine") return false;
+  if (request.status !== "approved") return false;
+  if (requestHasClientInventoryAdjusted(request)) return false;
+
+  await applyClientInventoryForQuarantineMove(request);
+  return true;
+}
+
 export async function approveQuarantineRequest(input: {
   request: QuarantineRequest;
   approverUid: string;
@@ -180,6 +251,12 @@ export async function approveQuarantineRequest(input: {
     throw new Error(`This request was already ${current.status}.`);
   }
 
+  // Inventory/lots move off sellable immediately so the client inventory table
+  // and outbound pickers update before the warehouse finishes the physical move.
+  if (current.kind === "quarantine") {
+    await applyClientInventoryForQuarantineMove(current);
+  }
+
   await updateDoc(ref, {
     status: "approved",
     approvedBy: input.approverUid,
@@ -189,7 +266,7 @@ export async function approveQuarantineRequest(input: {
 
   await notifyUser(input.request.userId, {
     title: "Quarantine request approved",
-    message: `Your request for "${input.request.productName}" was approved. The warehouse will move the stock and mark it completed.`,
+    message: `Your request for "${input.request.productName}" was approved. Sellable stock is on hold; the warehouse will finish the physical move.`,
     requestId: input.request.id,
     createdBy: input.approverUid,
   });
@@ -202,11 +279,20 @@ export async function rejectQuarantineRequest(input: {
   adminFeedback?: string;
 }): Promise<void> {
   const feedback = input.adminFeedback?.trim() ?? "";
-  await updateDoc(doc(db, QUARANTINE_REQUESTS, input.request.id), {
+  const ref = doc(db, QUARANTINE_REQUESTS, input.request.id);
+  const snap = await getDoc(ref);
+  const current = snap.exists()
+    ? parseRequest(snap.id, snap.data() as Record<string, unknown>)
+    : input.request;
+
+  await reverseClientInventoryForQuarantineMove(current);
+
+  await updateDoc(ref, {
     status: "rejected",
     rejectedBy: input.approverUid,
     rejectedByName: input.approverName || "Admin",
     rejectedAt: Timestamp.now(),
+    clientInventoryAdjustedAt: null,
     ...(feedback ? { adminFeedback: feedback } : {}),
   });
 
@@ -222,9 +308,20 @@ export async function rejectQuarantineRequest(input: {
 
 /** Withdraw a request that has not been completed yet. */
 export async function cancelQuarantineRequest(requestId: string): Promise<void> {
-  await updateDoc(doc(db, QUARANTINE_REQUESTS, requestId), {
+  const ref = doc(db, QUARANTINE_REQUESTS, requestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("This request no longer exists.");
+  const current = parseRequest(snap.id, snap.data() as Record<string, unknown>);
+  if (current.status === "completed") {
+    throw new Error("Completed requests cannot be cancelled.");
+  }
+
+  await reverseClientInventoryForQuarantineMove(current);
+
+  await updateDoc(ref, {
     status: "cancelled",
     cancelledAt: Timestamp.now(),
+    clientInventoryAdjustedAt: null,
   });
 }
 
@@ -480,16 +577,20 @@ async function applyMoveToQuarantine(input: {
     await batch.commit();
   }
 
-  await shiftClientQuantities({
-    userId: input.request.userId,
-    productId: input.request.productId,
-    sku: input.request.sku,
-    goodDelta: -movedQty,
-    damagedDelta: movedQty,
-    kind: "quarantine",
-    lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
-    movedQty,
-  });
+  // Client sellable → quarantine ledger is applied on approve. Only backfill here
+  // for legacy approved requests that never got clientInventoryAdjustedAt.
+  if (!requestHasClientInventoryAdjusted(input.request)) {
+    await shiftClientQuantities({
+      userId: input.request.userId,
+      productId: input.request.productId,
+      sku: input.request.sku,
+      goodDelta: -movedQty,
+      damagedDelta: movedQty,
+      kind: "quarantine",
+      lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
+      movedQty,
+    });
+  }
 
   return {
     movedQty,
@@ -773,4 +874,89 @@ export async function completeQuarantineRequest(input: {
   });
 
   return { movedQty };
+}
+
+/**
+ * Admin closes a quarantine request from the admin UI without Warehouse Ops
+ * carton picks — same idea as admin inbound receive / outbound complete override.
+ *
+ * - `quarantine`: client sellable → quarantine ledger is already applied on approve
+ *   (self-healed if missing); this only stamps completed.
+ * - `release` / `dispose`: apply the client ledger change here, then stamp completed.
+ * Physical carton locations are left for operators if they still need a floor move.
+ */
+export async function adminCompleteQuarantineRequest(input: {
+  request: QuarantineRequest;
+  adminUid: string;
+  adminName: string;
+}): Promise<{ completedQty: number }> {
+  const ref = doc(db, QUARANTINE_REQUESTS, input.request.id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("This request no longer exists.");
+  const current = parseRequest(snap.id, snap.data() as Record<string, unknown>);
+  if (current.status !== "approved" && current.status !== "pending") {
+    throw new Error(`This request was already ${current.status}.`);
+  }
+
+  const qty = Math.max(0, Math.floor(Number(current.quantity) || 0));
+  if (qty < 1) throw new Error("Request has no quantity to complete.");
+
+  const wasPending = current.status === "pending";
+  const adminName = input.adminName?.trim() || "Admin";
+
+  if (current.kind === "quarantine") {
+    if (!requestHasClientInventoryAdjusted(current)) {
+      await applyClientInventoryForQuarantineMove(current);
+    }
+  } else if (current.kind === "release") {
+    await shiftClientQuantities({
+      userId: current.userId,
+      productId: current.productId,
+      sku: current.sku,
+      goodDelta: qty,
+      damagedDelta: -qty,
+      kind: "release",
+      lotAllocations: normalizeExpiryLotAllocations(current.lotAllocations),
+      movedQty: qty,
+    });
+  } else {
+    await shiftClientQuantities({
+      userId: current.userId,
+      productId: current.productId,
+      sku: current.sku,
+      goodDelta: 0,
+      damagedDelta: -qty,
+      kind: "dispose",
+      lotAllocations: normalizeExpiryLotAllocations(current.lotAllocations),
+      movedQty: qty,
+    });
+  }
+
+  const patch: Record<string, unknown> = {
+    status: "completed",
+    completedBy: input.adminUid,
+    completedByName: adminName,
+    completedAt: Timestamp.now(),
+    completedQty: qty,
+    adminCompletedWithoutWarehouseOps: true,
+    picks: [],
+  };
+  if (wasPending) {
+    patch.approvedBy = input.adminUid;
+    patch.approvedByName = adminName;
+    patch.approvedAt = Timestamp.now();
+  }
+
+  await updateDoc(ref, patch);
+
+  await notifyUser(current.userId, {
+    title: `${quarantineRequestKindLabel(current.kind)} completed`,
+    message: `${qty} unit${qty === 1 ? "" : "s"} of "${current.productName}" ${
+      current.kind === "dispose" ? "were disposed" : "were moved"
+    } by admin (without warehouse ops).`,
+    requestId: current.id,
+    createdBy: input.adminUid,
+  });
+
+  return { completedQty: qty };
 }
