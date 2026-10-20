@@ -3,7 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
-import { Timestamp, collection, doc, getDoc, query, where } from "firebase/firestore";
+import {
+  Timestamp,
+  collection,
+  doc,
+  getDoc,
+  query as firestoreQuery,
+  where,
+} from "firebase/firestore";
 import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -242,7 +249,7 @@ export function CreateShipmentWithLabelsForm({
   const quarantineRequestsQuery = useMemo(
     () =>
       ownerId
-        ? query(collection(db, QUARANTINE_REQUESTS), where("userId", "==", ownerId))
+        ? firestoreQuery(collection(db, QUARANTINE_REQUESTS), where("userId", "==", ownerId))
         : undefined,
     [ownerId]
   );
@@ -405,7 +412,7 @@ export function CreateShipmentWithLabelsForm({
   } = useUserPricingCollections(pricingUser);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [query, setQuery] = useState("");
+  const [productSearch, setProductSearch] = useState("");
   
   // Label upload states for each shipment group
   // Stored per shipment line: `${groupIndex}_${shipmentIndex}`
