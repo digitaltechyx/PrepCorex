@@ -776,6 +776,16 @@ export interface InventoryItem {
     lot?: string | null;
     requestId?: string | null;
   }>;
+  /**
+   * Sellable lots that are currently held in quarantine (client inventory view).
+   * Populated when a quarantine request is completed; used for release/dispose by batch.
+   */
+  quarantinedExpiryBatches?: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+    requestId?: string | null;
+  }>;
   /** Optional per-unit packaged dimensions (inches) for outbound box suggestions. */
   unitLengthIn?: number;
   unitWidthIn?: number;
@@ -1922,6 +1932,16 @@ export interface QuarantineRequest {
   sku: string;
   /** Units requested. Snapshot at request time; the floor may complete fewer. */
   quantity: number;
+  /**
+   * Optional per-lot breakdown when the product has multiple expiry batches.
+   * Sum should equal `quantity`. Used so expired lots can be quarantined without
+   * locking the whole SKU, and so outbound can hide those units immediately.
+   */
+  lotAllocations?: Array<{
+    expiry: string;
+    quantity: number;
+    lot?: string | null;
+  }> | null;
   reason: string;
   notes?: string | null;
   status: QuarantineRequestStatus;

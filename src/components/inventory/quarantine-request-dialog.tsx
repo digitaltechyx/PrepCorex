@@ -22,6 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  OutboundLotAllocationFields,
+  type OutboundLotAllocationValue,
+} from "@/components/dashboard/outbound-lot-allocation-fields";
 import { useToast } from "@/hooks/use-toast";
 import { submitQuarantineRequest } from "@/lib/quarantine-request-ops";
 import { cn } from "@/lib/utils";
@@ -33,17 +37,17 @@ const KIND_COPY: Record<
 > = {
   quarantine: {
     label: "Move to quarantine",
-    help: "Hold sellable stock in the warehouse quarantine area so it cannot be picked for orders.",
+    help: "Hold sellable stock in the warehouse quarantine area so it cannot be picked for orders. If the product has multiple expiry lots, choose which batch(es) to quarantine (e.g. expired only).",
     qtyLabel: "Sellable on hand",
   },
   release: {
     label: "Release from quarantine",
-    help: "Return quarantined stock to normal storage so it becomes sellable again.",
+    help: "Return quarantined stock to normal storage so it becomes sellable again. When quarantined lots exist, pick which batch(es) to release.",
     qtyLabel: "In quarantine",
   },
   dispose: {
     label: "Dispose from quarantine",
-    help: "Scrap quarantined stock. It moves to your disposed inventory with a full audit trail.",
+    help: "Scrap quarantined stock. It moves to your disposed inventory with a full audit trail. When quarantined lots exist, pick which batch(es) to dispose.",
     qtyLabel: "In quarantine",
   },
 };
@@ -52,6 +56,23 @@ const KIND_COPY: Record<
 export function availableQtyForKind(item: InventoryItem, kind: QuarantineRequestKind): number {
   if (kind === "quarantine") return Math.max(0, Number(item.quantity) || 0);
   return Math.max(0, Number(item.damagedQuantity) || 0);
+}
+
+function lotsForKind(item: InventoryItem, kind: QuarantineRequestKind) {
+  const raw =
+    kind === "quarantine"
+      ? item.expiryBatches
+      : item.quarantinedExpiryBatches && item.quarantinedExpiryBatches.length > 0
+        ? item.quarantinedExpiryBatches
+        : [];
+  return (Array.isArray(raw) ? raw : [])
+    .map((b) => ({
+      expiry: String(b?.expiry ?? "").trim(),
+      quantity: Math.max(0, Math.floor(Number(b?.quantity) || 0)),
+      lot: b?.lot ?? null,
+    }))
+    .filter((b) => b.expiry && b.quantity > 0)
+    .sort((a, b) => a.expiry.localeCompare(b.expiry));
 }
 
 type Props = {
@@ -89,6 +110,7 @@ export function QuarantineRequestDialog({
   const [kind, setKind] = useState<QuarantineRequestKind>(fixedKind ?? "quarantine");
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
+  const [lotAllocations, setLotAllocations] = useState<OutboundLotAllocationValue[]>([]);
   const [reason, setReason] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -98,6 +120,7 @@ export function QuarantineRequestDialog({
     setKind(fixedKind ?? "quarantine");
     setProductId("");
     setQuantity("1");
+    setLotAllocations([]);
     setReason("");
     setProductSearch("");
   }, [open, fixedKind]);
@@ -120,21 +143,37 @@ export function QuarantineRequestDialog({
 
   const selected = eligible.find((i) => i.id === productId) ?? null;
   const maxQty = selected ? availableQtyForKind(selected, kind) : 0;
-  const qtyNum = Math.floor(Number(quantity));
-  const qtyError =
-    !selected || !quantity.trim()
-      ? null
-      : !Number.isFinite(qtyNum) || qtyNum < 1
-        ? "Enter a quantity of at least 1."
-        : qtyNum > maxQty
-          ? `Only ${maxQty} unit${maxQty === 1 ? "" : "s"} available.`
-          : null;
+  const batchLots = selected ? lotsForKind(selected, kind) : [];
+  const useBatchPicker = Boolean(selected && batchLots.length > 0);
+  const lotTotal = lotAllocations.reduce(
+    (n, row) => n + Math.max(0, Math.floor(Number(row.quantity) || 0)),
+    0
+  );
+  const qtyNum = useBatchPicker ? lotTotal : Math.floor(Number(quantity));
+  const qtyError = !selected
+    ? null
+    : useBatchPicker
+      ? lotTotal < 1
+        ? "Enter quantity on at least one batch."
+        : lotTotal > maxQty
+          ? `Only ${maxQty} unit${maxQty === 1 ? "" : "s"} available across lots.`
+          : null
+      : !quantity.trim()
+        ? null
+        : !Number.isFinite(qtyNum) || qtyNum < 1
+          ? "Enter a quantity of at least 1."
+          : qtyNum > maxQty
+            ? `Only ${maxQty} unit${maxQty === 1 ? "" : "s"} available.`
+            : null;
   const alreadyOpen = productId ? openProductIds?.has(productId) ?? false : false;
   const copy = KIND_COPY[kind];
 
   // Switching action changes which products (and how many units) are eligible.
   useEffect(() => {
-    if (productId && !eligible.some((i) => i.id === productId)) setProductId("");
+    if (productId && !eligible.some((i) => i.id === productId)) {
+      setProductId("");
+      setLotAllocations([]);
+    }
   }, [eligible, productId]);
 
   const handleSubmit = async () => {
@@ -147,6 +186,9 @@ export function QuarantineRequestDialog({
         kind,
         item: selected,
         quantity: qtyNum,
+        lotAllocations: useBatchPicker
+          ? lotAllocations.filter((row) => Math.max(0, Math.floor(Number(row.quantity) || 0)) > 0)
+          : null,
         reason,
         requestedBy: submitterUid,
         requestedByName: submitterName,
@@ -182,7 +224,7 @@ export function QuarantineRequestDialog({
           <DialogDescription>
             {onBehalf
               ? `File a quarantine request for ${userName || "this client"}. It still needs an approval before the warehouse moves anything.`
-              : "The warehouse moves the stock once this is approved. Nothing changes until then."}
+              : "The warehouse moves the stock once this is approved. Held batches leave outbound as soon as you submit."}
           </DialogDescription>
         </DialogHeader>
 
@@ -232,6 +274,7 @@ export function QuarantineRequestDialog({
                     filteredEligible.map((item) => {
                       const pending = openProductIds?.has(item.id) ?? false;
                       const active = productId === item.id;
+                      const lots = lotsForKind(item, kind);
                       return (
                         <button
                           key={item.id}
@@ -239,6 +282,7 @@ export function QuarantineRequestDialog({
                           onClick={() => {
                             setProductId(item.id);
                             setQuantity(String(availableQtyForKind(item, kind)));
+                            setLotAllocations([]);
                           }}
                           className={cn(
                             "flex min-w-0 w-full items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-left hover:bg-accent",
@@ -250,6 +294,7 @@ export function QuarantineRequestDialog({
                             <p className="truncate text-[11px] text-muted-foreground">
                               {copy.qtyLabel}: {availableQtyForKind(item, kind)}
                               {item.sku ? ` · SKU ${item.sku}` : ""}
+                              {lots.length > 0 ? ` · ${lots.length} lot${lots.length === 1 ? "" : "s"}` : ""}
                             </p>
                           </div>
                           {pending ? (
@@ -277,7 +322,27 @@ export function QuarantineRequestDialog({
             ) : null}
           </div>
 
-          {selected ? (
+          {selected && useBatchPicker ? (
+            <div className="space-y-1.5">
+              <Label>Batches / lots</Label>
+              <p className="text-xs text-muted-foreground">
+                Enter how many units to take from each expiry lot. Total becomes the request quantity.
+              </p>
+              <OutboundLotAllocationFields
+                lots={batchLots}
+                requiredUnits={0}
+                value={lotAllocations}
+                onChange={setLotAllocations}
+              />
+              <p className="text-sm text-muted-foreground">
+                Requesting <span className="font-medium text-foreground tabular-nums">{lotTotal}</span> of{" "}
+                {maxQty} · {copy.qtyLabel.toLowerCase()}
+              </p>
+              {qtyError ? <p className="text-xs text-red-600">{qtyError}</p> : null}
+            </div>
+          ) : null}
+
+          {selected && !useBatchPicker ? (
             <div className="space-y-1.5">
               <Label htmlFor="quarantine-request-qty">Quantity</Label>
               <div className="flex items-center gap-3">
@@ -306,7 +371,7 @@ export function QuarantineRequestDialog({
               onChange={(e) => setReason(e.target.value)}
               placeholder={
                 kind === "quarantine"
-                  ? "e.g. suspected damage found by customer, recall, expiry check"
+                  ? "e.g. expired lot 2024-06-01, suspected damage, recall"
                   : kind === "release"
                     ? "e.g. inspected and confirmed sellable"
                     : "e.g. confirmed unsellable after inspection"

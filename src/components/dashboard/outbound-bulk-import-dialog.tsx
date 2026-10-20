@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Timestamp } from "firebase/firestore";
+import { Timestamp, collection, query, where } from "firebase/firestore";
 import { Download, FileUp, Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
+import { db } from "@/lib/firebase";
 import { createOutboundRequestWithClientReserve } from "@/lib/client-inventory-outbound-sync";
 import {
   getPricingProfileCollectionPath,
@@ -34,7 +35,9 @@ import {
   type OutboundBulkRowError,
   type OutboundBulkValidatedRow,
 } from "@/lib/outbound-bulk-import";
-import type { InventoryItem, UserProfile } from "@/types";
+import { QUARANTINE_REQUESTS } from "@/lib/quarantine-request-ops";
+import { inventoryForOutboundWithQuarantineHolds } from "@/lib/quarantine-outbound-hold";
+import type { InventoryItem, QuarantineRequest, UserProfile } from "@/types";
 import { formatServiceLabel, formatShipmentPreferenceLabel } from "@/types";
 
 type FbaPackAddOnPricingDoc = {
@@ -78,6 +81,24 @@ export function OutboundBulkImportDialog({
   const resolvedPricingUser = useMemo(
     () => pricingUser ?? { uid: ownerId, pricingProfileId: null },
     [pricingUser, ownerId]
+  );
+
+  const quarantineRequestsQuery = useMemo(
+    () =>
+      ownerId
+        ? query(collection(db, QUARANTINE_REQUESTS), where("userId", "==", ownerId))
+        : undefined,
+    [ownerId]
+  );
+  const { data: quarantineRequests } = useCollection<QuarantineRequest>(
+    ownerId ? QUARANTINE_REQUESTS : "",
+    quarantineRequestsQuery
+  );
+
+  /** Hide open quarantine holds (and completed quarantined qty already off sellable). */
+  const shippableInventory = useMemo(
+    () => inventoryForOutboundWithQuarantineHolds(inventory, quarantineRequests),
+    [inventory, quarantineRequests]
   );
 
   const { pricingRules: effectivePricingRules } =
@@ -131,7 +152,7 @@ export function OutboundBulkImportDialog({
     if (!ownerId) return;
     setDownloading(true);
     try {
-      await downloadOutboundBulkTemplate(inventory);
+      await downloadOutboundBulkTemplate(shippableInventory);
     } catch (e) {
       toast({
         variant: "destructive",
@@ -157,7 +178,7 @@ export function OutboundBulkImportDialog({
     }
 
     const { valid, errors, warnings } = validateOutboundBulkRows(rows, {
-      inventory,
+      inventory: shippableInventory,
       pricingRules: effectivePricingRules,
       packConfig: latestFbaPackAddOnConfig,
     });
@@ -186,8 +207,8 @@ export function OutboundBulkImportDialog({
   ]);
 
   const shippableCount = useMemo(
-    () => inventory.filter(isOutboundTemplateEligible).length,
-    [inventory]
+    () => shippableInventory.filter(isOutboundTemplateEligible).length,
+    [shippableInventory]
   );
 
   const handleSubmit = async () => {

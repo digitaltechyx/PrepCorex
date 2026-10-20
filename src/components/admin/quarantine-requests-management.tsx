@@ -451,6 +451,21 @@ export function QuarantineRequestsManagement({
                 <p>
                   <span className="text-muted-foreground">Quantity:</span>{" "}
                   {selectedRequest.quantity}
+                  {Array.isArray(selectedRequest.lotAllocations) &&
+                  selectedRequest.lotAllocations.length > 0 ? (
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                      Lots:{" "}
+                      {selectedRequest.lotAllocations
+                        .map(
+                          (row) =>
+                            `${String(row.expiry || "").trim()} × ${Math.max(
+                              0,
+                              Math.floor(Number(row.quantity) || 0)
+                            )}`
+                        )
+                        .join("; ")}
+                    </span>
+                  ) : null}
                 </p>
                 <p>
                   <span className="text-muted-foreground">Reason:</span> {selectedRequest.reason}

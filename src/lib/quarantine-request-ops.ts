@@ -33,6 +33,16 @@ import {
   disposeQuarantineLine,
   releaseQuarantineLineToStorage,
 } from "@/lib/warehouse-quarantine";
+import {
+  consumeExpiryBatches,
+  consumeExpiryBatchesFromAllocations,
+  earliestExpiryFromBatches,
+  mergeExpiryBatch,
+  normalizeExpiryLotAllocations,
+  restoreExpiryBatches,
+  type ExpiryBatch,
+  type ExpiryLotAllocation,
+} from "@/lib/inventory-expiry-batches";
 import type {
   InventoryItem,
   QuarantineRequest,
@@ -106,6 +116,8 @@ export async function submitQuarantineRequest(input: {
   kind: QuarantineRequestKind;
   item: Pick<InventoryItem, "id" | "productName" | "sku">;
   quantity: number;
+  /** When set, units are taken from these sellable (or quarantined) expiry lots. */
+  lotAllocations?: ExpiryLotAllocation[] | null;
   reason: string;
   notes?: string | null;
   requestedBy: string;
@@ -115,8 +127,13 @@ export async function submitQuarantineRequest(input: {
 }): Promise<string> {
   const reason = input.reason.trim();
   if (!reason) throw new Error("Enter a reason for this request.");
-  const qty = Math.floor(Number(input.quantity));
+  const lotAllocations = normalizeExpiryLotAllocations(input.lotAllocations);
+  const qtyFromLots = lotAllocations.reduce((n, row) => n + row.quantity, 0);
+  const qty = lotAllocations.length > 0 ? qtyFromLots : Math.floor(Number(input.quantity));
   if (!Number.isFinite(qty) || qty < 1) throw new Error("Enter a quantity of at least 1.");
+  if (lotAllocations.length > 0 && qtyFromLots !== qty) {
+    throw new Error("Lot quantities must add up to the request quantity.");
+  }
 
   const ref = await addDoc(collection(db, QUARANTINE_REQUESTS), {
     kind: input.kind,
@@ -126,6 +143,7 @@ export async function submitQuarantineRequest(input: {
     productName: input.item.productName,
     sku: input.item.sku ?? "",
     quantity: qty,
+    ...(lotAllocations.length > 0 ? { lotAllocations } : { lotAllocations: null }),
     reason,
     notes: input.notes?.trim() || null,
     status: "pending",
@@ -468,6 +486,9 @@ async function applyMoveToQuarantine(input: {
     sku: input.request.sku,
     goodDelta: -movedQty,
     damagedDelta: movedQty,
+    kind: "quarantine",
+    lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
+    movedQty,
   });
 
   return {
@@ -481,15 +502,59 @@ async function applyMoveToQuarantine(input: {
   };
 }
 
-/** Apply signed deltas to the client's sellable / damaged on-hand counters. */
+function asExpiryBatches(
+  value: unknown
+): ExpiryBatch[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((b) => {
+      const row = b as { expiry?: unknown; quantity?: unknown; lot?: unknown; requestId?: unknown };
+      return {
+        expiry: String(row.expiry ?? "").trim(),
+        quantity: Math.max(0, Math.floor(Number(row.quantity) || 0)),
+        lot: (row.lot as string | null | undefined) ?? null,
+        requestId: (row.requestId as string | null | undefined) ?? null,
+      };
+    })
+    .filter((b) => b.expiry);
+}
+
+function addBatchesInto(
+  existing: ExpiryBatch[] | undefined | null,
+  incoming: ExpiryBatch[]
+): ExpiryBatch[] {
+  let next = Array.isArray(existing) ? existing.map((b) => ({ ...b })) : [];
+  for (const row of incoming) {
+    next = mergeExpiryBatch(next, {
+      expiry: row.expiry,
+      quantity: row.quantity,
+      lot: row.lot ?? null,
+      requestId: row.requestId ?? null,
+    });
+  }
+  return next;
+}
+
+/** Apply signed deltas to the client's sellable / damaged on-hand counters (+ expiry lots). */
 async function shiftClientQuantities(input: {
   userId: string;
   productId: string;
   sku: string;
   goodDelta: number;
   damagedDelta: number;
+  kind: QuarantineRequestKind;
+  lotAllocations?: ExpiryLotAllocation[];
+  movedQty: number;
+  /** Qty already updated elsewhere; only sync expiry lot ledgers. */
+  batchesOnly?: boolean;
 }): Promise<void> {
-  if (input.goodDelta === 0 && input.damagedDelta === 0) return;
+  if (
+    input.goodDelta === 0 &&
+    input.damagedDelta === 0 &&
+    !input.batchesOnly
+  ) {
+    return;
+  }
 
   let ref = doc(db, `users/${input.userId}/inventory`, input.productId);
   let snap = await getDoc(ref);
@@ -507,18 +572,63 @@ async function shiftClientQuantities(input: {
   }
   if (!snap.exists()) return;
 
-  const data = snap.data() as { quantity?: number; damagedQuantity?: number };
-  const nextGood = Math.max(0, Number(data.quantity ?? 0) + input.goodDelta);
-  const nextDamaged = Math.max(0, Number(data.damagedQuantity ?? 0) + input.damagedDelta);
+  const data = snap.data() as {
+    quantity?: number;
+    damagedQuantity?: number;
+    expiryBatches?: unknown;
+    quarantinedExpiryBatches?: unknown;
+    expiryDate?: unknown;
+  };
+  const nextGood = input.batchesOnly
+    ? Math.max(0, Number(data.quantity ?? 0))
+    : Math.max(0, Number(data.quantity ?? 0) + input.goodDelta);
+  const nextDamaged = input.batchesOnly
+    ? Math.max(0, Number(data.damagedQuantity ?? 0))
+    : Math.max(0, Number(data.damagedQuantity ?? 0) + input.damagedDelta);
+  const sellableBatches = asExpiryBatches(data.expiryBatches);
+  let quarantinedBatches = asExpiryBatches(data.quarantinedExpiryBatches);
+  let nextSellable = sellableBatches;
+  const allocs = normalizeExpiryLotAllocations(input.lotAllocations);
+  const moved = Math.max(0, Math.floor(input.movedQty));
+
+  if (input.kind === "quarantine" && moved > 0) {
+    const consumed = allocs.length
+      ? consumeExpiryBatchesFromAllocations(sellableBatches, allocs, {
+          onHandQuantity: Number(data.quantity ?? 0),
+          legacyExpiryDate: data.expiryDate,
+        })
+      : consumeExpiryBatches(sellableBatches, moved, "fefo", {
+          onHandQuantity: Number(data.quantity ?? 0),
+          legacyExpiryDate: data.expiryDate,
+        });
+    nextSellable = consumed.batches;
+    quarantinedBatches = addBatchesInto(quarantinedBatches, consumed.consumed);
+  } else if (input.kind === "release" && moved > 0) {
+    const fromQuarantine = allocs.length
+      ? consumeExpiryBatchesFromAllocations(quarantinedBatches, allocs)
+      : consumeExpiryBatches(quarantinedBatches, moved, "fefo");
+    quarantinedBatches = fromQuarantine.batches;
+    nextSellable = restoreExpiryBatches(sellableBatches, moved, fromQuarantine.consumed);
+  } else if (input.kind === "dispose" && moved > 0) {
+    const fromQuarantine = allocs.length
+      ? consumeExpiryBatchesFromAllocations(quarantinedBatches, allocs)
+      : consumeExpiryBatches(quarantinedBatches, moved, "fefo");
+    quarantinedBatches = fromQuarantine.batches;
+  }
 
   const patch: Record<string, unknown> = {
-    quantity: nextGood,
-    damagedQuantity: nextDamaged,
-    status: nextGood > 0 ? "In Stock" : "Out of Stock",
     updatedAt: serverTimestamp(),
+    expiryBatches: nextSellable,
+    expiryDate: earliestExpiryFromBatches(nextSellable),
+    quarantinedExpiryBatches: quarantinedBatches,
   };
-  if (input.damagedDelta > 0) {
-    patch.quarantineAt = serverTimestamp();
+  if (!input.batchesOnly) {
+    patch.quantity = nextGood;
+    patch.damagedQuantity = nextDamaged;
+    patch.status = nextGood > 0 ? "In Stock" : "Out of Stock";
+    if (input.damagedDelta > 0) {
+      patch.quarantineAt = serverTimestamp();
+    }
   }
   await updateDoc(ref, patch);
 }
@@ -590,6 +700,18 @@ export async function completeQuarantineRequest(input: {
       });
     }
     dest = { binId: null, binPath: path ?? null, areaCode: null };
+    // Qty already shifted by release helper — sync expiry lot ledgers only.
+    await shiftClientQuantities({
+      userId: input.request.userId,
+      productId: input.request.productId,
+      sku: input.request.sku,
+      goodDelta: 0,
+      damagedDelta: 0,
+      kind: "release",
+      lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
+      movedQty,
+      batchesOnly: true,
+    });
   } else {
     for (const pick of input.picks) {
       const qty = Math.floor(pick.quantity);
@@ -612,6 +734,17 @@ export async function completeQuarantineRequest(input: {
         quantity: result.disposedQty,
       });
     }
+    await shiftClientQuantities({
+      userId: input.request.userId,
+      productId: input.request.productId,
+      sku: input.request.sku,
+      goodDelta: 0,
+      damagedDelta: 0,
+      kind: "dispose",
+      lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
+      movedQty,
+      batchesOnly: true,
+    });
   }
 
   if (movedQty < 1) throw new Error("Nothing was moved — check the picked quantities.");

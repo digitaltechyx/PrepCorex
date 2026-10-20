@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import * as z from "zod";
-import { Timestamp, doc, getDoc } from "firebase/firestore";
+import { Timestamp, collection, doc, getDoc, query, where } from "firebase/firestore";
 import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import type {
   InventoryItem,
   InventoryRequest,
   InboundReceiveLog,
+  QuarantineRequest,
   ServiceType,
   ProductType,
   UserProfile,
@@ -53,6 +54,8 @@ import {
   buildClientFefoStockRows,
   fefoLotsForProduct,
 } from "@/lib/client-fefo-stock";
+import { QUARANTINE_REQUESTS } from "@/lib/quarantine-request-ops";
+import { inventoryForOutboundWithQuarantineHolds } from "@/lib/quarantine-outbound-hold";
 import {
   OutboundLotAllocationFields,
   type OutboundLotAllocationValue,
@@ -236,10 +239,28 @@ export function CreateShipmentWithLabelsForm({
     ownerId ? `users/${ownerId}/inboundReceiveLogs` : ""
   );
 
+  const quarantineRequestsQuery = useMemo(
+    () =>
+      ownerId
+        ? query(collection(db, QUARANTINE_REQUESTS), where("userId", "==", ownerId))
+        : undefined,
+    [ownerId]
+  );
+  const { data: quarantineRequests } = useCollection<QuarantineRequest>(
+    ownerId ? QUARANTINE_REQUESTS : "",
+    quarantineRequestsQuery
+  );
+
+  /** Sellable inventory after open quarantine holds (expired/held lots excluded). */
+  const shippableInventory = useMemo(
+    () => inventoryForOutboundWithQuarantineHolds(inventory, quarantineRequests),
+    [inventory, quarantineRequests]
+  );
+
   /** Same lot reconstruction as the FEFO tab (batches + receive logs + inbound). */
   const productFefoRows = useMemo(() => {
     return buildClientFefoStockRows(
-      inventory.map((item) => ({
+      shippableInventory.map((item) => ({
         id: item.id,
         data: {
           productName: item.productName,
@@ -259,7 +280,7 @@ export function CreateShipmentWithLabelsForm({
         data: log as unknown as Record<string, unknown>,
       }))
     );
-  }, [inventory, inboundRequests, inboundReceiveLogs]);
+  }, [shippableInventory, inboundRequests, inboundReceiveLogs]);
 
   type SelectableOutboundProduct = {
     id: string;
@@ -1037,7 +1058,7 @@ export function CreateShipmentWithLabelsForm({
             continue;
           }
 
-          const product = inventory.find((item) => item.id === shipment.productId);
+          const product = shippableInventory.find((item) => item.id === shipment.productId);
           if (product) {
             const existing = inventoryUnitsByProductId.get(product.id) || {
               name: product.productName,
@@ -1062,7 +1083,7 @@ export function CreateShipmentWithLabelsForm({
         }
 
         for (const [productId, entry] of inventoryUnitsByProductId) {
-          const product = inventory.find((item) => item.id === productId);
+          const product = shippableInventory.find((item) => item.id === productId);
           if (!product) continue;
           if (entry.units > product.quantity) {
             const unitType =
@@ -1437,7 +1458,7 @@ export function CreateShipmentWithLabelsForm({
             
             // Calculate available inventory + pending inbounds without useMemo (inside map)
             const normalizedQuery = query.trim().toLowerCase();
-            const stockItems: SelectableOutboundProduct[] = inventory
+            const stockItems: SelectableOutboundProduct[] = shippableInventory
               .filter((item) => item.quantity > 0)
               .filter((item) => {
                 const inventoryType = (item as any).inventoryType;
@@ -1943,10 +1964,9 @@ export function CreateShipmentWithLabelsForm({
                                         if (!selectedProduct) {
                                           return [] as Array<{ expiry: string; quantity: number }>;
                                         }
-                                        // Prefer full inventory doc (has expiryBatches); FEFO tab
-                                        // sources when batches were never written on the doc.
+                                        // Prefer shippable inventory doc (expiry batches after quarantine holds).
                                         const invDoc =
-                                          inventory.find((item) => item.id === selectedProduct.id) ||
+                                          shippableInventory.find((item) => item.id === selectedProduct.id) ||
                                           selectedProduct;
                                         const fromFefo = fefoLotsForProduct(productFefoRows, {
                                           id: invDoc.id,
