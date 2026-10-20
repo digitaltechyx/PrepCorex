@@ -1796,6 +1796,126 @@ export function AdminInventoryManagement({
   const paginatedRecycledInventory = filteredRecycledInventory.slice(recycleStartIndex, recycleEndIndex);
   const resetRecyclePagination = () => setRecyclePage(1);
 
+  // Declared before handlers that close over these values (avoids TDZ / "before initialization").
+  const filteredInventory = useMemo(() => {
+    let filtered = inventory.filter((item) => {
+      const matchesSearch = item.productName.toLowerCase().includes(inventorySearch.toLowerCase());
+      const matchesStatus = inventoryStatusFilter === "all" || item.status === inventoryStatusFilter;
+      const matchesDate = matchesDateFilter(item.dateAdded, inventoryDateFilter);
+      const matchesDatePicker = matchesDatePickerFilter(item.dateAdded, inventoryFromDate, inventoryToDate);
+      return matchesSearch && matchesStatus && matchesDate && matchesDatePicker;
+    });
+
+    filtered.sort((a, b) => {
+      const aLowStock = a.quantity < 5;
+      const bLowStock = b.quantity < 5;
+
+      if (aLowStock && !bLowStock) return -1;
+      if (!aLowStock && bLowStock) return 1;
+
+      const activityMs = (item: InventoryItem) => {
+        const toMs = (value: unknown): number => {
+          if (!value) return 0;
+          if (typeof value === "string") {
+            const ms = new Date(value).getTime();
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          if (value instanceof Date) {
+            const ms = value.getTime();
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          if (typeof value === "object" && value !== null && "seconds" in value) {
+            const ms = Number((value as { seconds: number }).seconds) * 1000;
+            return Number.isFinite(ms) ? ms : 0;
+          }
+          return 0;
+        };
+        return Math.max(toMs(item.updatedAt), toMs(item.receivingDate), toMs(item.dateAdded));
+      };
+
+      switch (inventorySortBy) {
+        case "name-asc":
+          return a.productName.localeCompare(b.productName);
+        case "name-desc":
+          return b.productName.localeCompare(a.productName);
+        case "date-asc":
+          return activityMs(a) - activityMs(b);
+        case "date-desc":
+        default:
+          return activityMs(b) - activityMs(a);
+      }
+    });
+
+    return filtered;
+  }, [inventory, inventorySearch, inventoryStatusFilter, inventoryDateFilter, inventoryFromDate, inventoryToDate, inventorySortBy]);
+
+  const inventoryTotalPages = Math.ceil(filteredInventory.length / inventoryItemsPerPage);
+  const inventoryStartIndex = (inventoryPage - 1) * inventoryItemsPerPage;
+  const inventoryEndIndex = inventoryStartIndex + inventoryItemsPerPage;
+  const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
+  const resetInventoryPagination = () => setInventoryPage(1);
+
+  const sortedShippedDocs = useMemo(() => {
+    const toSortTimeMs = (value: unknown): number => {
+      if (!value) return 0;
+      if (typeof value === "string" || typeof value === "number") {
+        const t = new Date(value).getTime();
+        return Number.isFinite(t) ? t : 0;
+      }
+      if (typeof value === "object" && value !== null) {
+        if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+          try {
+            const t = (value as { toDate: () => Date }).toDate().getTime();
+            return Number.isFinite(t) ? t : 0;
+          } catch {
+            /* ignore */
+          }
+        }
+        if (typeof (value as { seconds?: number }).seconds === "number") {
+          return (value as { seconds: number }).seconds * 1000;
+        }
+      }
+      return 0;
+    };
+
+    const shipSortTimeMs = (item: ShippedItem): number => {
+      const byDate = toSortTimeMs(item.date);
+      if (byDate > 0) return byDate;
+      return toSortTimeMs((item as ShippedItem & { createdAt?: unknown }).createdAt);
+    };
+
+    return [...shipped].sort((a, b) => {
+      const diff = shipSortTimeMs(b) - shipSortTimeMs(a);
+      if (diff !== 0) return diff;
+      return String(b.id || "").localeCompare(String(a.id || ""));
+    });
+  }, [shipped]);
+
+  const filteredRestockHistory = useMemo(() => {
+    const q = restockSearch.trim().toLowerCase();
+    const filtered = restockHistory.filter((item) => {
+      const matchesDate = matchesDateFilter(item.restockedAt, restockDateFilter);
+      const matchesDateRange = matchesDatePickerFilter(item.restockedAt, restockFromDate, restockToDate);
+      const matchesSearch =
+        q.length === 0 ||
+        (item.productName || "").toLowerCase().includes(q) ||
+        (item.restockedBy || "").toLowerCase().includes(q);
+      return matchesDate && matchesDateRange && matchesSearch;
+    });
+
+    return filtered.sort((a, b) => {
+      const dateA = typeof a.restockedAt === "string" ? new Date(a.restockedAt) : new Date(a.restockedAt.seconds * 1000);
+      const dateB = typeof b.restockedAt === "string" ? new Date(b.restockedAt) : new Date(b.restockedAt.seconds * 1000);
+      return dateB.getTime() - dateA.getTime();
+    });
+  }, [restockHistory, restockDateFilter, restockSearch, restockFromDate, restockToDate]);
+
+  const restockHistoryTotalPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
+  const restockHistoryStartIndex = (restockHistoryPage - 1) * itemsPerPage;
+  const restockHistoryEndIndex = restockHistoryStartIndex + itemsPerPage;
+  const paginatedRestockHistory = filteredRestockHistory.slice(restockHistoryStartIndex, restockHistoryEndIndex);
+  const resetRestockHistoryPagination = () => setRestockHistoryPage(1);
+
   // Download: warehouse stock only + history on the same sheet (one row per history event).
   const handleDownloadInventory = async () => {
     const warehouseRows = filteredInventory.filter(
@@ -2185,134 +2305,6 @@ export function AdminInventoryManagement({
     await generateInvoicePDF({ ...invoiceData, subtotal, grandTotal: finalInvoiceDoc.grandTotal, dueDate: finalInvoiceDoc.dueDate });
     toast({ title: "Invoice Generated", description: `Range invoice ${invoiceNumber} created for ${selectedUser.name}.` });
   };
-
-  // Filtered inventory data
-  const filteredInventory = useMemo(() => {
-    let filtered = inventory.filter((item) => {
-      const matchesSearch = item.productName.toLowerCase().includes(inventorySearch.toLowerCase());
-      const matchesStatus = inventoryStatusFilter === "all" || item.status === inventoryStatusFilter;
-      const matchesDate = matchesDateFilter(item.dateAdded, inventoryDateFilter);
-      const matchesDatePicker = matchesDatePickerFilter(item.dateAdded, inventoryFromDate, inventoryToDate);
-      return matchesSearch && matchesStatus && matchesDate && matchesDatePicker;
-    });
-
-    // Apply sorting - prioritize items with quantity < 5 at the top
-    filtered.sort((a, b) => {
-      const aLowStock = a.quantity < 5;
-      const bLowStock = b.quantity < 5;
-      
-      // If one is low stock and the other isn't, low stock comes first
-      if (aLowStock && !bLowStock) return -1;
-      if (!aLowStock && bLowStock) return 1;
-      
-      const activityMs = (item: InventoryItem) => {
-        const toMs = (value: unknown): number => {
-          if (!value) return 0;
-          if (typeof value === "string") {
-            const ms = new Date(value).getTime();
-            return Number.isFinite(ms) ? ms : 0;
-          }
-          if (value instanceof Date) {
-            const ms = value.getTime();
-            return Number.isFinite(ms) ? ms : 0;
-          }
-          if (typeof value === "object" && value !== null && "seconds" in value) {
-            const ms = Number((value as { seconds: number }).seconds) * 1000;
-            return Number.isFinite(ms) ? ms : 0;
-          }
-          return 0;
-        };
-        return Math.max(toMs(item.updatedAt), toMs(item.receivingDate), toMs(item.dateAdded));
-      };
-
-      // If both are low stock or both are not, apply the selected sort
-      switch (inventorySortBy) {
-        case "name-asc":
-          return a.productName.localeCompare(b.productName);
-        case "name-desc":
-          return b.productName.localeCompare(a.productName);
-        case "date-asc":
-          return activityMs(a) - activityMs(b);
-        case "date-desc":
-        default:
-          return activityMs(b) - activityMs(a);
-      }
-    });
-
-    return filtered;
-  }, [inventory, inventorySearch, inventoryStatusFilter, inventoryDateFilter, inventoryFromDate, inventoryToDate, inventorySortBy]);
-
-  // Pagination for inventory (4 items per page for card view)
-  const inventoryTotalPages = Math.ceil(filteredInventory.length / inventoryItemsPerPage);
-  const inventoryStartIndex = (inventoryPage - 1) * inventoryItemsPerPage;
-  const inventoryEndIndex = inventoryStartIndex + inventoryItemsPerPage;
-  const paginatedInventory = filteredInventory.slice(inventoryStartIndex, inventoryEndIndex);
-  const resetInventoryPagination = () => setInventoryPage(1);
-
-  /** Shipped docs sorted newest first — used for invoice generation. */
-  const sortedShippedDocs = useMemo(() => {
-    const toSortTimeMs = (value: unknown): number => {
-      if (!value) return 0;
-      if (typeof value === "string" || typeof value === "number") {
-        const t = new Date(value).getTime();
-        return Number.isFinite(t) ? t : 0;
-      }
-      if (typeof value === "object" && value !== null) {
-        if (typeof (value as { toDate?: () => Date }).toDate === "function") {
-          try {
-            const t = (value as { toDate: () => Date }).toDate().getTime();
-            return Number.isFinite(t) ? t : 0;
-          } catch {
-            /* ignore */
-          }
-        }
-        if (typeof (value as { seconds?: number }).seconds === "number") {
-          return (value as { seconds: number }).seconds * 1000;
-        }
-      }
-      return 0;
-    };
-
-    const shipSortTimeMs = (item: ShippedItem): number => {
-      const byDate = toSortTimeMs(item.date);
-      if (byDate > 0) return byDate;
-      return toSortTimeMs((item as ShippedItem & { createdAt?: unknown }).createdAt);
-    };
-
-    return [...shipped].sort((a, b) => {
-      const diff = shipSortTimeMs(b) - shipSortTimeMs(a);
-      if (diff !== 0) return diff;
-      return String(b.id || "").localeCompare(String(a.id || ""));
-    });
-  }, [shipped]);
-
-  // Filtered restock history data
-  const filteredRestockHistory = useMemo(() => {
-    const q = restockSearch.trim().toLowerCase();
-    const filtered = restockHistory.filter((item) => {
-      const matchesDate = matchesDateFilter(item.restockedAt, restockDateFilter);
-      const matchesDateRange = matchesDatePickerFilter(item.restockedAt, restockFromDate, restockToDate);
-      const matchesSearch =
-        q.length === 0 ||
-        (item.productName || "").toLowerCase().includes(q) ||
-        (item.restockedBy || "").toLowerCase().includes(q);
-      return matchesDate && matchesDateRange && matchesSearch;
-    });
-    
-    // Sort by date (most recent first)
-    return filtered.sort((a, b) => {
-      const dateA = typeof a.restockedAt === 'string' ? new Date(a.restockedAt) : new Date(a.restockedAt.seconds * 1000);
-      const dateB = typeof b.restockedAt === 'string' ? new Date(b.restockedAt) : new Date(b.restockedAt.seconds * 1000);
-      return dateB.getTime() - dateA.getTime();
-    });
-  }, [restockHistory, restockDateFilter, restockSearch, restockFromDate, restockToDate]);
-
-  // Pagination for restock history
-  const restockHistoryTotalPages = Math.ceil(filteredRestockHistory.length / itemsPerPage);
-  const restockHistoryStartIndex = (restockHistoryPage - 1) * itemsPerPage;
-  const restockHistoryEndIndex = restockHistoryStartIndex + itemsPerPage;
-  const paginatedRestockHistory = filteredRestockHistory.slice(restockHistoryStartIndex, restockHistoryEndIndex);
-  const resetRestockHistoryPagination = () => setRestockHistoryPage(1);
 
   if (!selectedUser) {
     return (

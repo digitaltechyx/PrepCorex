@@ -58,14 +58,14 @@ import {
 import { getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { cn } from "@/lib/utils";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
+import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import {
   QUARANTINE_REQUESTS,
   ensureQuarantineInventoryHistoryLogged,
-} from "@/lib/quarantine-request-ops";
+} from "@/lib/quarantine-inventory-history";
 import type { QuarantineRequest } from "@/types";
-import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 
 const EVENT_BADGE: Record<string, string> = {
   created: "bg-slate-100 text-slate-800",
@@ -192,6 +192,8 @@ export function InventoryHistoryDialog({
   }, [open, item?.id]);
 
   // Backfill quarantine Stock history (with reason/remarks) for this product if missing.
+  // Uses thin quarantine-inventory-history (no warehouse ops) so admin inventory does not
+  // hit circular module init ("Cannot access before initialization").
   useEffect(() => {
     if (!open || !userId || !item?.id) return;
     let cancelled = false;
