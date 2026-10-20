@@ -33,6 +33,7 @@ import {
   QUARANTINE_REQUESTS,
   cancelQuarantineRequest,
   ensureApprovedQuarantineInventoryApplied,
+  ensureQuarantineInventoryHistoryLogged,
   openQuarantineProductIds,
   quarantineRequestKindLabel,
   requestSortMs,
@@ -107,23 +108,25 @@ export default function QuarantinePage() {
   );
   const openIds = useMemo(() => openQuarantineProductIds(requests), [requests]);
 
-  // Backfill: approved requests that never deducted sellable inventory.
+  // Backfill: approved inventory holds + missing Stock history rows (with remarks).
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       for (const req of requests) {
         if (cancelled) return;
-        if (
-          req.kind !== "quarantine" ||
-          req.status !== "approved" ||
-          req.clientInventoryAdjustedAt
-        ) {
-          continue;
-        }
+        if (req.kind !== "quarantine") continue;
         try {
-          await ensureApprovedQuarantineInventoryApplied(req);
+          if (req.status === "approved" && !req.clientInventoryAdjustedAt) {
+            await ensureApprovedQuarantineInventoryApplied(req);
+          }
+          if (
+            (req.status === "approved" || req.status === "completed") &&
+            (req.clientInventoryAdjustedAt || req.status === "completed")
+          ) {
+            await ensureQuarantineInventoryHistoryLogged(req);
+          }
         } catch (err) {
-          console.warn("[quarantine] failed to apply approved inventory hold", err);
+          console.warn("[quarantine] failed to apply approved inventory / history", err);
         }
       }
     };

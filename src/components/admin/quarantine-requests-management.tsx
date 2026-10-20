@@ -44,6 +44,7 @@ import {
   adminCompleteQuarantineRequest,
   approveQuarantineRequest,
   ensureApprovedQuarantineInventoryApplied,
+  ensureQuarantineInventoryHistoryLogged,
   openQuarantineProductIds,
   quarantineRequestKindLabel,
   rejectQuarantineRequest,
@@ -117,28 +118,32 @@ export function QuarantineRequestsManagement({
     if (match) setSelectedRequest(match);
   }, [initialRequestId, requests]);
 
-  // Approved-before-fix requests: move sellable qty/lots onto quarantine ledger once.
+  // Approved-before-fix requests: move sellable qty/lots onto quarantine ledger once,
+  // and backfill Stock history rows (with reason/remarks) when missing.
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const needing = requests.filter(
-        (r) =>
-          r.kind === "quarantine" &&
-          r.status === "approved" &&
-          !r.clientInventoryAdjustedAt
-      );
-      for (const req of needing) {
+      for (const req of requests) {
         if (cancelled) return;
+        if (req.kind !== "quarantine") continue;
         try {
-          const applied = await ensureApprovedQuarantineInventoryApplied(req);
-          if (applied && !cancelled) {
-            toast({
-              title: "Inventory updated",
-              description: `${req.quantity} unit${req.quantity === 1 ? "" : "s"} of "${req.productName}" moved to quarantine on the client ledger.`,
-            });
+          if (req.status === "approved" && !req.clientInventoryAdjustedAt) {
+            const applied = await ensureApprovedQuarantineInventoryApplied(req);
+            if (applied && !cancelled) {
+              toast({
+                title: "Inventory updated",
+                description: `${req.quantity} unit${req.quantity === 1 ? "" : "s"} of "${req.productName}" moved to quarantine on the client ledger.`,
+              });
+            }
+          }
+          if (
+            (req.status === "approved" || req.status === "completed") &&
+            (req.clientInventoryAdjustedAt || req.status === "completed")
+          ) {
+            await ensureQuarantineInventoryHistoryLogged(req);
           }
         } catch (err) {
-          console.warn("[quarantine] failed to apply approved inventory hold", err);
+          console.warn("[quarantine] failed to apply approved inventory / history", err);
         }
       }
     };

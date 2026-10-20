@@ -1142,6 +1142,9 @@ export interface InventoryChangeLog {
     | "admin_ship"
     | "edit"
     | "dispose"
+    | "quarantine_hold"
+    | "quarantine_release"
+    | "quarantine_dispose"
     | "shopify_quick_fulfill"
     | "shopify_qf_product_correct_credit"
     | "shopify_qf_product_correct_debit"
@@ -1150,6 +1153,10 @@ export interface InventoryChangeLog {
   qtyBefore: number;
   qtyAfter: number;
   qtyChange: number;
+  /** Quarantine request that produced this stock change. */
+  quarantineRequestId?: string | null;
+  /** Display name for the By column (quarantine / admin overrides). */
+  actedByName?: string | null;
   shipmentRequestId?: string | null;
   shippedId?: string | null;
   shopifyOrderId?: string | null;

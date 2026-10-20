@@ -23,6 +23,7 @@ export type InventoryHistoryEventType =
   | "edited"
   | "deleted"
   | "disposed"
+  | "quarantine"
   | "transfer";
 
 export interface InventoryHistoryRow {
@@ -326,12 +327,27 @@ function isInboundHistoryEvent(e: RawEvent): boolean {
 }
 
 function isOutboundHistoryEvent(e: RawEvent): boolean {
-  if (e.eventType === "shipped" || e.eventType === "disposed" || e.eventType === "transfer") {
+  if (
+    e.eventType === "shipped" ||
+    e.eventType === "disposed" ||
+    e.eventType === "quarantine" ||
+    e.eventType === "transfer"
+  ) {
     return true;
   }
   if (e.outboundLinkKind === "dispatch" || e.outboundLinkKind === "reserve") return true;
   if ((e.qtyChange ?? 0) < 0) return true;
   return false;
+}
+
+function isQuarantineChangeLog(log: InventoryChangeLog): boolean {
+  const type = String(log.eventType ?? "");
+  return (
+    type === "quarantine_hold" ||
+    type === "quarantine_release" ||
+    type === "quarantine_dispose" ||
+    type === "dispose"
+  );
 }
 
 /** Firebase Auth UIDs are opaque IDs — never show them in the By column. */
@@ -1067,21 +1083,26 @@ export function buildInventoryHistory(
                     ? "Shipped"
                     : log.eventType === "outbound_shipped"
                       ? "Shipped"
-                      : log.eventType === "dispose"
-                    ? "Disposed"
-                    : log.eventType === "shopify_quick_fulfill" ||
-                        log.eventType === "shopify_qf_product_correct_credit" ||
-                        log.eventType === "shopify_qf_product_correct_debit"
-                      ? "Shopify quick fulfill"
-                      : log.eventType === "ebay_quick_fulfill"
-                        ? "eBay quick fulfill"
-                        : log.eventType === "inventory_product_merge"
-                          ? "Products merged"
-                          : Number(log.qtyChange) === 0 &&
-                              Number.isFinite(Number(log.qtyBefore)) &&
-                              Number(log.qtyBefore) === Number(log.qtyAfter)
-                            ? "Pack details change"
-                            : "Stock removed";
+                      : log.eventType === "quarantine_hold"
+                        ? "Moved to quarantine"
+                        : log.eventType === "quarantine_release"
+                          ? "Released from quarantine"
+                          : log.eventType === "quarantine_dispose" ||
+                              log.eventType === "dispose"
+                            ? "Disposed from quarantine"
+                            : log.eventType === "shopify_quick_fulfill" ||
+                                log.eventType === "shopify_qf_product_correct_credit" ||
+                                log.eventType === "shopify_qf_product_correct_debit"
+                              ? "Shopify quick fulfill"
+                              : log.eventType === "ebay_quick_fulfill"
+                                ? "eBay quick fulfill"
+                                : log.eventType === "inventory_product_merge"
+                                  ? "Products merged"
+                                  : Number(log.qtyChange) === 0 &&
+                                      Number.isFinite(Number(log.qtyBefore)) &&
+                                      Number(log.qtyBefore) === Number(log.qtyAfter)
+                                    ? "Pack details change"
+                                    : "Stock removed";
 
     const shippedLine = findShippedLineForChangeLog(sources.shipped, log, item);
     const requestPack = findPackFromShipmentRequest(sources, log, item);
@@ -1107,6 +1128,9 @@ export function buildInventoryHistory(
       if (packDetailsChange) {
         const stored = String(log.details ?? "").trim();
         if (stored) return stored;
+      }
+      if (isQuarantineChangeLog(log)) {
+        return String(log.details ?? "").trim() || eventLabel;
       }
       const isShopifyQf =
         log.eventType === "shopify_quick_fulfill" ||
@@ -1143,9 +1167,14 @@ export function buildInventoryHistory(
       log.eventType === "outbound_restored" ||
       log.eventType === "outbound_line_restored" ||
       log.eventType === "shopify_qf_product_correct_credit" ||
+      log.eventType === "quarantine_release" ||
       isProductMerge
         ? ("restock" as const)
-        : ("shipped" as const);
+        : isQuarantineChangeLog(log)
+          ? log.eventType === "quarantine_dispose" || log.eventType === "dispose"
+            ? ("disposed" as const)
+            : ("quarantine" as const)
+          : ("shipped" as const);
 
     const isReservedAtCreateDispatch =
       log.eventType === "outbound_dispatch" &&
@@ -1172,6 +1201,10 @@ export function buildInventoryHistory(
       ? shippedEventTimestamp(linkedShipped) || toTimestamp(log.at)
       : toTimestamp(log.at);
 
+    const actedBy = String(
+      (log as InventoryChangeLog & { actedByName?: string | null }).actedByName ?? ""
+    ).trim();
+
     raw.push({
       timestamp: changeLogTimestamp,
       event: eventLabel,
@@ -1180,7 +1213,11 @@ export function buildInventoryHistory(
       qtyAfter: isPackLayoutOnly ? null : log.qtyAfter,
       qtyChange: isPackLayoutOnly ? null : log.qtyChange,
       details,
-      user: isProductMerge ? "System" : "Fulfillment",
+      user: isProductMerge
+        ? "System"
+        : isQuarantineChangeLog(log)
+          ? actedBy || "Quarantine"
+          : "Fulfillment",
       shipmentRequestId: log.shipmentRequestId ?? null,
       sourceId: log.id ? String(log.id) : undefined,
       outboundLinkKind:

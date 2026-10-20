@@ -8,6 +8,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   Timestamp,
   updateDoc,
   where,
@@ -173,13 +174,124 @@ function requestHasClientInventoryAdjusted(
   return Boolean(request.clientInventoryAdjustedAt);
 }
 
+type QuarantineHistoryMeta = {
+  requestId: string;
+  productName: string;
+  reason?: string | null;
+  notes?: string | null;
+  actedByName?: string | null;
+  /** Distinct log id when reversing a hold (reject) vs a normal release. */
+  logSuffix?: "reversed" | null;
+};
+
+function quarantineChangeLogEventType(
+  kind: QuarantineRequestKind
+): "quarantine_hold" | "quarantine_release" | "quarantine_dispose" {
+  if (kind === "release") return "quarantine_release";
+  if (kind === "dispose") return "quarantine_dispose";
+  return "quarantine_hold";
+}
+
+function quarantineChangeLogDocId(
+  requestId: string,
+  kind: QuarantineRequestKind,
+  suffix?: "reversed" | null
+): string {
+  if (suffix === "reversed") return `quarantine_${requestId}_reversed`;
+  if (kind === "release") return `quarantine_${requestId}_release`;
+  if (kind === "dispose") return `quarantine_${requestId}_dispose`;
+  return `quarantine_${requestId}`;
+}
+
+function buildQuarantineHistoryDetails(input: {
+  kind: QuarantineRequestKind;
+  movedQty: number;
+  damagedBefore: number;
+  damagedAfter: number;
+  reason?: string | null;
+  notes?: string | null;
+  requestId: string;
+  reversed?: boolean;
+}): string {
+  const headline = input.reversed
+    ? "Quarantine rejected — stock restored"
+    : input.kind === "release"
+      ? "Released from quarantine"
+      : input.kind === "dispose"
+        ? "Disposed from quarantine"
+        : "Moved to quarantine";
+  return [
+    headline,
+    `${input.movedQty} unit${input.movedQty === 1 ? "" : "s"}`,
+    `Damaged ${input.damagedBefore} → ${input.damagedAfter}`,
+    input.reason?.trim() ? `Reason: ${input.reason.trim()}` : "",
+    input.notes?.trim() ? `Notes: ${input.notes.trim()}` : "",
+    `Request: ${input.requestId}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+async function writeQuarantineInventoryChangeLog(input: {
+  userId: string;
+  inventoryId: string;
+  productName: string;
+  sku: string;
+  kind: QuarantineRequestKind;
+  qtyBefore: number;
+  qtyAfter: number;
+  damagedBefore: number;
+  damagedAfter: number;
+  movedQty: number;
+  history: QuarantineHistoryMeta;
+  at?: Timestamp;
+}): Promise<void> {
+  const logId = quarantineChangeLogDocId(
+    input.history.requestId,
+    input.kind,
+    input.history.logSuffix ?? null
+  );
+  const logRef = doc(db, `users/${input.userId}/inventoryChangeLogs`, logId);
+  const existing = await getDoc(logRef);
+  if (existing.exists()) return;
+
+  const eventType = input.history.logSuffix === "reversed"
+    ? "quarantine_release"
+    : quarantineChangeLogEventType(input.kind);
+  const qtyChange = input.qtyAfter - input.qtyBefore;
+
+  await setDoc(logRef, {
+    inventoryId: input.inventoryId,
+    productName: input.productName || input.history.productName,
+    sku: input.sku?.trim() || null,
+    eventType,
+    qtyBefore: input.qtyBefore,
+    qtyAfter: input.qtyAfter,
+    qtyChange,
+    quarantineRequestId: input.history.requestId,
+    actedByName: input.history.actedByName?.trim() || null,
+    details: buildQuarantineHistoryDetails({
+      kind: input.kind,
+      movedQty: input.movedQty,
+      damagedBefore: input.damagedBefore,
+      damagedAfter: input.damagedAfter,
+      reason: input.history.reason,
+      notes: input.history.notes,
+      requestId: input.history.requestId,
+      reversed: input.history.logSuffix === "reversed",
+    }),
+    at: input.at ?? Timestamp.now(),
+  });
+}
+
 /**
  * Move sellable units (and lots) onto the client's quarantine ledger.
  * Called on approve so Inventory / outbound update immediately; warehouse
  * complete only does the physical carton move afterward.
  */
 export async function applyClientInventoryForQuarantineMove(
-  request: QuarantineRequest
+  request: QuarantineRequest,
+  options?: { actedByName?: string | null }
 ): Promise<void> {
   if (request.kind !== "quarantine") return;
   if (requestHasClientInventoryAdjusted(request)) return;
@@ -195,6 +307,13 @@ export async function applyClientInventoryForQuarantineMove(
     kind: "quarantine",
     lotAllocations: normalizeExpiryLotAllocations(request.lotAllocations),
     movedQty: qty,
+    history: {
+      requestId: request.id,
+      productName: request.productName,
+      reason: request.reason,
+      notes: request.notes,
+      actedByName: options?.actedByName ?? request.approvedByName ?? request.requestedByName ?? null,
+    },
   });
 
   await updateDoc(doc(db, QUARANTINE_REQUESTS, request.id), {
@@ -203,7 +322,8 @@ export async function applyClientInventoryForQuarantineMove(
 }
 
 async function reverseClientInventoryForQuarantineMove(
-  request: QuarantineRequest
+  request: QuarantineRequest,
+  options?: { actedByName?: string | null; reasonOverride?: string | null }
 ): Promise<void> {
   if (request.kind !== "quarantine") return;
   if (!requestHasClientInventoryAdjusted(request)) return;
@@ -220,6 +340,14 @@ async function reverseClientInventoryForQuarantineMove(
     kind: "release",
     lotAllocations: normalizeExpiryLotAllocations(request.lotAllocations),
     movedQty: qty,
+    history: {
+      requestId: request.id,
+      productName: request.productName,
+      reason: options?.reasonOverride?.trim() || request.reason,
+      notes: request.notes,
+      actedByName: options?.actedByName ?? null,
+      logSuffix: "reversed",
+    },
   });
 }
 
@@ -235,6 +363,82 @@ export async function ensureApprovedQuarantineInventoryApplied(
   if (requestHasClientInventoryAdjusted(request)) return false;
 
   await applyClientInventoryForQuarantineMove(request);
+  return true;
+}
+
+/**
+ * Backfill Stock history for quarantine holds that already moved inventory
+ * before change-log writes existed (idempotent by stable doc id).
+ */
+export async function ensureQuarantineInventoryHistoryLogged(
+  request: QuarantineRequest
+): Promise<boolean> {
+  if (request.kind !== "quarantine") return false;
+  if (
+    request.status !== "approved" &&
+    request.status !== "completed"
+  ) {
+    return false;
+  }
+  if (!requestHasClientInventoryAdjusted(request) && request.status !== "completed") {
+    return false;
+  }
+
+  const qty = Math.max(0, Math.floor(Number(request.quantity) || 0));
+  if (qty < 1) return false;
+
+  const logId = quarantineChangeLogDocId(request.id, "quarantine");
+  const logRef = doc(db, `users/${request.userId}/inventoryChangeLogs`, logId);
+  const existing = await getDoc(logRef);
+  if (existing.exists()) return false;
+
+  let invRef = doc(db, `users/${request.userId}/inventory`, request.productId);
+  let snap = await getDoc(invRef);
+  if (!snap.exists() && request.sku.trim()) {
+    const bySku = await getDocs(
+      query(
+        collection(db, `users/${request.userId}/inventory`),
+        where("sku", "==", request.sku.trim()),
+        limit(1)
+      )
+    );
+    if (bySku.empty) return false;
+    invRef = bySku.docs[0].ref;
+    snap = await getDoc(invRef);
+  }
+  if (!snap.exists()) return false;
+
+  const data = snap.data() as { quantity?: number; damagedQuantity?: number; productName?: string };
+  const qtyAfter = Math.max(0, Number(data.quantity ?? 0));
+  const damagedAfter = Math.max(0, Number(data.damagedQuantity ?? 0));
+  const qtyBefore = qtyAfter + qty;
+  const damagedBefore = Math.max(0, damagedAfter - qty);
+
+  await writeQuarantineInventoryChangeLog({
+    userId: request.userId,
+    inventoryId: invRef.id,
+    productName: String(data.productName ?? request.productName),
+    sku: request.sku,
+    kind: "quarantine",
+    qtyBefore,
+    qtyAfter,
+    damagedBefore,
+    damagedAfter,
+    movedQty: qty,
+    history: {
+      requestId: request.id,
+      productName: request.productName,
+      reason: request.reason,
+      notes: request.notes,
+      actedByName: request.approvedByName || request.completedByName || request.requestedByName || null,
+    },
+    at:
+      typeof request.approvedAt === "object" &&
+      request.approvedAt &&
+      "seconds" in request.approvedAt
+        ? new Timestamp(request.approvedAt.seconds, request.approvedAt.nanoseconds ?? 0)
+        : Timestamp.now(),
+  });
   return true;
 }
 
@@ -254,7 +458,9 @@ export async function approveQuarantineRequest(input: {
   // Inventory/lots move off sellable immediately so the client inventory table
   // and outbound pickers update before the warehouse finishes the physical move.
   if (current.kind === "quarantine") {
-    await applyClientInventoryForQuarantineMove(current);
+    await applyClientInventoryForQuarantineMove(current, {
+      actedByName: input.approverName || "Admin",
+    });
   }
 
   await updateDoc(ref, {
@@ -285,7 +491,10 @@ export async function rejectQuarantineRequest(input: {
     ? parseRequest(snap.id, snap.data() as Record<string, unknown>)
     : input.request;
 
-  await reverseClientInventoryForQuarantineMove(current);
+  await reverseClientInventoryForQuarantineMove(current, {
+    actedByName: input.approverName || "Admin",
+    reasonOverride: feedback || current.reason,
+  });
 
   await updateDoc(ref, {
     status: "rejected",
@@ -589,6 +798,13 @@ async function applyMoveToQuarantine(input: {
       kind: "quarantine",
       lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
       movedQty,
+      history: {
+        requestId: input.request.id,
+        productName: input.request.productName,
+        reason: input.request.reason,
+        notes: input.request.notes,
+        actedByName: input.operatorName ?? "Warehouse operator",
+      },
     });
   }
 
@@ -648,6 +864,8 @@ async function shiftClientQuantities(input: {
   movedQty: number;
   /** Qty already updated elsewhere; only sync expiry lot ledgers. */
   batchesOnly?: boolean;
+  /** When set (and not batchesOnly), writes Stock history via inventoryChangeLogs. */
+  history?: QuarantineHistoryMeta | null;
 }): Promise<void> {
   if (
     input.goodDelta === 0 &&
@@ -676,16 +894,19 @@ async function shiftClientQuantities(input: {
   const data = snap.data() as {
     quantity?: number;
     damagedQuantity?: number;
+    productName?: string;
     expiryBatches?: unknown;
     quarantinedExpiryBatches?: unknown;
     expiryDate?: unknown;
   };
+  const qtyBefore = Math.max(0, Number(data.quantity ?? 0));
+  const damagedBefore = Math.max(0, Number(data.damagedQuantity ?? 0));
   const nextGood = input.batchesOnly
-    ? Math.max(0, Number(data.quantity ?? 0))
-    : Math.max(0, Number(data.quantity ?? 0) + input.goodDelta);
+    ? qtyBefore
+    : Math.max(0, qtyBefore + input.goodDelta);
   const nextDamaged = input.batchesOnly
-    ? Math.max(0, Number(data.damagedQuantity ?? 0))
-    : Math.max(0, Number(data.damagedQuantity ?? 0) + input.damagedDelta);
+    ? damagedBefore
+    : Math.max(0, damagedBefore + input.damagedDelta);
   const sellableBatches = asExpiryBatches(data.expiryBatches);
   let quarantinedBatches = asExpiryBatches(data.quarantinedExpiryBatches);
   let nextSellable = sellableBatches;
@@ -695,11 +916,11 @@ async function shiftClientQuantities(input: {
   if (input.kind === "quarantine" && moved > 0) {
     const consumed = allocs.length
       ? consumeExpiryBatchesFromAllocations(sellableBatches, allocs, {
-          onHandQuantity: Number(data.quantity ?? 0),
+          onHandQuantity: qtyBefore,
           legacyExpiryDate: data.expiryDate,
         })
       : consumeExpiryBatches(sellableBatches, moved, "fefo", {
-          onHandQuantity: Number(data.quantity ?? 0),
+          onHandQuantity: qtyBefore,
           legacyExpiryDate: data.expiryDate,
         });
     nextSellable = consumed.batches;
@@ -732,6 +953,22 @@ async function shiftClientQuantities(input: {
     }
   }
   await updateDoc(ref, patch);
+
+  if (!input.batchesOnly && input.history && moved > 0) {
+    await writeQuarantineInventoryChangeLog({
+      userId: input.userId,
+      inventoryId: ref.id,
+      productName: String(data.productName ?? input.history.productName),
+      sku: input.sku,
+      kind: input.kind,
+      qtyBefore,
+      qtyAfter: nextGood,
+      damagedBefore,
+      damagedAfter: nextDamaged,
+      movedQty: moved,
+      history: input.history,
+    });
+  }
 }
 
 /**
@@ -801,17 +1038,23 @@ export async function completeQuarantineRequest(input: {
       });
     }
     dest = { binId: null, binPath: path ?? null, areaCode: null };
-    // Qty already shifted by release helper — sync expiry lot ledgers only.
+    // Carton release does not touch client ledgers — move damaged → sellable here.
     await shiftClientQuantities({
       userId: input.request.userId,
       productId: input.request.productId,
       sku: input.request.sku,
-      goodDelta: 0,
-      damagedDelta: 0,
+      goodDelta: movedQty,
+      damagedDelta: -movedQty,
       kind: "release",
       lotAllocations: normalizeExpiryLotAllocations(input.request.lotAllocations),
       movedQty,
-      batchesOnly: true,
+      history: {
+        requestId: input.request.id,
+        productName: input.request.productName,
+        reason: input.request.reason,
+        notes: input.request.notes,
+        actedByName: input.operatorName ?? "Warehouse operator",
+      },
     });
   } else {
     for (const pick of input.picks) {
@@ -835,6 +1078,7 @@ export async function completeQuarantineRequest(input: {
         quantity: result.disposedQty,
       });
     }
+    // disposeQuarantineLine already reduced damagedQuantity — lot ledgers only.
     await shiftClientQuantities({
       userId: input.request.userId,
       productId: input.request.productId,
@@ -846,6 +1090,52 @@ export async function completeQuarantineRequest(input: {
       movedQty,
       batchesOnly: true,
     });
+    // History for dispose (qty already changed by dispose helper).
+    if (movedQty > 0) {
+      let invRef = doc(db, `users/${input.request.userId}/inventory`, input.request.productId);
+      let invSnap = await getDoc(invRef);
+      if (!invSnap.exists() && input.request.sku.trim()) {
+        const bySku = await getDocs(
+          query(
+            collection(db, `users/${input.request.userId}/inventory`),
+            where("sku", "==", input.request.sku.trim()),
+            limit(1)
+          )
+        );
+        if (!bySku.empty) {
+          invRef = bySku.docs[0].ref;
+          invSnap = await getDoc(invRef);
+        }
+      }
+      if (invSnap.exists()) {
+        const inv = invSnap.data() as {
+          quantity?: number;
+          damagedQuantity?: number;
+          productName?: string;
+        };
+        const qtyAfter = Math.max(0, Number(inv.quantity ?? 0));
+        const damagedAfter = Math.max(0, Number(inv.damagedQuantity ?? 0));
+        await writeQuarantineInventoryChangeLog({
+          userId: input.request.userId,
+          inventoryId: invRef.id,
+          productName: String(inv.productName ?? input.request.productName),
+          sku: input.request.sku,
+          kind: "dispose",
+          qtyBefore: qtyAfter,
+          qtyAfter,
+          damagedBefore: damagedAfter + movedQty,
+          damagedAfter,
+          movedQty,
+          history: {
+            requestId: input.request.id,
+            productName: input.request.productName,
+            reason: input.request.reason,
+            notes: input.request.notes,
+            actedByName: input.operatorName ?? "Warehouse operator",
+          },
+        });
+      }
+    }
   }
 
   if (movedQty < 1) throw new Error("Nothing was moved — check the picked quantities.");
@@ -906,7 +1196,12 @@ export async function adminCompleteQuarantineRequest(input: {
 
   if (current.kind === "quarantine") {
     if (!requestHasClientInventoryAdjusted(current)) {
-      await applyClientInventoryForQuarantineMove(current);
+      await applyClientInventoryForQuarantineMove(current, { actedByName: adminName });
+    } else {
+      await ensureQuarantineInventoryHistoryLogged({
+        ...current,
+        approvedByName: current.approvedByName || adminName,
+      });
     }
   } else if (current.kind === "release") {
     await shiftClientQuantities({
@@ -918,6 +1213,13 @@ export async function adminCompleteQuarantineRequest(input: {
       kind: "release",
       lotAllocations: normalizeExpiryLotAllocations(current.lotAllocations),
       movedQty: qty,
+      history: {
+        requestId: current.id,
+        productName: current.productName,
+        reason: current.reason,
+        notes: current.notes,
+        actedByName: adminName,
+      },
     });
   } else {
     await shiftClientQuantities({
@@ -929,6 +1231,13 @@ export async function adminCompleteQuarantineRequest(input: {
       kind: "dispose",
       lotAllocations: normalizeExpiryLotAllocations(current.lotAllocations),
       movedQty: qty,
+      history: {
+        requestId: current.id,
+        productName: current.productName,
+        reason: current.reason,
+        notes: current.notes,
+        actedByName: adminName,
+      },
     });
   }
 

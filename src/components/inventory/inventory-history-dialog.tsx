@@ -58,6 +58,13 @@ import {
 import { getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { cn } from "@/lib/utils";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import {
+  QUARANTINE_REQUESTS,
+  ensureQuarantineInventoryHistoryLogged,
+} from "@/lib/quarantine-request-ops";
+import type { QuarantineRequest } from "@/types";
 import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
 
 const EVENT_BADGE: Record<string, string> = {
@@ -69,6 +76,7 @@ const EVENT_BADGE: Record<string, string> = {
   edited: "bg-cyan-100 text-cyan-900",
   deleted: "bg-red-100 text-red-900",
   disposed: "bg-orange-100 text-orange-900",
+  quarantine: "bg-amber-100 text-amber-950",
   transfer: "bg-indigo-100 text-indigo-900",
 };
 
@@ -78,6 +86,7 @@ const EVENT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "inbound_request", label: "Inbound requests" },
   { value: "restock", label: "Restock" },
   { value: "shipped", label: "Outbound / Scheduled" },
+  { value: "quarantine", label: "Quarantine" },
   { value: "edited", label: "Edits" },
   { value: "disposed", label: "Disposed" },
   { value: "deleted", label: "Deleted" },
@@ -181,6 +190,38 @@ export function InventoryHistoryDialog({
       setActiveTab("overview");
     }
   }, [open, item?.id]);
+
+  // Backfill quarantine Stock history (with reason/remarks) for this product if missing.
+  useEffect(() => {
+    if (!open || !userId || !item?.id) return;
+    let cancelled = false;
+    const productId = item.id;
+    const sku = String(item.sku ?? "").trim().toLowerCase();
+    const run = async () => {
+      try {
+        const snap = await getDocs(
+          query(collection(db, QUARANTINE_REQUESTS), where("userId", "==", userId))
+        );
+        for (const d of snap.docs) {
+          if (cancelled) return;
+          const data = d.data() as Omit<QuarantineRequest, "id">;
+          const req = { ...data, id: d.id } as QuarantineRequest;
+          if (req.kind !== "quarantine") continue;
+          const matchesProduct =
+            req.productId === productId ||
+            (sku && String(req.sku ?? "").trim().toLowerCase() === sku);
+          if (!matchesProduct) continue;
+          await ensureQuarantineInventoryHistoryLogged(req);
+        }
+      } catch (err) {
+        console.warn("[inventory-history] quarantine history backfill failed", err);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, userId, item?.id, item?.sku]);
 
   const { data: editLogs, loading: l1 } = useCollection<EditLog>(path ? `${path}/editLogs` : "");
   const { data: deleteLogs, loading: l2 } = useCollection<DeleteLog>(path ? `${path}/deleteLogs` : "");
