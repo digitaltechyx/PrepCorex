@@ -720,6 +720,24 @@ export interface UserAuditEvent {
   synthetic?: boolean;
 }
 
+/** One entry in the inventory / inbound remarks timeline (client-visible). */
+export type InventoryRemarksLogEntry = {
+  id: string;
+  text?: string | null;
+  imageUrls?: string[];
+  at?: { seconds: number; nanoseconds: number } | string | Date;
+  by?: string | null;
+  byName?: string | null;
+  source?:
+    | "admin_receive"
+    | "admin_close"
+    | "warehouse_receive"
+    | "inbound_receive"
+    | string;
+  inventoryRequestId?: string | null;
+  goodQty?: number | null;
+};
+
 export interface InventoryItem {
   id: string;
   productName: string;
@@ -796,6 +814,11 @@ export interface InventoryItem {
   imageUrls?: string[];
   /** Warehouse receive / dock photos — shown under Remarks, not the product thumbnail. */
   remarksImageUrls?: string[];
+  /**
+   * Structured remarks timeline (admin/warehouse receive + close notes).
+   * Prefer this in the Remarks dialog; legacy `remarks` / `remarksImageUrls` stay in sync.
+   */
+  remarksLog?: InventoryRemarksLogEntry[];
   /** When warehouse putaway first added this stock to the client inventory. */
   receivingDate?: { seconds: number; nanoseconds: number } | string | Date;
   /** Most recent time units were added to this item's quarantine balance. */
@@ -957,6 +980,8 @@ export interface InventoryRequest {
   imageUrls?: string[];
   /** Dock receive photos linked at warehouse — shown in inventory Remarks. */
   remarksImageUrls?: string[];
+  /** Structured remarks timeline for inbound receive / close (client-visible). */
+  remarksLog?: InventoryRemarksLogEntry[];
   /** Carrier tracking numbers client adds while inbound is pending or in transit to warehouse. */
   inboundTrackings?: InboundTrackingEntry[];
   /** Warehouse inbound v2: open until fully received or manually closed. */

@@ -2,7 +2,12 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import type { InventoryItem, InventoryRequest, InboundBatch } from "@/types";
+import type {
+  InventoryItem,
+  InventoryRequest,
+  InboundBatch,
+  InventoryRemarksLogEntry,
+} from "@/types";
 import {
   Card,
   CardContent,
@@ -75,9 +80,11 @@ import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
 import type { ClientFefoStockRow } from "@/lib/client-fefo-stock";
 import {
+  consolidateExpiryBatchesByDate,
   expiryBatchIso,
   reconcileExpiryBatchesToOnHand,
 } from "@/lib/inventory-expiry-batches";
+import { sortRemarksLogNewestFirst } from "@/lib/inventory-remarks-log";
 import { formatInboundQuantityDisplay, getRequestedQuantity } from "@/lib/inventory-qty-display";
 import { formatLoadContentsLabel, formatShipmentTypeLabel, inboundBatchesPath, inboundBatchLinesPath, mirrorUnlinkedPendingBatchLines } from "@/lib/inbound-batch";
 import { resolveInboundTrackings } from "@/lib/inbound-tracking";
@@ -349,15 +356,18 @@ function formatInventoryExpiryLots(
   // FEFO-reconcile so Expiry shows remaining units when lots drifted above Quantity.
   // Depleted lots stay visible as "0 units" (including dates restored from history).
   const reconciled = reconcileExpiryBatchesToOnHand(
-    Array.isArray(item.expiryBatches)
-      ? (item.expiryBatches as Array<{ expiry?: string; quantity?: number }>)
-      : [],
+    consolidateExpiryBatchesByDate(
+      Array.isArray(item.expiryBatches)
+        ? (item.expiryBatches as Array<{ expiry?: string; quantity?: number }>)
+        : []
+    ),
     onHandQty,
     item.expiryDate,
     "fefo",
     knownExpiries
   );
-  const batches = reconciled.batches;
+  // One display line per calendar date (partial receives must not show duplicate dates).
+  const batches = consolidateExpiryBatchesByDate(reconciled.batches);
 
   if (batches.length > 0) {
     return {
@@ -396,9 +406,9 @@ function InventoryExpiryLotsPreview({
   return (
     <div className="flex items-start gap-0.5">
       <div className="space-y-0.5">
-        {visible.map((line) => (
+        {visible.map((line, index) => (
           <div
-            key={line}
+            key={`${index}:${line}`}
             className={cn("whitespace-nowrap text-sm leading-snug", lineClassName)}
           >
             {line}
@@ -938,6 +948,9 @@ export function InventoryTable({
   const [selectedRemarks, setSelectedRemarks] = useState<string>("");
   const [selectedImageUrls, setSelectedImageUrls] = useState<string[]>([]);
   const [selectedPhotosAt, setSelectedPhotosAt] = useState<string | null>(null);
+  const [selectedRemarksLog, setSelectedRemarksLog] = useState<InventoryRemarksLogEntry[]>(
+    []
+  );
   const [isRemarksDialogOpen, setIsRemarksDialogOpen] = useState(false);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState("");
@@ -1114,7 +1127,7 @@ export function InventoryTable({
   // Persist FEFO remainings + restored 0-unit depleted lots onto inventory docs.
   useEffect(() => {
     if (!effectiveUserId || data.length === 0) return;
-    const healKey = `${effectiveUserId}:${data.length}:v3-zero:${knownExpiriesByKey.size}`;
+    const healKey = `${effectiveUserId}:${data.length}:v4-consolidate:${knownExpiriesByKey.size}`;
     if (expiryHealRef.current === healKey) return;
     expiryHealRef.current = healKey;
 
@@ -1122,29 +1135,42 @@ export function InventoryTable({
       .map((item) => {
         const onHand = Math.max(0, Math.floor(Number(item.quantity) || 0));
         const known = knownExpiriesForInventoryItem(item as any, knownExpiriesByKey);
+        const rawBatches = Array.isArray(item.expiryBatches) ? item.expiryBatches : [];
+        const consolidated = consolidateExpiryBatchesByDate(rawBatches);
+        const hadDuplicateDates = consolidated.length < rawBatches.length;
         const reconciled = reconcileExpiryBatchesToOnHand(
-          item.expiryBatches,
+          consolidated,
           onHand,
           item.expiryDate,
           "fefo",
           known
         );
-        if (!reconciled.adjusted) return null;
-        return { id: item.id, reconciled };
+        const batches = consolidateExpiryBatchesByDate(reconciled.batches);
+        if (!reconciled.adjusted && !hadDuplicateDates) return null;
+        return {
+          id: item.id,
+          batches,
+          expiryDate: reconciled.expiryDate,
+        };
       })
       .filter(
-        (row): row is { id: string; reconciled: ReturnType<typeof reconcileExpiryBatchesToOnHand> } =>
-          Boolean(row?.id)
+        (
+          row
+        ): row is {
+          id: string;
+          batches: ReturnType<typeof consolidateExpiryBatchesByDate>;
+          expiryDate: string | null;
+        } => Boolean(row?.id)
       )
       .slice(0, 40);
 
     if (drifted.length === 0) return;
 
     void Promise.all(
-      drifted.map(({ id, reconciled }) =>
+      drifted.map(({ id, batches, expiryDate }) =>
         updateDoc(doc(db, `users/${effectiveUserId}/inventory`, id), {
-          expiryBatches: reconciled.batches,
-          expiryDate: reconciled.expiryDate,
+          expiryBatches: batches,
+          expiryDate,
         }).catch((err) => {
           console.warn("[inventory] FEFO expiry heal skipped", id, err);
         })
@@ -1378,7 +1404,8 @@ export function InventoryTable({
   const handleRemarksClick = (
     remarks: string,
     imageUrls?: string | string[],
-    photoAt?: unknown
+    photoAt?: unknown,
+    remarksLog?: InventoryRemarksLogEntry[] | null
   ) => {
     setSelectedRemarks(remarks);
     if (Array.isArray(imageUrls)) {
@@ -1389,6 +1416,7 @@ export function InventoryTable({
       setSelectedImageUrls([]);
     }
     setSelectedPhotosAt(formatDateTime(photoAt));
+    setSelectedRemarksLog(Array.isArray(remarksLog) ? remarksLog : []);
     setIsRemarksDialogOpen(true);
   };
 
@@ -2316,7 +2344,10 @@ export function InventoryTable({
                 .filter(Boolean)
                 .join(" · ");
               const hasRemarks =
-                Boolean(item.remarks?.trim()) || getRemarksImageUrls(item as any).length > 0;
+                Boolean(item.remarks?.trim()) ||
+                getRemarksImageUrls(item as any).length > 0 ||
+                (Array.isArray((item as any).remarksLog) &&
+                  (item as any).remarksLog.length > 0);
               const hasExtraDetails =
                 expiryLots.lines.length > 0 ||
                 Boolean(unitLine) ||
@@ -2646,14 +2677,15 @@ export function InventoryTable({
                             handleRemarksClick(
                               item.remarks || "",
                               getRemarksImageUrls(item as any),
-                              (item as any).remarksPhotoAt
+                              (item as any).remarksPhotoAt,
+                              (item as any).remarksLog
                             )
                           }
                         >
                           {item.remarks?.trim() ? (
                             <span className="italic text-blue-600 line-clamp-2">{item.remarks}</span>
                           ) : (
-                            <span className="text-blue-600">View photos</span>
+                            <span className="text-blue-600">View remarks log</span>
                           )}
                           <Eye className="ml-1 inline-block h-3 w-3 align-middle" />
                         </Button>
@@ -2920,7 +2952,9 @@ export function InventoryTable({
                     </TableCell>
                     <TableCell className="hidden lg:table-cell max-w-[180px]">
                       {(item.remarks && item.remarks.trim()) ||
-                      getRemarksImageUrls(item as any).length > 0 ? (
+                      getRemarksImageUrls(item as any).length > 0 ||
+                      (Array.isArray((item as any).remarksLog) &&
+                        (item as any).remarksLog.length > 0) ? (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -2929,14 +2963,15 @@ export function InventoryTable({
                             handleRemarksClick(
                               item.remarks || "",
                               getRemarksImageUrls(item as any),
-                              (item as any).remarksPhotoAt
+                              (item as any).remarksPhotoAt,
+                              (item as any).remarksLog
                             )
                           }
                         >
                           <span className="truncate text-xs">
                             {item.remarks && item.remarks.trim()
                               ? item.remarks
-                              : "View photos"}
+                              : "View remarks log"}
                           </span>
                           <Eye className="h-3 w-3 ml-1 flex-shrink-0" />
                         </Button>
@@ -3118,39 +3153,139 @@ export function InventoryTable({
           <DialogHeader>
             <DialogTitle>Remarks</DialogTitle>
             <DialogDescription>
-              Warehouse receive remarks and photos for this inventory item
+              Receive and close remarks with photos for this inventory item
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 overflow-y-auto max-h-[60vh] space-y-4">
-            {selectedImageUrls.length > 0 && (
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="text-sm font-semibold">
-                  Receive photos ({selectedImageUrls.length})
-                </p>
-                {selectedPhotosAt && (
-                  <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                    {selectedPhotosAt}
-                  </p>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedImageUrls.map((url, index) => (
-                    <div key={index} className="relative">
-                      <img
-                        src={url}
-                        alt={`Inventory ${index + 1}`}
-                        className="max-w-full h-auto rounded-lg border"
-                      />
+            {selectedRemarksLog.length > 0 ? (
+              (() => {
+                const ordered = sortRemarksLogNewestFirst(selectedRemarksLog);
+                const usedPhotoUrls = new Set(
+                  ordered.flatMap((e) =>
+                    Array.isArray(e.imageUrls)
+                      ? e.imageUrls.map((u) => String(u || "").trim()).filter(Boolean)
+                      : []
+                  )
+                );
+                // Flat remarksImageUrls may hold photos when log entries are text-only.
+                const orphanPhotos = selectedImageUrls.filter(
+                  (url) => Boolean(url) && !usedPhotoUrls.has(url)
+                );
+                return (
+                  <>
+                    {ordered.map((entry, entryIndex) => {
+                      const when = formatDateTime(entry.at);
+                      const photos = Array.isArray(entry.imageUrls)
+                        ? entry.imageUrls.map((u) => String(u || "").trim()).filter(Boolean)
+                        : [];
+                      const sourceLabel =
+                        entry.source === "admin_close"
+                          ? "Closed"
+                          : entry.source === "admin_receive"
+                            ? "Admin receive"
+                            : entry.source === "warehouse_receive" ||
+                                entry.source === "inbound_receive"
+                              ? "Warehouse receive"
+                              : "Remark";
+                      return (
+                        <div
+                          key={entry.id || `remark-${entryIndex}`}
+                          className="rounded-lg border bg-muted/30 p-3 space-y-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-foreground">
+                              {sourceLabel}
+                              {entry.goodQty != null && entry.goodQty > 0
+                                ? ` · +${entry.goodQty} units`
+                                : ""}
+                            </span>
+                            {when ? (
+                              <span className="text-[11px] text-muted-foreground">
+                                {when}
+                              </span>
+                            ) : null}
+                          </div>
+                          {entry.byName || entry.by ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              By {entry.byName || entry.by}
+                            </p>
+                          ) : null}
+                          {entry.text?.trim() ? (
+                            <p className="text-sm whitespace-pre-wrap break-words">
+                              {entry.text.trim()}
+                            </p>
+                          ) : null}
+                          {photos.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {photos.map((url, index) => (
+                                <img
+                                  key={`${entry.id || entryIndex}-${index}`}
+                                  src={url}
+                                  alt={`Remark photo ${index + 1}`}
+                                  className="max-w-full h-auto rounded-lg border"
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    {orphanPhotos.length > 0 ? (
+                      <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                        <p className="text-xs font-semibold">
+                          Receive photos ({orphanPhotos.length})
+                        </p>
+                        {selectedPhotosAt ? (
+                          <p className="text-[11px] text-muted-foreground">{selectedPhotosAt}</p>
+                        ) : null}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {orphanPhotos.map((url, index) => (
+                            <img
+                              key={`orphan-${index}`}
+                              src={url}
+                              alt={`Receive photo ${index + 1}`}
+                              className="max-w-full h-auto rounded-lg border"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                {selectedImageUrls.length > 0 && (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-sm font-semibold">
+                      Receive photos ({selectedImageUrls.length})
+                    </p>
+                    {selectedPhotosAt && (
+                      <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                        {selectedPhotosAt}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {selectedImageUrls.map((url, index) => (
+                        <div key={index} className="relative">
+                          <img
+                            src={url}
+                            alt={`Inventory ${index + 1}`}
+                            className="max-w-full h-auto rounded-lg border"
+                          />
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                )}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="text-sm font-semibold mb-2">Remarks</p>
+                  <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">
+                    {selectedRemarks || "No remarks available"}
+                  </p>
                 </div>
-              </div>
+              </>
             )}
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <p className="text-sm font-semibold mb-2">Remarks</p>
-              <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">
-                {selectedRemarks || "No remarks available"}
-              </p>
-            </div>
           </div>
         </DialogContent>
       </Dialog>

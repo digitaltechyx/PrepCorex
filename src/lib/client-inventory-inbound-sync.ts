@@ -21,6 +21,7 @@ import type { EbayInventoryPushHint } from "@/lib/ebay-inventory-sync";
 import {
   earliestExpiryFromBatches,
   expiryBatchIso,
+  consolidateExpiryBatchesByDate,
   mergeExpiryBatch,
   seedExpiryBatchesFromLegacy,
   type ExpiryBatch,
@@ -232,6 +233,7 @@ function applyPutawayExpiryBatches(input: {
       requestId: requestId || null,
     });
   }
+  batches = consolidateExpiryBatchesByDate(batches);
   return { batches, earliest: earliestExpiryFromBatches(batches) };
 }
 
@@ -723,8 +725,6 @@ export async function closeInventoryRequest(input: {
 }): Promise<void> {
   const ref = doc(db, "users", input.clientUserId, "inventoryRequests", input.requestId);
   const remarksNote = input.closeRemarks?.trim() || "";
-  let linkedInventoryId: string | null = null;
-  let nextInventoryRemarks: string | null = null;
 
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
@@ -747,9 +747,6 @@ export async function closeInventoryRequest(input: {
 
     if (remarksNote) {
       patch.closeRemarks = remarksNote;
-      const existing = String(data.remarks || "").trim();
-      const tagged = `[Closed] ${remarksNote}`;
-      patch.remarks = existing ? `${existing}\n\n${tagged}` : tagged;
     }
 
     tx.update(ref, patch);
@@ -757,31 +754,16 @@ export async function closeInventoryRequest(input: {
 
   if (!remarksNote) return;
 
-  // Mirror close note onto linked inventory so the client sees it in Remarks.
   try {
-    const invCol = collection(db, "users", input.clientUserId, "inventory");
-    const bySource = await getDocs(
-      query(invCol, where("sourceRequestId", "==", input.requestId), limit(1))
-    );
-    const invDoc = bySource.docs[0];
-    if (!invDoc) return;
-    linkedInventoryId = invDoc.id;
-    const existing = String(invDoc.data()?.remarks || "").trim();
-    const tagged = `[Closed] ${remarksNote}`;
-    nextInventoryRemarks = existing.includes(tagged)
-      ? existing
-      : existing
-        ? `${existing}\n\n${tagged}`
-        : tagged;
-    await updateDoc(invDoc.ref, {
-      remarks: nextInventoryRemarks,
-      updatedAt: serverTimestamp(),
+    const { appendInboundRemarksLog } = await import("@/lib/inventory-remarks-log");
+    await appendInboundRemarksLog({
+      clientUserId: input.clientUserId,
+      requestId: input.requestId,
+      entries: [{ text: `[Closed] ${remarksNote}`, imageUrls: [] }],
+      by: input.closedBy,
+      source: "admin_close",
     });
   } catch (err) {
-    console.warn(
-      "[closeInventoryRequest] could not mirror close remarks to inventory",
-      linkedInventoryId,
-      err
-    );
+    console.warn("[closeInventoryRequest] remarks log append failed", err);
   }
 }

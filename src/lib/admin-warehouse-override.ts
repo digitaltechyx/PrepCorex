@@ -29,6 +29,7 @@ import {
   listWarehouseAreas,
 } from "@/lib/warehouse-putaway-disposition";
 import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
+import { appendInboundRemarksLog } from "@/lib/inventory-remarks-log";
 import { disposeQuarantineLine, listQuarantineHolds, releaseQuarantineLineToStorage } from "@/lib/warehouse-quarantine";
 import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
 import { normalizeCourierScan } from "@/lib/warehouse-courier-label";
@@ -110,7 +111,15 @@ export type AdminInboundCompleteInput = {
   trackingNumber?: string | null;
   carrier?: string | null;
   notes?: string | null;
+  /** Dock / receive photos (uploaded before complete). */
+  photoUrls?: string[];
+  /**
+   * Structured remarks for this receive (one or many). Each entry may have its own photos.
+   * Persisted to inventory + request remarksLog for the client Remarks dialog.
+   */
+  remarksLogEntries?: Array<{ text?: string | null; imageUrls?: string[] }>;
   operatorId?: string | null;
+  operatorName?: string | null;
   clientDisplayName?: string | null;
 };
 
@@ -335,6 +344,9 @@ export async function adminCompleteInboundReceiveAndPutaway(
         clientId: input.clientUserId,
       });
     }
+    const receivePhotos = (input.photoUrls ?? [])
+      .map((u) => String(u || "").trim())
+      .filter(Boolean);
     return {
       copies: 1,
       clientId: input.clientUserId,
@@ -343,6 +355,9 @@ export async function adminCompleteInboundReceiveAndPutaway(
       trackingNumber: input.trackingNumber?.trim() || null,
       carrier: input.carrier?.trim() || null,
       notes: input.notes?.trim() || null,
+      // Attach photos on the first carton copy so putaway sync / remarks pick them up.
+      photoUrls: index === 0 && receivePhotos.length > 0 ? receivePhotos : undefined,
+      photoUrl: index === 0 ? receivePhotos[0] ?? null : null,
       lines,
     };
   });
@@ -513,6 +528,35 @@ export async function adminCompleteInboundReceiveAndPutaway(
       : damagedStagingArea || null;
   }
   await updateDoc(requestRef, requestPutawayPatch);
+
+  // Structured remarks log (multi-entry with photos) for client Remarks dialog.
+  const logEntries = (input.remarksLogEntries ?? [])
+    .map((entry) => ({
+      text: entry.text?.trim() || null,
+      imageUrls: (entry.imageUrls ?? []).map((u) => String(u || "").trim()).filter(Boolean),
+    }))
+    .filter((entry) => entry.text || (entry.imageUrls?.length ?? 0) > 0);
+  if (logEntries.length === 0 && (input.notes?.trim() || (input.photoUrls?.length ?? 0) > 0)) {
+    logEntries.push({
+      text: input.notes?.trim() || null,
+      imageUrls: (input.photoUrls ?? []).map((u) => String(u || "").trim()).filter(Boolean),
+    });
+  }
+  if (logEntries.length > 0) {
+    try {
+      await appendInboundRemarksLog({
+        clientUserId: input.clientUserId,
+        requestId: input.requestId,
+        entries: logEntries,
+        by: input.operatorId ?? null,
+        byName: input.operatorName ?? null,
+        source: "admin_receive",
+        goodQty: qty + damagedQty,
+      });
+    } catch (err) {
+      console.warn("[adminCompleteInbound] remarks log append failed", err);
+    }
+  }
 
   const goodDest = qty > 0 ? destinationBin?.path || stagingArea : "";
   const damagedDest =

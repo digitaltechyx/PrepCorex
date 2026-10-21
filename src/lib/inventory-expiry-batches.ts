@@ -43,41 +43,66 @@ function toIsoDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Collapse duplicate same-date rows (e.g. two "May 30 · 20" from partial receives
+ * that failed to merge because lot keys differed). Keeps a non-empty lot when present.
+ */
+export function consolidateExpiryBatchesByDate(
+  existing: ExpiryBatch[] | undefined | null
+): ExpiryBatch[] {
+  const byExpiry = new Map<string, ExpiryBatch>();
+  for (const raw of Array.isArray(existing) ? existing : []) {
+    const expiry = expiryBatchIso(raw.expiry) || String(raw.expiry || "").trim();
+    if (!expiry) continue;
+    const quantity = Math.max(0, Math.floor(Number(raw.quantity) || 0));
+    const lot = raw.lot != null && String(raw.lot).trim() ? String(raw.lot).trim() : null;
+    const prev = byExpiry.get(expiry);
+    if (!prev) {
+      byExpiry.set(expiry, {
+        expiry,
+        quantity,
+        lot,
+        requestId: raw.requestId ?? null,
+      });
+      continue;
+    }
+    byExpiry.set(expiry, {
+      expiry,
+      quantity: prev.quantity + quantity,
+      lot: prev.lot || lot,
+      requestId: raw.requestId ?? prev.requestId ?? null,
+    });
+  }
+  return Array.from(byExpiry.values()).sort((a, b) => a.expiry.localeCompare(b.expiry));
+}
+
 export function mergeExpiryBatch(
   existing: ExpiryBatch[] | undefined | null,
   incoming: { expiry: string; quantity: number; lot?: string | null; requestId?: string | null }
 ): ExpiryBatch[] {
   const qty = Math.max(0, Math.floor(incoming.quantity));
-  if (!incoming.expiry || qty <= 0) {
-    return Array.isArray(existing) ? existing.map((b) => ({ ...b })) : [];
+  const incomingExpiry =
+    expiryBatchIso(incoming.expiry) || String(incoming.expiry || "").trim();
+  if (!incomingExpiry || qty <= 0) {
+    return consolidateExpiryBatchesByDate(existing);
   }
-  const next = Array.isArray(existing)
-    ? existing
-        .map((b) => ({
-          expiry: String(b.expiry || "").trim(),
-          quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
-          lot: b.lot ?? null,
-          requestId: b.requestId ?? null,
-        }))
-        // Keep 0-qty lots so Expiry can still show "0 units" and restock can refill them.
-        .filter((b) => Boolean(b.expiry))
-    : [];
+  const next = consolidateExpiryBatchesByDate(existing);
 
-  const lotKey = (incoming.lot ?? "").trim();
-  const idx = next.findIndex(
-    (b) => b.expiry === incoming.expiry && (b.lot ?? "").trim() === lotKey
-  );
+  // Same calendar expiry always merges for inbound putaway (lot is optional metadata).
+  const idx = next.findIndex((b) => b.expiry === incomingExpiry);
+  const lotKey = (incoming.lot ?? "").trim() || null;
   if (idx >= 0) {
     next[idx] = {
       ...next[idx]!,
       quantity: next[idx]!.quantity + qty,
+      lot: next[idx]!.lot || lotKey,
       requestId: incoming.requestId ?? next[idx]!.requestId ?? null,
     };
   } else {
     next.push({
-      expiry: incoming.expiry,
+      expiry: incomingExpiry,
       quantity: qty,
-      lot: incoming.lot ?? null,
+      lot: lotKey,
       requestId: incoming.requestId ?? null,
     });
   }
@@ -168,16 +193,7 @@ export function sumExpiryLotAllocations(allocations: ExpiryLotAllocation[]): num
 }
 
 function normalizeExpiryBatches(existing: ExpiryBatch[] | undefined | null): ExpiryBatch[] {
-  if (!Array.isArray(existing)) return [];
-  return existing
-    .map((b) => ({
-      expiry: String(b.expiry || "").trim(),
-      quantity: Math.max(0, Math.floor(Number(b.quantity) || 0)),
-      lot: b.lot ?? null,
-      requestId: b.requestId ?? null,
-    }))
-    // Keep 0-qty lots so UI can show "Jun 6 · 0 units" after FEFO depletes a batch.
-    .filter((b) => Boolean(b.expiry));
+  return consolidateExpiryBatchesByDate(existing);
 }
 
 /**

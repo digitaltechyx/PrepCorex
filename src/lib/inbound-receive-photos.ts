@@ -18,17 +18,33 @@ export async function uploadReceivePhotos(input: {
   uploadedBy?: string | null;
 }): Promise<string[]> {
   const urls: string[] = [];
-  for (const file of input.files) {
+  const errors: string[] = [];
+  for (let i = 0; i < input.files.length; i++) {
+    const file = input.files[i]!;
     try {
       const compressed = await compressImage(file);
-      if (compressed.size > 1024 * 1024) continue;
-      const path = `warehouse-receive/${input.warehouseId}/${Date.now()}_${compressed.name}`;
+      // Prefer compressed under 1.5MB; still upload if slightly over so remarks keep photos.
+      const safeName = String(compressed.name || file.name || `photo-${i}.jpg`)
+        .replace(/[^\w.\-]+/g, "_")
+        .slice(0, 80);
+      const path = `warehouse-receive/${input.warehouseId}/${Date.now()}_${i}_${safeName}`;
       const storageRef = ref(storage, path);
-      await uploadBytes(storageRef, compressed);
+      await uploadBytes(storageRef, compressed, {
+        contentType: compressed.type || file.type || "image/jpeg",
+      });
       urls.push(await getDownloadURL(storageRef));
-    } catch {
-      // skip failed uploads
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "upload failed";
+      errors.push(`${file.name || `photo ${i + 1}`}: ${message}`);
+      console.warn("[uploadReceivePhotos] failed", file.name, err);
     }
+  }
+  if (urls.length === 0 && input.files.length > 0) {
+    throw new Error(
+      errors[0]
+        ? `Could not upload receive photos (${errors[0]})`
+        : "Could not upload receive photos."
+    );
   }
   return urls;
 }

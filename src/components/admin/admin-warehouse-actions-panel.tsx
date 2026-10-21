@@ -2,7 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Download, Loader2, PackageCheck, RotateCcw, Truck, Warehouse } from "lucide-react";
+import {
+  Download,
+  ImagePlus,
+  Loader2,
+  PackageCheck,
+  Plus,
+  RotateCcw,
+  Trash2,
+  Truck,
+  Warehouse,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +76,8 @@ import {
   closeInventoryRequest,
   healInboundReceivedQtyFromPutawayLogs,
 } from "@/lib/client-inventory-inbound-sync";
+import { uploadReceivePhotos } from "@/lib/inbound-receive-photos";
+import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
 import { WarehouseOutboundLineEditPanel } from "@/components/warehouse-ops/warehouse-outbound-line-edit-panel";
 import { cn } from "@/lib/utils";
 import type {
@@ -76,6 +89,20 @@ import type {
   WarehouseCartonLine,
   WarehouseDoc,
 } from "@/types";
+
+type AdminReceiveRemarkDraft = {
+  id: string;
+  text: string;
+  files: File[];
+};
+
+function newRemarkDraft(): AdminReceiveRemarkDraft {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `r_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return { id, text: "", files: [] };
+}
 
 type InboundProps = {
   mode: "inbound";
@@ -162,7 +189,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const [expiry, setExpiry] = useState("");
   const [carrier, setCarrier] = useState("");
   const [inboundTracking, setInboundTracking] = useState("");
-  const [inboundNotes, setInboundNotes] = useState("");
+  const [remarkDrafts, setRemarkDrafts] = useState<AdminReceiveRemarkDraft[]>([
+    newRemarkDraft(),
+  ]);
   const [lastInboundResult, setLastInboundResult] =
     useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
@@ -371,6 +400,12 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     setQty(rem > 0 ? rem : 1);
     setDamagedQty(0);
     setPackageCount(1);
+    setLot("");
+    // Prefill client-provided expiry; admin can change before receive.
+    setExpiry(formatExpiryForInput(props.request.expiryDate));
+    setCarrier("");
+    setInboundTracking("");
+    setRemarkDrafts([newRemarkDraft()]);
     setLastInboundResult(null);
     setDamagedDestinationSlot(emptyPutawayLineSlot());
     setChangeDamagedPutaway(true);
@@ -640,6 +675,51 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
       }
       setBusy(true);
       try {
+        const draftsWithContent = remarkDrafts.filter(
+          (d) => d.text.trim() || d.files.length > 0
+        );
+        const remarksLogEntries: Array<{ text: string | null; imageUrls: string[] }> = [];
+        for (const draft of draftsWithContent) {
+          let imageUrls: string[] = [];
+          if (draft.files.length > 0) {
+            try {
+              imageUrls = await uploadReceivePhotos({
+                warehouseId,
+                files: draft.files,
+                uploadedBy: userProfile?.uid ?? null,
+              });
+              if (imageUrls.length < draft.files.length) {
+                toast({
+                  title: "Some photos did not upload",
+                  description: `${imageUrls.length} of ${draft.files.length} photos saved for this remark.`,
+                });
+              }
+            } catch (uploadError: unknown) {
+              toast({
+                variant: "destructive",
+                title: "Photo upload failed",
+                description:
+                  uploadError instanceof Error
+                    ? uploadError.message
+                    : "Could not upload receive photos.",
+              });
+              setBusy(false);
+              return;
+            }
+          }
+          remarksLogEntries.push({
+            text: draft.text.trim() || null,
+            imageUrls,
+          });
+        }
+        const combinedNotes = remarksLogEntries
+          .map((e) => e.text)
+          .filter(Boolean)
+          .join("\n\n");
+        const allPhotoUrls = [
+          ...new Set(remarksLogEntries.flatMap((e) => e.imageUrls)),
+        ];
+
         const result = await adminCompleteInboundReceiveAndPutaway({
           clientUserId,
           requestId: request.id,
@@ -656,10 +736,14 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           expiry,
           carrier,
           trackingNumber: inboundTracking,
-          notes: inboundNotes,
+          notes: combinedNotes || null,
+          photoUrls: allPhotoUrls,
+          remarksLogEntries,
           operatorId: userProfile?.uid ?? null,
+          operatorName: userProfile?.name ?? userProfile?.email ?? null,
           clientDisplayName,
         });
+        setRemarkDrafts([newRemarkDraft()]);
         setLastInboundResult(result);
         if (user && (result.shopifyPushHints?.length || result.ebayPushHints?.length)) {
           try {
@@ -1025,6 +1109,18 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           <div className="space-y-1.5">
             <Label>Expiry (optional)</Label>
             <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+            {formatExpiryForInput(request.expiryDate) ? (
+              <p className="text-[10px] text-muted-foreground">
+                Prefills from the client request
+                {expiry === formatExpiryForInput(request.expiryDate)
+                  ? " (using their date)."
+                  : " — you changed it for this receive."}
+              </p>
+            ) : (
+              <p className="text-[10px] text-muted-foreground">
+                Client did not set an expiry on this request.
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Carrier (optional)</Label>
@@ -1038,13 +1134,141 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               placeholder="Tracking number"
             />
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>Receiving notes (optional)</Label>
-            <Textarea
-              value={inboundNotes}
-              onChange={(e) => setInboundNotes(e.target.value)}
-              placeholder="Condition, package details, or admin notes"
-            />
+          <div className="space-y-2 sm:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Remarks &amp; photos (optional)</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={busy}
+                onClick={() => setRemarkDrafts((prev) => [...prev, newRemarkDraft()])}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Add remark
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Add one remark with photos, or several remarks each with their own photos. Shown to
+              the client in Remarks as a dated log.
+            </p>
+            <div className="space-y-3">
+              {remarkDrafts.map((draft, index) => (
+                <div
+                  key={draft.id}
+                  className="space-y-2 rounded-md border bg-background/80 p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Remark {index + 1}
+                    </p>
+                    {remarkDrafts.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        disabled={busy}
+                        title="Remove remark"
+                        onClick={() =>
+                          setRemarkDrafts((prev) => prev.filter((d) => d.id !== draft.id))
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <Textarea
+                    value={draft.text}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setRemarkDrafts((prev) =>
+                        prev.map((d) =>
+                          d.id === draft.id ? { ...d, text: e.target.value } : d
+                        )
+                      )
+                    }
+                    placeholder="Condition, package details, or admin notes"
+                    rows={2}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label
+                      htmlFor={`admin-receive-photos-${draft.id}`}
+                      className={cn(
+                        "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs",
+                        busy && "pointer-events-none opacity-50"
+                      )}
+                    >
+                      <ImagePlus className="h-3.5 w-3.5" />
+                      Add photos
+                    </Label>
+                    <input
+                      id={`admin-receive-photos-${draft.id}`}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        e.target.value = "";
+                        if (files.length === 0) return;
+                        setRemarkDrafts((prev) =>
+                          prev.map((d) =>
+                            d.id === draft.id
+                              ? { ...d, files: [...d.files, ...files].slice(0, 12) }
+                              : d
+                          )
+                        );
+                      }}
+                    />
+                    {draft.files.length > 0 ? (
+                      <span className="text-[10px] text-muted-foreground">
+                        {draft.files.length} photo{draft.files.length === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
+                  </div>
+                  {draft.files.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {draft.files.map((file, fileIndex) => (
+                        <div
+                          key={`${draft.id}-${file.name}-${fileIndex}`}
+                          className="relative h-14 w-14 overflow-hidden rounded border bg-muted"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt={file.name}
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            className="absolute right-0 top-0 rounded-bl bg-black/60 p-0.5 text-white"
+                            disabled={busy}
+                            aria-label="Remove photo"
+                            onClick={() =>
+                              setRemarkDrafts((prev) =>
+                                prev.map((d) =>
+                                  d.id === draft.id
+                                    ? {
+                                        ...d,
+                                        files: d.files.filter((_, i) => i !== fileIndex),
+                                      }
+                                    : d
+                                )
+                              )
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
