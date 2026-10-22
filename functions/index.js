@@ -609,49 +609,5 @@ exports.processClientAccountInactivity = functions.pubsub
   });
 
 // Inbound tracking 6h cron lives in functions-inbound-cron/ (separate codebase for faster deploy).
-
-/**
- * CRM Lexi every 3 hours (Vercel Hobby cannot run sub-daily crons).
- * Calls CRM-PrepCorex /api/lexi/cron with CRON_SECRET.
- * Set Firebase Functions env: CRON_SECRET (or LEXI_CRON_SECRET), optional LEXI_CRON_URL.
- */
-exports.runCrmLexiCron = functions
-  .runWith({ timeoutSeconds: 120, memory: "256MB" })
-  .pubsub.schedule("every 3 hours")
-  .timeZone(TZ_NEW_JERSEY)
-  .onRun(async () => {
-    const url = String(
-      process.env.LEXI_CRON_URL || "https://crm.prepservicesfba.com/api/lexi/cron"
-    ).trim();
-    const secret = String(
-      process.env.CRON_SECRET || process.env.LEXI_CRON_SECRET || ""
-    ).trim();
-
-    if (!secret) {
-      console.warn(
-        "[Lexi cron] CRON_SECRET / LEXI_CRON_SECRET not set on Functions; skipping."
-      );
-      return null;
-    }
-
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${secret}`,
-          "x-cron-secret": secret,
-        },
-      });
-      const body = await res.text();
-      if (!res.ok) {
-        console.error("[Lexi cron] HTTP", res.status, body.slice(0, 800));
-        throw new Error(`Lexi cron failed with HTTP ${res.status}`);
-      }
-      console.log("[Lexi cron] ok", body.slice(0, 800));
-    } catch (err) {
-      console.error("[Lexi cron] error:", err);
-      throw err;
-    }
-    return null;
-  });
+// CRM Lexi cron lives in CRM-PrepCorex/functions (not here).
 
