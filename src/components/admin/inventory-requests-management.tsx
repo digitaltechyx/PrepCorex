@@ -1112,7 +1112,7 @@ export function InventoryRequestsManagement({
 
   if (standaloneMode) {
     if (loading || batchesLoading) {
-      return (
+  return (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -2274,11 +2274,11 @@ function ReviewRequestDialog({
               {/* Editable SKU - Only for product type */}
               {request.inventoryType === "product" && (
                 <div>
-                  <Label>SKU *</Label>
+                  <Label>SKU (optional)</Label>
                   <Input
                     value={editedSku}
                     onChange={(e) => setEditedSku(e.target.value)}
-                    placeholder="Enter SKU"
+                    placeholder="Leave blank — client can add later from Inventory"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
                     Original: {(request as any).sku || "N/A"}
@@ -2411,10 +2411,9 @@ function ReviewRequestDialog({
                 <Button
                   onClick={handleApproveClick}
                   disabled={
-                    isProcessing || 
-                    editedQuantity <= 0 || 
-                    !editedProductName.trim() || 
-                    (request.inventoryType === "product" && !editedSku.trim())
+                    isProcessing ||
+                    editedQuantity <= 0 ||
+                    !editedProductName.trim()
                   }
                   className="min-h-[44px] flex-1 sm:min-h-9"
                 >
@@ -2463,9 +2462,9 @@ function ReviewRequestDialog({
                             alt={`Evidence ${index + 1}`}
                             className="max-h-32 max-w-full rounded"
                           />
-                          <Button
+                <Button
                             type="button"
-                            variant="destructive"
+                  variant="destructive"
                             size="sm"
                             className="absolute top-1 right-1 h-6 w-6 p-0"
                             onClick={() =>

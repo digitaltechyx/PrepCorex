@@ -168,9 +168,7 @@ const inventoryRequestSchema = z.object({
     if (!data.productName || data.productName.trim() === "") {
       return false;
     }
-    if (!data.sku || data.sku.trim() === "") {
-      return false;
-    }
+    // SKU is optional — clients may add it later from Inventory.
   }
   return true;
 }, {
@@ -1039,13 +1037,14 @@ export function AddInventoryRequestForm({
         }
       } else if (isMultiNewProductSingle) {
         const invalidRow = newProductRows.find(
-          (row) => !row.productName.trim() || !row.sku.trim() || row.quantity <= 0
+          (row) => !row.productName.trim() || row.quantity <= 0
         );
         if (invalidRow) {
           toast({
             variant: "destructive",
             title: "Invalid products",
-            description: "Each product requires a name, SKU, and quantity greater than 0.",
+            description:
+              "Each product requires a name and quantity greater than 0. SKU is optional.",
           });
           setIsLoading(false);
           return;
@@ -1054,6 +1053,7 @@ export function AddInventoryRequestForm({
         const seenSkus = new Set<string>();
         for (const row of newProductRows) {
           const normalizedSku = row.sku.trim().toLowerCase();
+          if (!normalizedSku) continue;
           if (seenSkus.has(normalizedSku)) {
             toast({
               variant: "destructive",
@@ -1092,10 +1092,10 @@ export function AddInventoryRequestForm({
             productSubType: "new",
             productEntryMode: "single",
             productName: row.productName.trim(),
-            sku: row.sku.trim(),
             quantity: row.quantity,
             requestedQuantity: row.quantity,
           };
+          if (row.sku.trim()) line.sku = row.sku.trim();
           if (row.retailIdentifier?.trim()) line.retailIdentifier = row.retailIdentifier.trim();
           if (row.remarks?.trim()) line.remarks = row.remarks.trim();
           if (rowExpiry) line.expiryDate = rowExpiry;
@@ -1837,7 +1837,7 @@ export function AddInventoryRequestForm({
                             <Label className="text-[11px] text-muted-foreground sm:text-xs">
                               Product Name *
                             </Label>
-                            <Input
+                      <Input
                               placeholder="Product name"
                               value={row.productName}
                               onChange={(e) =>
@@ -1848,10 +1848,10 @@ export function AddInventoryRequestForm({
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              SKU *
+                              SKU (optional)
                             </Label>
                             <Input
-                              placeholder="SKU"
+                              placeholder="Add later from Inventory if needed"
                               value={row.sku}
                               onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
                               className="h-10 rounded-lg sm:h-11"
@@ -2439,8 +2439,8 @@ export function AddInventoryRequestForm({
                 {isQuickStock
                   ? "Enter full inbound product details and putaway destination. Stock is added to the client immediately."
                   : "Submit an inventory request. Admin will review and approve it."}
-              </p>
-            </div>
+          </p>
+        </div>
             {canImportInbound && !(inventoryType === "product" && productSubType === "restock") && (
               <Button
                 type="button"
@@ -2453,7 +2453,7 @@ export function AddInventoryRequestForm({
                 Import
               </Button>
             )}
-          </div>
+      </div>
         </div>
         <div className="flex min-w-0 flex-col">{formBody}</div>
       </div>

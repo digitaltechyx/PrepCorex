@@ -782,6 +782,9 @@ export interface InventoryItem {
   amazonAsin?: string;
   amazonMarketplaceId?: string;
   sku?: string;
+  /** Set true when the client fills a missing SKU once from the Inventory table. */
+  skuSetFromInventory?: boolean;
+  skuSetFromInventoryAt?: { seconds: number; nanoseconds: number } | string | Date;
   retailIdentifier?: string;
   expiryDate?: { seconds: number; nanoseconds: number } | string | Date;
   /**

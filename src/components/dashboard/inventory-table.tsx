@@ -74,7 +74,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { doc, Timestamp, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  Timestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { uploadInventoryProductImage } from "@/lib/inventory-product-images";
 import { cn } from "@/lib/utils";
@@ -554,7 +562,7 @@ function InventoryAvatar({
   }
 
   if (canInteract) {
-    return (
+  return (
       <button
         type="button"
         className="rounded-md transition-opacity hover:opacity-90"
@@ -703,6 +711,16 @@ function InventorySourceBadge({ item }: { item: InventorySourceRow }) {
 /** Manual inbound already captures expiry before approval — only channel-synced rows need edit. */
 function canEditInventoryExpiry(item: InventorySourceRow): boolean {
   return inventorySourceKey(item) !== "manual" && inventorySourceKey(item) !== "inbound";
+}
+
+/**
+ * One-time SKU fill from Inventory: only when SKU is still empty.
+ * If they set SKU on the inbound request (or already used this pencil), no option.
+ */
+function canAddInventorySku(item: InventorySourceRow & { sku?: string | null; skuSetFromInventory?: boolean }): boolean {
+  if (String(item.sku || "").trim()) return false;
+  if (item.skuSetFromInventory) return false;
+  return true;
 }
 
 /** Fallback when layout has not measured yet. */
@@ -964,9 +982,10 @@ export function InventoryTable({
     null
   );
   const [inventoryMetadataEditMode, setInventoryMetadataEditMode] = useState<
-    "expiry" | "dimensions"
+    "expiry" | "dimensions" | "sku"
   >("expiry");
   const [inventoryMetadataExpiryDate, setInventoryMetadataExpiryDate] = useState("");
+  const [inventoryMetadataSku, setInventoryMetadataSku] = useState("");
   const [inventoryMetadataMeasurements, setInventoryMetadataMeasurements] =
     useState<ProductUnitMeasurementDraft>({
       ...EMPTY_UNIT_MEASUREMENTS,
@@ -1437,11 +1456,12 @@ export function InventoryTable({
 
   const handleInventoryMetadataEdit = (
     item: InventoryItem,
-    mode: "expiry" | "dimensions"
+    mode: "expiry" | "dimensions" | "sku"
   ) => {
     setEditingInventoryMetadata(item);
     setInventoryMetadataEditMode(mode);
     setInventoryMetadataExpiryDate(toDateInputValue(item.expiryDate));
+    setInventoryMetadataSku(String((item as { sku?: string }).sku || "").trim());
     setInventoryMetadataMeasurements(
       draftFromMeasurementSource(item as unknown as Record<string, unknown>)
     );
@@ -1465,6 +1485,41 @@ export function InventoryTable({
         } else {
           updatePayload.expiryDate = null;
         }
+      } else if (inventoryMetadataEditMode === "sku") {
+        const nextSku = inventoryMetadataSku.trim();
+        if (!nextSku) {
+          toast({
+            variant: "destructive",
+            title: "SKU required",
+            description: "Enter a SKU to save. You can only add this once.",
+          });
+          setIsUpdatingInventoryMetadata(false);
+          return;
+        }
+        if (String((editingInventoryMetadata as { sku?: string }).sku || "").trim()) {
+          toast({
+            variant: "destructive",
+            title: "SKU already set",
+            description: "This product already has a SKU and cannot be changed here.",
+          });
+          setIsUpdatingInventoryMetadata(false);
+          return;
+        }
+        const invRef = collection(db, `users/${effectiveUserId}/inventory`);
+        const dup = await getDocs(query(invRef, where("sku", "==", nextSku)));
+        const clash = dup.docs.some((d) => d.id !== editingInventoryMetadata.id);
+        if (clash) {
+          toast({
+            variant: "destructive",
+            title: "SKU already exists",
+            description: `SKU "${nextSku}" is already used on another inventory item.`,
+          });
+          setIsUpdatingInventoryMetadata(false);
+          return;
+        }
+        updatePayload.sku = nextSku;
+        updatePayload.skuSetFromInventory = true;
+        updatePayload.skuSetFromInventoryAt = Timestamp.now();
       } else {
         const measurementPatch = measurementFieldsForWrite(inventoryMetadataMeasurements);
         updatePayload.unitLengthIn = measurementPatch.unitLengthIn ?? null;
@@ -1490,11 +1545,15 @@ export function InventoryTable({
         title:
           inventoryMetadataEditMode === "expiry"
             ? "Expiry updated"
-            : "Dimensions updated",
+            : inventoryMetadataEditMode === "sku"
+              ? "SKU added"
+              : "Dimensions updated",
         description:
           inventoryMetadataEditMode === "expiry"
             ? "Expiry date is now available for FEFO and box planning."
-            : "Unit measurements are now available for box suggestions.",
+            : inventoryMetadataEditMode === "sku"
+              ? "SKU is saved. You won’t be able to change it from Inventory again."
+              : "Unit measurements are now available for box suggestions.",
       });
       setEditingInventoryMetadata(null);
     } catch (error: any) {
@@ -1710,15 +1769,6 @@ export function InventoryTable({
       return;
     }
 
-    if (!editSku.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "SKU is required.",
-      });
-      return;
-    }
-
     if (editQuantity <= 0) {
       toast({
         variant: "destructive",
@@ -1741,7 +1791,7 @@ export function InventoryTable({
       const remarksValue = editRemarks.trim();
       const updatePayload: Record<string, unknown> = {
         productName: editProductName.trim(),
-        sku: editSku.trim(),
+        sku: editSku.trim() || null,
         quantity: editQuantity,
         // Table display uses requestedQuantity first — keep both in sync on edit.
         requestedQuantity: editQuantity,
@@ -1771,7 +1821,7 @@ export function InventoryTable({
       if (batchId && batchLineId) {
         await updateDoc(doc(db, inboundBatchLinesPath(effectiveUserId, batchId), batchLineId), {
           productName: editProductName.trim(),
-          sku: editSku.trim(),
+          sku: editSku.trim() || null,
           quantity: editQuantity,
           requestedQuantity: editQuantity,
           retailIdentifier: editRetailIdentifier.trim(),
@@ -1811,7 +1861,7 @@ export function InventoryTable({
   const combinedInventory = useMemo(() => {
     // Get approved requests to match with inventory items for remarks
     const approvedRequests = inventoryRequests.filter(req => req.status === "approved");
-
+    
     const trackingsForBatch = (batchId: string): InboundTrackingEntry[] => {
       const linked = inventoryRequests.filter(
         (req) => (req as InventoryRequest & { batchId?: string }).batchId === batchId
@@ -1986,17 +2036,17 @@ export function InventoryTable({
       const matchingRequest = isMarketplace
         ? undefined
         : approvedRequests.find((req) => {
-            if ((item as any).sourceRequestId && req.id === (item as any).sourceRequestId) return true;
-            const requestSku = ((req as any).sku || "").trim().toLowerCase();
-            const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
-            if (requestSku && itemSku) return requestSku === itemSku;
-            const reqReceived = (req as any).receivedQuantity ?? req.quantity;
-            return (
-              req.productName === item.productName &&
-              req.requestedBy === item.requestedBy &&
-              (reqReceived === item.quantity || req.quantity === item.quantity)
-            );
-          });
+        if ((item as any).sourceRequestId && req.id === (item as any).sourceRequestId) return true;
+        const requestSku = ((req as any).sku || "").trim().toLowerCase();
+        const itemSku = (((item as any).sku as string) || "").trim().toLowerCase();
+        if (requestSku && itemSku) return requestSku === itemSku;
+        const reqReceived = (req as any).receivedQuantity ?? req.quantity;
+        return (
+          req.productName === item.productName &&
+          req.requestedBy === item.requestedBy &&
+          (reqReceived === item.quantity || req.quantity === item.quantity)
+        );
+      });
       
       // Use remarks from inventory item first, then from approved request
       const remarks = item.remarks || matchingRequest?.remarks;
@@ -2362,29 +2412,29 @@ export function InventoryTable({
               const isStockRow = !(item as any).isRequest && !(item as any).isBatch;
 
               return (
-                <div
+              <div
                   key={rowId}
-                  className={cn(
+                className={cn(
                     "rounded-lg border bg-white px-2.5 py-2",
-                    isLowStockVisual ? lowStockRowCardClass : "border-border"
-                  )}
-                >
+                  isLowStockVisual ? lowStockRowCardClass : "border-border"
+                )}
+              >
                   <div className="flex items-center gap-2">
-                    <InventoryAvatar
-                      item={item as any}
-                      className="h-10 w-10 shrink-0"
-                      onImageClick={handleImagePreview}
-                    />
+                      <InventoryAvatar
+                        item={item as any}
+                        className="h-10 w-10 shrink-0"
+                        onImageClick={handleImagePreview}
+                      />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-1">
-                        <InventoryProductName
-                          name={item.productName}
-                          textClassName={cn(
+                      <InventoryProductName
+                        name={item.productName}
+                        textClassName={cn(
                             "line-clamp-1 text-[13px] font-semibold leading-tight",
-                            isLowStockVisual && lowStockTextClass
-                          )}
-                          onViewFull={setProductNamePreview}
-                        />
+                          isLowStockVisual && lowStockTextClass
+                        )}
+                        onViewFull={setProductNamePreview}
+                      />
                         {videoRequestId ? (
                           <InboundReceiveVideoDialog
                             requestId={videoRequestId}
@@ -2394,7 +2444,28 @@ export function InventoryTable({
                         ) : null}
                       </div>
                       <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
-                        <span className="truncate">SKU: {(item as any).sku || "N/A"}</span>
+                        <span className="inline-flex min-w-0 items-center gap-0.5">
+                          <span className="truncate">
+                            SKU: {(item as any).sku || "N/A"}
+                          </span>
+                          {!hasAdminActions &&
+                          !(item as any).isRequest &&
+                          !(item as any).isBatch &&
+                          canAddInventorySku(item as InventorySourceRow) ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 shrink-0"
+                              onClick={() =>
+                                handleInventoryMetadataEdit(item as InventoryItem, "sku")
+                              }
+                              title="Add SKU"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          ) : null}
+                        </span>
                         <span className="text-border">·</span>
                         <span className="truncate">{sourceMeta.label}</span>
                         <Badge
@@ -2430,15 +2501,15 @@ export function InventoryTable({
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button
+                          <Button
                           type="button"
-                          variant="ghost"
+                            variant="ghost"
                           size="icon"
                           className="h-9 w-9 shrink-0"
                           aria-label="Row actions"
                         >
                           <MoreVertical className="h-4 w-4" />
-                        </Button>
+                          </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
                         {(item as any).isBatch && (item as any).batchData ? (
@@ -2459,10 +2530,10 @@ export function InventoryTable({
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"
-                              onClick={() => {
-                                setCancellingRequest((item as any).requestData);
-                                setCancellationReason("");
-                              }}
+                            onClick={() => {
+                              setCancellingRequest((item as any).requestData);
+                              setCancellationReason("");
+                            }}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Cancel request
@@ -2518,6 +2589,16 @@ export function InventoryTable({
                             ) : null}
                             {!hasAdminActions ? (
                               <>
+                                {canAddInventorySku(item as InventorySourceRow) ? (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleInventoryMetadataEdit(item as InventoryItem, "sku")
+                                    }
+                                  >
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Add SKU
+                                  </DropdownMenuItem>
+                                ) : null}
                                 {canEditInventoryExpiry(item as InventorySourceRow) ? (
                                   <DropdownMenuItem
                                     onClick={() =>
@@ -2602,27 +2683,27 @@ export function InventoryTable({
                   </div>
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {item.status !== "Rejected" && item.status !== "Cancelled" && (
-                      <InboundTrackingStatusCell
-                        trackings={(item as any).inboundTrackings}
-                        canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
-                        onAddTracking={() => {
-                          const requestId =
-                            (item as any).requestId || (item as any).sourceRequestId;
-                          if (!requestId || !effectiveUserId) return;
-                          setTrackingDialog({
-                            requestId,
-                            productName: item.productName,
-                          });
-                        }}
-                        onViewTracking={() => {
-                          setTrackingDetail({
-                            productName: item.productName,
-                            trackings: (item as any).inboundTrackings ?? [],
-                          });
-                        }}
-                      />
-                    )}
+                  {item.status !== "Rejected" && item.status !== "Cancelled" && (
+                    <InboundTrackingStatusCell
+                      trackings={(item as any).inboundTrackings}
+                      canAddTracking={canAddInboundTracking(item as any, inventoryRequests)}
+                      onAddTracking={() => {
+                        const requestId =
+                          (item as any).requestId || (item as any).sourceRequestId;
+                        if (!requestId || !effectiveUserId) return;
+                        setTrackingDialog({
+                          requestId,
+                          productName: item.productName,
+                        });
+                      }}
+                      onViewTracking={() => {
+                        setTrackingDetail({
+                          productName: item.productName,
+                          trackings: (item as any).inboundTrackings ?? [],
+                        });
+                      }}
+                    />
+                  )}
                     {hasExtraDetails ? (
                       <button
                         type="button"
@@ -2699,8 +2780,8 @@ export function InventoryTable({
                       ) : null}
                     </div>
                   ) : null}
-                </div>
-              );
+              </div>
+            );
             })
           ) : (
             <div className="py-8 text-center text-xs text-gray-500">
@@ -2843,7 +2924,28 @@ export function InventoryTable({
                     <TableCell className="hidden md:table-cell align-top">
                       <InventorySourceBadge item={item as InventorySourceRow} />
                     </TableCell>
-                    <TableCell className="hidden md:table-cell whitespace-nowrap">{(item as any).sku || "N/A"}</TableCell>
+                    <TableCell className="hidden md:table-cell whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <span>{(item as any).sku || "N/A"}</span>
+                        {!hasAdminActions &&
+                          !(item as any).isRequest &&
+                          !(item as any).isBatch &&
+                          canAddInventorySku(item as InventorySourceRow) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 shrink-0"
+                              onClick={() =>
+                                handleInventoryMetadataEdit(item as InventoryItem, "sku")
+                              }
+                              title="Add SKU"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          )}
+                      </div>
+                    </TableCell>
                     <TableCell className="hidden lg:table-cell whitespace-nowrap">
                       {(item as any).retailIdentifier || "N/A"}
                     </TableCell>
@@ -3255,35 +3357,35 @@ export function InventoryTable({
               })()
             ) : (
               <>
-                {selectedImageUrls.length > 0 && (
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm font-semibold">
+            {selectedImageUrls.length > 0 && (
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-sm font-semibold">
                       Receive photos ({selectedImageUrls.length})
-                    </p>
-                    {selectedPhotosAt && (
-                      <p className="text-xs text-muted-foreground mt-0.5 mb-2">
-                        {selectedPhotosAt}
-                      </p>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {selectedImageUrls.map((url, index) => (
-                        <div key={index} className="relative">
-                          <img
-                            src={url}
-                            alt={`Inventory ${index + 1}`}
-                            className="max-w-full h-auto rounded-lg border"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-sm font-semibold mb-2">Remarks</p>
-                  <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">
-                    {selectedRemarks || "No remarks available"}
+                </p>
+                {selectedPhotosAt && (
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                    {selectedPhotosAt}
                   </p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedImageUrls.map((url, index) => (
+                    <div key={index} className="relative">
+                      <img
+                        src={url}
+                        alt={`Inventory ${index + 1}`}
+                        className="max-w-full h-auto rounded-lg border"
+                      />
+                    </div>
+                  ))}
                 </div>
+              </div>
+            )}
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <p className="text-sm font-semibold mb-2">Remarks</p>
+              <p className="text-sm whitespace-pre-wrap break-words overflow-wrap-anywhere">
+                {selectedRemarks || "No remarks available"}
+              </p>
+            </div>
               </>
             )}
           </div>
@@ -3345,7 +3447,7 @@ export function InventoryTable({
         </DialogContent>
       </Dialog>
 
-      {/* Edit completed inventory metadata (expiry OR dimensions) */}
+      {/* Edit completed inventory metadata (expiry, dimensions, or one-time SKU) */}
       <Dialog
         open={!!editingInventoryMetadata}
         onOpenChange={(open) => {
@@ -3357,12 +3459,16 @@ export function InventoryTable({
             <DialogTitle>
               {inventoryMetadataEditMode === "expiry"
                 ? "Edit Expiry"
-                : "Edit Dimensions"}
+                : inventoryMetadataEditMode === "sku"
+                  ? "Add SKU"
+                  : "Edit Dimensions"}
             </DialogTitle>
             <DialogDescription>
               {inventoryMetadataEditMode === "expiry"
                 ? `Set expiry for ${editingInventoryMetadata?.productName || "this product"}. Channel-synced inventory does not include expiry by default.`
-                : `Update per-unit measurements for ${editingInventoryMetadata?.productName || "this product"}. Used for box suggestions.`}
+                : inventoryMetadataEditMode === "sku"
+                  ? `Add a SKU for ${editingInventoryMetadata?.productName || "this product"}. You can only do this once — after saving, SKU cannot be changed from Inventory.`
+                  : `Update per-unit measurements for ${editingInventoryMetadata?.productName || "this product"}. Used for box suggestions.`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -3377,6 +3483,18 @@ export function InventoryTable({
                   className="mt-1"
                 />
               </div>
+            ) : inventoryMetadataEditMode === "sku" ? (
+              <div>
+                <Label htmlFor="inventory-metadata-sku">SKU</Label>
+                <Input
+                  id="inventory-metadata-sku"
+                  value={inventoryMetadataSku}
+                  onChange={(event) => setInventoryMetadataSku(event.target.value)}
+                  placeholder="Enter SKU"
+                  className="mt-1"
+                  autoFocus
+                />
+              </div>
             ) : (
               <ProductUnitMeasurementsFields
                 compact
@@ -3386,8 +3504,9 @@ export function InventoryTable({
               />
             )}
             <p className="text-xs text-muted-foreground">
-              Values entered here stay in PrepCorex and are preserved during normal channel
-              synchronization.
+              {inventoryMetadataEditMode === "sku"
+                ? "Only available when no SKU was set on the inbound request."
+                : "Values entered here stay in PrepCorex and are preserved during normal channel synchronization."}
             </p>
             <div className="flex justify-end gap-2">
               <Button
@@ -3400,7 +3519,10 @@ export function InventoryTable({
               </Button>
               <Button
                 type="button"
-                disabled={isUpdatingInventoryMetadata}
+                disabled={
+                  isUpdatingInventoryMetadata ||
+                  (inventoryMetadataEditMode === "sku" && !inventoryMetadataSku.trim())
+                }
                 onClick={() => void handleInventoryMetadataUpdate()}
               >
                 {isUpdatingInventoryMetadata ? (
@@ -3410,6 +3532,8 @@ export function InventoryTable({
                   </>
                 ) : inventoryMetadataEditMode === "expiry" ? (
                   "Save expiry"
+                ) : inventoryMetadataEditMode === "sku" ? (
+                  "Save SKU"
                 ) : (
                   "Save dimensions"
                 )}
@@ -3449,12 +3573,14 @@ export function InventoryTable({
               />
             </div>
             <div>
-              <label htmlFor="edit-sku" className="text-sm font-medium">SKU</label>
+              <label htmlFor="edit-sku" className="text-sm font-medium">
+                SKU (optional)
+              </label>
               <Input
                 id="edit-sku"
                 value={editSku}
                 onChange={(e) => setEditSku(e.target.value)}
-                placeholder="Enter SKU"
+                placeholder="Leave blank to add later from Inventory"
                 className="mt-1"
               />
             </div>

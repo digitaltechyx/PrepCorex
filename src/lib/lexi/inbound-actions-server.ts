@@ -19,7 +19,6 @@ export async function lexiCreateInboundRequest(
   );
 
   if (!payload.productName?.trim()) throw new Error("Product name is required.");
-  if (!payload.sku?.trim()) throw new Error("SKU is required.");
   if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
     throw new Error("Quantity must be greater than zero.");
   }
@@ -37,10 +36,10 @@ export async function lexiCreateInboundRequest(
     requestedAt: now,
     requestedBy: client.uid,
     productSubType: payload.productSubType,
-    sku: payload.sku.trim(),
     approvalSource: null,
     lexiCreatedBy: adminUid,
   };
+  if (payload.sku?.trim()) doc.sku = payload.sku.trim();
 
   if (payload.productSubType === "restock" && payload.productId) {
     doc.productId = payload.productId;

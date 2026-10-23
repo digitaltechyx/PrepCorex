@@ -96,7 +96,8 @@ export type LexiInboundCreatePayload = {
   clientUserId: string;
   clientUserName: string;
   productName: string;
-  sku: string;
+  /** Optional — client can add later from Inventory if omitted. */
+  sku?: string;
   quantity: number;
   productSubType: "new" | "restock";
   productId?: string;
