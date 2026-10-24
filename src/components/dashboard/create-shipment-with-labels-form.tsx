@@ -1301,7 +1301,7 @@ export function CreateShipmentWithLabelsForm({
       form.reset({
         shipmentGroups: [],
       });
-      setQuery("");
+      setProductSearch("");
       setLabelStates({});
     } catch (error: any) {
       toast({
@@ -1464,7 +1464,7 @@ export function CreateShipmentWithLabelsForm({
             );
             
             // Calculate available inventory + pending inbounds without useMemo (inside map)
-            const normalizedQuery = query.trim().toLowerCase();
+            const normalizedQuery = productSearch.trim().toLowerCase();
             const stockItems: SelectableOutboundProduct[] = shippableInventory
               .filter((item) => item.quantity > 0)
               .filter((item) => {
@@ -1745,8 +1745,8 @@ export function CreateShipmentWithLabelsForm({
                           <div className="mouse-both-scroll max-h-[70vh] space-y-4 py-4 pr-2">
                             <Input
                               placeholder="Search products or pending inbound..."
-                              value={query}
-                              onChange={(e) => setQuery(e.target.value)}
+                              value={productSearch}
+                              onChange={(e) => setProductSearch(e.target.value)}
                             />
                             <ScrollArea className="h-[220px] rounded-md border p-2">
                               <div className="space-y-2">
