@@ -492,6 +492,44 @@ export function WarehouseOpsDispatch({ warehouse }: Props) {
           }
 
           if (
+            hint.source === "etsy" &&
+            hint.etsyListingId &&
+            (hint.etsyConnectionId || hint.etsyShopId)
+          ) {
+            try {
+              const res = await fetch("/api/etsy/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: matchedOrder.clientUserId,
+                  connectionId: hint.etsyConnectionId,
+                  etsyShopId: hint.etsyShopId,
+                  listingId: hint.etsyListingId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Dispatched; Etsy inventory did not update",
+                  description:
+                    typeof data.error === "string"
+                      ? data.error
+                      : "Re-connect Etsy in Integrations.",
+                });
+              }
+            } catch (e) {
+              toast({
+                variant: "destructive",
+                title: "Dispatched; Etsy inventory did not update",
+                description: e instanceof Error ? e.message : "Unknown error",
+              });
+            }
+            continue;
+          }
+
+          if (
             hint.source === "ebay" &&
             hint.ebayConnectionId &&
             (hint.ebayOfferId || hint.ebayListingId)

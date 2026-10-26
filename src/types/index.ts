@@ -418,6 +418,7 @@ export type UserFeature =
   | "integration_ebay"
   | "integration_amazon"
   | "integration_tiktok"
+  | "integration_etsy"
   | "integration_woocommerce"
   | "integration_shipstation"
   | "integration_veeqo"
@@ -428,6 +429,7 @@ export type UserFeature =
   | "view_veeqo_orders"
   | "view_woocommerce_orders"
   | "view_tiktok_orders"
+  | "view_etsy_orders"
   | "request_product_returns"
   | "csv_import_inbound"
   | "csv_import_outbound"
@@ -450,6 +452,7 @@ export type UserFeature =
   | "manage_veeqo_orders"
   | "manage_woocommerce_orders"
   | "manage_tiktok_orders"
+  | "manage_etsy_orders"
   | "manage_amazon_orders"
   | "manage_inventory_admin"
   | "manage_notifications"
@@ -756,7 +759,7 @@ export interface InventoryItem {
   } | string | Date;
   status: 'In Stock' | 'Out of Stock';
   /** Set when item is synced from an external integration (read-only in inventory list). */
-  source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok' | 'amazon';
+  source?: 'shopify' | 'ebay' | 'woocommerce' | 'tiktok' | 'amazon' | 'etsy';
   shopifyVariantId?: string;
   shopifyProductId?: string;
   /** Shopify inventory_item_id (for inventory_levels API and webhooks). */
@@ -772,6 +775,11 @@ export interface InventoryItem {
   tiktokConnectionId?: string;
   tiktokProductId?: string;
   tiktokSkuId?: string;
+  /** Etsy linked listing */
+  etsyShopId?: string;
+  etsyConnectionId?: string;
+  etsyListingId?: string;
+  etsySkuId?: string;
   /** eBay linked listing / offer */
   ebayConnectionId?: string;
   ebayOfferId?: string;
@@ -1871,6 +1879,27 @@ export interface TikTokConnection {
   accessToken: string;
   connectedAt: { seconds: number; nanoseconds: number } | string;
   selectedProducts?: TikTokSelectedProduct[];
+}
+
+/** One selected Etsy listing (productId = listing_id; skuId = listing or offering key). */
+export interface EtsySelectedProduct {
+  productId: string;
+  skuId: string;
+  title: string;
+  sku?: string;
+}
+
+/** One connected Etsy shop for a user. */
+export interface EtsyConnection {
+  id?: string;
+  shopId: string;
+  shopName?: string;
+  etsyUserId?: string | number | null;
+  accessToken: string;
+  refreshToken?: string | null;
+  expiresAt?: number | null;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  selectedProducts?: EtsySelectedProduct[];
 }
 
 /** Client ShipStation account connected via API Key + Secret. */

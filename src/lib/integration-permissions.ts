@@ -7,6 +7,7 @@ export type IntegrationPlatformId =
   | "ebay"
   | "amazon"
   | "tiktok"
+  | "etsy"
   | "woocommerce"
   | "shipstation"
   | "veeqo";
@@ -49,6 +50,13 @@ export const INTEGRATION_PLATFORMS: IntegrationPlatformConfig[] = [
     ordersFeature: "view_tiktok_orders",
   },
   {
+    id: "etsy",
+    label: "Etsy",
+    description: "Connect Etsy shops for listings, orders, and inventory sync",
+    integrationFeature: "integration_etsy",
+    ordersFeature: "view_etsy_orders",
+  },
+  {
     id: "woocommerce",
     label: "WooCommerce",
     description: "Connect WooCommerce stores via REST API keys",
@@ -85,6 +93,7 @@ const ORDER_PATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   "/dashboard/shopify-orders": "shopify",
   "/dashboard/ebay-orders": "ebay",
   "/dashboard/tiktok-orders": "tiktok",
+  "/dashboard/etsy-orders": "etsy",
   "/dashboard/amazon-orders": "amazon",
   "/dashboard/shipstation-orders": "shipstation",
   "/dashboard/veeqo-orders": "veeqo",
@@ -96,6 +105,7 @@ const INTEGRATION_SUBPATH_TO_PLATFORM: Record<string, IntegrationPlatformId> = {
   ebay: "ebay",
   amazon: "amazon",
   tiktok: "tiktok",
+  etsy: "etsy",
   woocommerce: "woocommerce",
   shipstation: "shipstation",
   veeqo: "veeqo",

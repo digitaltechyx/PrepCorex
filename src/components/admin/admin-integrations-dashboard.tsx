@@ -237,8 +237,11 @@ export function AdminIntegrationsDashboard() {
 
   const openDisconnect = (row: AdminConnectionRow, platformDef: IntegrationPlatformCardDef) => {
     const supportsRemoveInventory =
-      row.platform === "shopify" || row.platform === "ebay" || row.platform === "tiktok";
-    setRemoveInventory(row.platform === "tiktok");
+      row.platform === "shopify" ||
+      row.platform === "ebay" ||
+      row.platform === "tiktok" ||
+      row.platform === "etsy";
+    setRemoveInventory(row.platform === "tiktok" || row.platform === "etsy");
     setPendingDisconnect({
       platform: row.platform,
       platformName: platformDef.name,
@@ -600,6 +603,7 @@ export function AdminIntegrationsDashboard() {
                         ["eBay", u.counts.ebay],
                         ["Amazon", u.counts.amazon],
                         ["TikTok", u.counts.tiktok],
+                        ["Etsy", u.counts.etsy],
                         ["Woo", u.counts.woocommerce],
                         ["ShipSt.", u.counts.shipstation],
                         ["Veeqo", u.counts.veeqo],
@@ -627,6 +631,7 @@ export function AdminIntegrationsDashboard() {
                     <TableHead className="text-center">eBay</TableHead>
                     <TableHead className="hidden text-center md:table-cell">Amazon</TableHead>
                     <TableHead className="hidden text-center md:table-cell">TikTok</TableHead>
+                    <TableHead className="hidden text-center md:table-cell">Etsy</TableHead>
                     <TableHead className="hidden text-center lg:table-cell">Woo</TableHead>
                     <TableHead className="hidden text-center lg:table-cell">ShipStation</TableHead>
                     <TableHead className="hidden text-center xl:table-cell">Veeqo</TableHead>
@@ -652,6 +657,9 @@ export function AdminIntegrationsDashboard() {
                       </TableCell>
                       <TableCell className="hidden text-center md:table-cell">
                         {u.counts.tiktok || "—"}
+                      </TableCell>
+                      <TableCell className="hidden text-center md:table-cell">
+                        {u.counts.etsy || "—"}
                       </TableCell>
                       <TableCell className="hidden text-center lg:table-cell">
                         {u.counts.woocommerce || "—"}

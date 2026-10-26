@@ -179,6 +179,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, platform, removedInventoryCount });
     }
 
+    if (platform === "etsy") {
+      const shopId = typeof data.shopId === "string" ? data.shopId : null;
+      await ref.delete();
+
+      if (shopId) {
+        try {
+          await db.collection("etsyShopToUser").doc(shopId).delete();
+        } catch (e) {
+          console.warn("[admin disconnect etsy] shopToUser delete failed", e);
+        }
+      }
+
+      let removedInventoryCount = 0;
+      if (removeInventory && shopId) {
+        const invSnap = await db
+          .collection("users")
+          .doc(uid)
+          .collection("inventory")
+          .where("source", "==", "etsy")
+          .where("etsyShopId", "==", shopId)
+          .get();
+        const batch = db.batch();
+        for (const invDoc of invSnap.docs) batch.delete(invDoc.ref);
+        if (invSnap.docs.length > 0) {
+          await batch.commit();
+          removedInventoryCount = invSnap.docs.length;
+        }
+      }
+
+      return NextResponse.json({ ok: true, platform, removedInventoryCount });
+    }
+
     if (platform === "amazon") {
       await ref.delete();
       return NextResponse.json({ ok: true, platform, removedInventoryCount: 0 });

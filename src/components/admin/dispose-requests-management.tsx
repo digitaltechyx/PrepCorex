@@ -312,6 +312,48 @@ export function DisposeRequestsManagement({
       }
     }
 
+    const etsyItem = invItem as InventoryItem & {
+      source?: string;
+      etsyConnectionId?: string;
+      etsyListingId?: string;
+      etsyShopId?: string;
+    };
+    if (
+      etsyItem.source === "etsy" &&
+      etsyItem.etsyListingId &&
+      (etsyItem.etsyConnectionId || etsyItem.etsyShopId)
+    ) {
+      try {
+        const token = await authUser.getIdToken();
+        const res = await fetch("/api/etsy/sync-inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            userId,
+            connectionId: etsyItem.etsyConnectionId,
+            etsyShopId: etsyItem.etsyShopId,
+            listingId: etsyItem.etsyListingId,
+            newQuantity: newQtyAfterDispose,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            variant: "destructive",
+            title: "Disposed in PrepCorex; Etsy did not update",
+            description:
+              typeof data.error === "string" ? data.error : "Re-connect Etsy in Integrations.",
+          });
+        }
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: "Disposed in PrepCorex; Etsy did not update",
+          description: e instanceof Error ? e.message : "Re-connect Etsy in Integrations.",
+        });
+      }
+    }
+
     const ebayItem = invItem as InventoryItem & {
       source?: string;
       ebayConnectionId?: string;
@@ -789,7 +831,7 @@ export function DisposeRequestsManagement({
                   <SelectItem value="rejected">Rejected</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+              </div>
             <Button
               size="sm"
               variant="outline"
@@ -894,19 +936,19 @@ export function DisposeRequestsManagement({
                 ))}
               </div>
               <div className="hidden overflow-x-auto rounded-md border md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
+              <Table>
+                <TableHeader>
+                  <TableRow>
                       <TableHead>Type</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Qty</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Requested</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Qty</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Requested</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                     {filteredBatches.map((batch) => (
                       <TableRow key={`batch-${batch.id}`} className="bg-orange-50/50">
                         <TableCell>
@@ -935,20 +977,20 @@ export function DisposeRequestsManagement({
                         </TableCell>
                       </TableRow>
                     ))}
-                    {filteredRequests.map((req) => (
-                      <TableRow key={req.id}>
+                  {filteredRequests.map((req) => (
+                    <TableRow key={req.id}>
                         <TableCell>
                           <Badge variant="outline">Single</Badge>
                         </TableCell>
-                        <TableCell className="font-medium">{req.productName}</TableCell>
-                        <TableCell>{req.quantity}</TableCell>
+                      <TableCell className="font-medium">{req.productName}</TableCell>
+                      <TableCell>{req.quantity}</TableCell>
                         <TableCell className="max-w-[200px] truncate" title={req.reason}>
                           {req.reason}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatDate(req.requestedAt)}
                         </TableCell>
-                        <TableCell>
+                      <TableCell>
                           <Badge
                             variant={
                               req.status === "pending"
@@ -958,21 +1000,21 @@ export function DisposeRequestsManagement({
                                   : "destructive"
                             }
                           >
-                            {req.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {req.status === "pending" && (
-                            <Button size="sm" variant="outline" onClick={() => setSelectedRequest(req)}>
+                          {req.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {req.status === "pending" && (
+                          <Button size="sm" variant="outline" onClick={() => setSelectedRequest(req)}>
                               <Eye className="mr-1 h-4 w-4" /> Process
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
             </>
           )}
         </CardContent>

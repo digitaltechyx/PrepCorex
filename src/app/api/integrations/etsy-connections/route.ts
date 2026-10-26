@@ -1,0 +1,140 @@
+import { NextRequest, NextResponse } from "next/server";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
+
+export const dynamic = "force-dynamic";
+
+/** GET: list Etsy connections (no tokens). Admin may pass ?userId= */
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let callerUid: string;
+  let isAdmin = false;
+  try {
+    const decoded = await adminAuth().verifyIdToken(token);
+    callerUid = decoded.uid;
+    if (!callerUid) throw new Error("No uid");
+    const userDoc = await adminDb().collection("users").doc(callerUid).get();
+    const data = userDoc.data();
+    const role = data?.role as string;
+    const roles = data?.roles as string[] | undefined;
+    isAdmin =
+      role === "admin" ||
+      role === "sub_admin" ||
+      (Array.isArray(roles) && (roles.includes("admin") || roles.includes("sub_admin")));
+  } catch {
+    return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
+  }
+
+  const targetUid = new URL(request.url).searchParams.get("userId")?.trim() || callerUid;
+  if (targetUid !== callerUid && !isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const snapshot = await adminDb()
+      .collection("users")
+      .doc(targetUid)
+      .collection("etsyConnections")
+      .get();
+    const list = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        shopId: data.shopId,
+        shopName: (data.shopName as string | undefined) ?? "Etsy Shop",
+        connectedAt: data.connectedAt,
+        selectedProducts: data.selectedProducts ?? [],
+      };
+    });
+    return NextResponse.json({ connections: list });
+  } catch (err: unknown) {
+    console.error("[etsy-connections GET]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+/** DELETE: remove one connection. */
+export async function DELETE(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let uid: string;
+  try {
+    const decoded = await adminAuth().verifyIdToken(token);
+    uid = decoded.uid;
+    if (!uid) throw new Error("No uid");
+  } catch {
+    return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+  const removeInventory = searchParams.get("removeInventory") === "true";
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+  }
+
+  try {
+    const db = adminDb();
+    const ref = db.collection("users").doc(uid).collection("etsyConnections").doc(id);
+    const docSnap = await ref.get();
+    if (!docSnap.exists) {
+      return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    }
+    const data = docSnap.data()!;
+    const shopId = typeof data.shopId === "string" ? data.shopId : null;
+
+    await ref.delete();
+
+    if (shopId) {
+      try {
+        await db.collection("etsyShopToUser").doc(shopId).delete();
+      } catch (e) {
+        console.warn("[etsy-connections DELETE] shopToUser delete failed", e);
+      }
+    }
+
+    let removedInventoryCount = 0;
+    if (removeInventory && shopId) {
+      const invSnap = await db
+        .collection("users")
+        .doc(uid)
+        .collection("inventory")
+        .where("source", "==", "etsy")
+        .where("etsyShopId", "==", shopId)
+        .get();
+      const batch = db.batch();
+      for (const invDoc of invSnap.docs) {
+        batch.delete(invDoc.ref);
+      }
+      if (invSnap.docs.length > 0) {
+        await batch.commit();
+        removedInventoryCount = invSnap.docs.length;
+      }
+    }
+
+    return NextResponse.json({ ok: true, removedInventoryCount });
+  } catch (err: unknown) {
+    console.error("[etsy-connections DELETE]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Server error" },
+      { status: 500 }
+    );
+  }
+}

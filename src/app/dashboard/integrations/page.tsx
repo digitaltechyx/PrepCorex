@@ -100,6 +100,16 @@ type TikTokConnectionSummary = {
   selectedProducts?: TikTokSelectedProduct[];
 };
 
+type EtsySelectedProduct = { productId: string; skuId: string; title: string; sku?: string };
+
+type EtsyConnectionSummary = {
+  id: string;
+  shopId: string;
+  shopName: string;
+  connectedAt: { seconds: number; nanoseconds: number } | string;
+  selectedProducts?: EtsySelectedProduct[];
+};
+
 type AmazonConnectionSummary = {
   id: string;
   connectedAt: { seconds: number; nanoseconds: number } | string;
@@ -175,8 +185,8 @@ const PLATFORMS: PlatformDef[] = [
     shortName: "ET",
     category: "marketplace",
     categoryLabel: "Marketplace",
-    status: "coming_soon",
-    description: "Handmade & vintage marketplace sync — planned.",
+    status: "live",
+    description: "Connect Etsy shops to sync listings, pull orders, and fulfill from PrepCorex.",
     accent: "from-orange-500/80 to-rose-600/80",
     ring: "ring-orange-500/15",
   },
@@ -258,7 +268,8 @@ function connectionCountFor(
   veeqo: VeeqoConnectionSummary[],
   woocommerce: WooCommerceConnectionSummary[],
   tiktok: TikTokConnectionSummary[],
-  amazon: AmazonConnectionSummary[]
+  amazon: AmazonConnectionSummary[],
+  etsy: EtsyConnectionSummary[]
 ): number {
   if (platformId === "shopify") return shopify.length;
   if (platformId === "ebay") return ebay.length;
@@ -267,6 +278,7 @@ function connectionCountFor(
   if (platformId === "woocommerce") return woocommerce.length;
   if (platformId === "tiktok") return tiktok.length;
   if (platformId === "amazon") return amazon.length;
+  if (platformId === "etsy") return etsy.length;
   return 0;
 }
 
@@ -279,10 +291,13 @@ export default function IntegrationsPage() {
   const [veeqoConnections, setVeeqoConnections] = useState<VeeqoConnectionSummary[]>([]);
   const [woocommerceConnections, setWoocommerceConnections] = useState<WooCommerceConnectionSummary[]>([]);
   const [tiktokConnections, setTiktokConnections] = useState<TikTokConnectionSummary[]>([]);
+  const [etsyConnections, setEtsyConnections] = useState<EtsyConnectionSummary[]>([]);
   const [amazonConnections, setAmazonConnections] = useState<AmazonConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [tiktokConnectLoading, setTiktokConnectLoading] = useState(false);
   const [tiktokDisconnectId, setTiktokDisconnectId] = useState<string | null>(null);
+  const [etsyConnectLoading, setEtsyConnectLoading] = useState(false);
+  const [etsyDisconnectId, setEtsyDisconnectId] = useState<string | null>(null);
   const [amazonConnectLoading, setAmazonConnectLoading] = useState(false);
   const [amazonDisconnectId, setAmazonDisconnectId] = useState<string | null>(null);
   const [connectDialogOpen, setConnectDialogOpen] = useState(false);
@@ -324,7 +339,8 @@ export default function IntegrationsPage() {
     setLoading(true);
     try {
       const token = await user.getIdToken();
-      const [shopifyRes, ebayRes, shipstationRes, veeqoRes, woocommerceRes, tiktokRes, amazonRes] = await Promise.all([
+      const [shopifyRes, ebayRes, shipstationRes, veeqoRes, woocommerceRes, tiktokRes, amazonRes, etsyRes] =
+        await Promise.all([
         fetch("/api/integrations/shopify-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/ebay-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/shipstation-connections", { headers: { Authorization: `Bearer ${token}` } }),
@@ -332,6 +348,7 @@ export default function IntegrationsPage() {
         fetch("/api/integrations/woocommerce-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/tiktok-connections", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/integrations/amazon-connections", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/integrations/etsy-connections", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (shopifyRes.ok) {
         const data = await shopifyRes.json();
@@ -361,6 +378,10 @@ export default function IntegrationsPage() {
         const data = await amazonRes.json();
         setAmazonConnections(data.connections ?? []);
       }
+      if (etsyRes.ok) {
+        const data = await etsyRes.json();
+        setEtsyConnections(data.connections ?? []);
+      }
     } catch {
       setShopifyConnections([]);
       setEbayConnections([]);
@@ -369,6 +390,7 @@ export default function IntegrationsPage() {
       setWoocommerceConnections([]);
       setTiktokConnections([]);
       setAmazonConnections([]);
+      setEtsyConnections([]);
     } finally {
       setLoading(false);
     }
@@ -385,7 +407,8 @@ export default function IntegrationsPage() {
     veeqoConnections.length +
     woocommerceConnections.length +
     tiktokConnections.length +
-    amazonConnections.length;
+    amazonConnections.length +
+    etsyConnections.length;
 
   const liveConnectedPlatforms = [
     shopifyConnections.length > 0,
@@ -395,6 +418,7 @@ export default function IntegrationsPage() {
     woocommerceConnections.length > 0,
     tiktokConnections.length > 0,
     amazonConnections.length > 0,
+    etsyConnections.length > 0,
   ].filter(Boolean).length;
 
   const grantedPlatforms = useMemo(() => {
@@ -418,7 +442,8 @@ export default function IntegrationsPage() {
         veeqoConnections,
         woocommerceConnections,
         tiktokConnections,
-        amazonConnections
+        amazonConnections,
+        etsyConnections
       );
       if (filterTab === "connected") return p.status === "live" && n > 0;
       if (filterTab === "available") return p.status === "live" && n === 0;
@@ -436,6 +461,7 @@ export default function IntegrationsPage() {
     woocommerceConnections,
     tiktokConnections,
     amazonConnections,
+    etsyConnections,
     grantedPlatforms,
     userProfile,
   ]);
@@ -443,6 +469,11 @@ export default function IntegrationsPage() {
   const handleConnectTikTok = () => {
     setTiktokConnectLoading(true);
     window.location.href = "/api/tiktok/install";
+  };
+
+  const handleConnectEtsy = () => {
+    setEtsyConnectLoading(true);
+    window.location.href = "/api/etsy/install";
   };
 
   const handleDisconnectTikTok = async (id: string) => {
@@ -468,6 +499,32 @@ export default function IntegrationsPage() {
       });
     } finally {
       setTiktokDisconnectId(null);
+    }
+  };
+
+  const handleDisconnectEtsy = async (id: string) => {
+    if (!user) return;
+    setEtsyDisconnectId(id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/integrations/etsy-connections?id=${encodeURIComponent(id)}&removeInventory=true`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      toast({ title: "Disconnected", description: "Etsy shop has been disconnected." });
+      fetchConnections();
+    } catch (err: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not disconnect.",
+      });
+    } finally {
+      setEtsyDisconnectId(null);
     }
   };
 
@@ -1064,7 +1121,8 @@ export default function IntegrationsPage() {
               veeqoConnections,
               woocommerceConnections,
               tiktokConnections,
-              amazonConnections
+              amazonConnections,
+              etsyConnections
             );
             const isLive = p.status === "live";
             const isSoon = p.status === "coming_soon";
@@ -1184,6 +1242,23 @@ export default function IntegrationsPage() {
                         disabled={tiktokConnectLoading}
                       >
                         {tiktokConnectLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Plus className="h-4 w-4 sm:mr-1" />
+                            {count > 0 ? "Add shop" : "Connect"}
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {isLive && p.id === "etsy" && (
+                      <Button
+                        size="sm"
+                        className="h-10 w-full shrink-0 touch-manipulation shadow-sm sm:h-9 sm:w-auto"
+                        onClick={handleConnectEtsy}
+                        disabled={etsyConnectLoading}
+                      >
+                        {etsyConnectLoading ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <>
@@ -1650,6 +1725,77 @@ export default function IntegrationsPage() {
                                     disabled={tiktokDisconnectId === conn.id}
                                   >
                                     {tiktokDisconnectId === conn.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+
+                  {p.id === "etsy" && isLive && (
+                    <>
+                      <Alert className="border-orange-200 bg-orange-50/80 text-orange-950 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-50">
+                        <Info className="h-4 w-4 text-orange-700 dark:text-orange-300" />
+                        <AlertTitle className="text-orange-900 dark:text-orange-100">
+                          Etsy · OAuth connect
+                        </AlertTitle>
+                        <AlertDescription className="text-orange-800/90 dark:text-orange-200/90">
+                          Connect your Etsy shop via OAuth to select listings and pull open orders into PrepCorex.
+                        </AlertDescription>
+                      </Alert>
+                      {etsyConnections.length === 0 ? (
+                        <div className="rounded-xl border border-dashed bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
+                          No Etsy shop linked yet. Use <strong className="text-foreground">Connect</strong> to authorize.
+                        </div>
+                      ) : (
+                        <ul className="space-y-2">
+                          {etsyConnections.map((conn) => (
+                            <li
+                              key={conn.id}
+                              className="rounded-lg border bg-background/80 p-3 shadow-sm ring-1 ring-border/50"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium">{conn.shopName || conn.shopId}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{conn.shopId}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Since {formatConnectedAt(conn.connectedAt)}
+                                  </p>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <Button variant="secondary" size="sm" className="h-8" asChild>
+                                    <Link
+                                      href={`/dashboard/integrations/etsy/products?connectionId=${encodeURIComponent(conn.id)}`}
+                                    >
+                                      <Package className="h-3.5 w-3.5 mr-1" />
+                                      {Array.isArray(conn.selectedProducts) && conn.selectedProducts.length > 0
+                                        ? `${conn.selectedProducts.length} listings`
+                                        : "Listings"}
+                                    </Link>
+                                  </Button>
+                                  <Button variant="secondary" size="sm" className="h-8" asChild>
+                                    <Link
+                                      href={`/dashboard/etsy-orders?connectionId=${encodeURIComponent(conn.id)}`}
+                                    >
+                                      <ShoppingCart className="h-3.5 w-3.5 mr-1" />
+                                      Orders
+                                    </Link>
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 text-destructive hover:text-destructive"
+                                    onClick={() => void handleDisconnectEtsy(conn.id)}
+                                    disabled={etsyDisconnectId === conn.id}
+                                  >
+                                    {etsyDisconnectId === conn.id ? (
                                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     ) : (
                                       <Trash2 className="h-3.5 w-3.5" />

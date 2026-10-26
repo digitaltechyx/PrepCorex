@@ -55,6 +55,7 @@ export default function DashboardLayout({
       hasFeature(userProfile, "manage_veeqo_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
       hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_etsy_orders") ||
       hasFeature(userProfile, "manage_amazon_orders");
     if (hasAdminRole && !hasUserRole && !hasAgentRole && canManageOrderIntegrations) {
       router.replace("/admin/dashboard/integrations");
@@ -86,6 +87,7 @@ export default function DashboardLayout({
           hasFeature(userProfile, "manage_veeqo_orders") ||
           hasFeature(userProfile, "manage_woocommerce_orders") ||
           hasFeature(userProfile, "manage_tiktok_orders") ||
+          hasFeature(userProfile, "manage_etsy_orders") ||
           hasFeature(userProfile, "manage_amazon_orders"));
 
       // Check if user is trying to access agent dashboard
@@ -186,6 +188,7 @@ export default function DashboardLayout({
       hasFeature(userProfile, "manage_veeqo_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
       hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_etsy_orders") ||
       hasFeature(userProfile, "manage_amazon_orders"));
 
   if (
@@ -225,7 +228,7 @@ export default function DashboardLayout({
           <SidebarInset className="flex flex-col flex-1 min-w-0 overflow-x-hidden">
             <DashboardHeader onProfileClick={handleProfileClick} />
           <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
-          <main className="flex flex-1 flex-col gap-4 sm:gap-6 p-4 sm:p-6 lg:p-8 overflow-auto overflow-x-hidden w-full min-w-0 max-w-full">
+          <main className="flex flex-1 flex-col gap-3 overflow-auto overflow-x-hidden p-3 sm:gap-6 sm:p-6 lg:p-8 w-full min-w-0 max-w-full">
             <div className="w-full min-w-0 max-w-full">
               <ClientFeatureGate>{children}</ClientFeatureGate>
             </div>

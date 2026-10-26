@@ -5,6 +5,7 @@ export const INTEGRATION_INVENTORY_SOURCES = [
   "ebay",
   "woocommerce",
   "tiktok",
+  "etsy",
   "amazon",
 ] as const;
 
@@ -18,6 +19,7 @@ export function isIntegrationInventorySource(
     source === "ebay" ||
     source === "woocommerce" ||
     source === "tiktok" ||
+    source === "etsy" ||
     source === "amazon"
   );
 }
@@ -32,6 +34,8 @@ export function integrationInventorySourceLabel(source: string | null | undefine
       return "WooCommerce";
     case "tiktok":
       return "TikTok Shop";
+    case "etsy":
+      return "Etsy";
     case "amazon":
       return "Amazon";
     default:
@@ -49,6 +53,8 @@ export function integrationInventorySourceBadgeClass(source: string | null | und
       return "border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950 dark:text-violet-100";
     case "tiktok":
       return "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-100";
+    case "etsy":
+      return "border-orange-300 bg-orange-50 text-orange-800 dark:bg-orange-950 dark:text-orange-100";
     case "amazon":
       return "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100";
     default:

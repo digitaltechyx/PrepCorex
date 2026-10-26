@@ -379,6 +379,51 @@ export function AdminInventoryManagement({
     }
   };
 
+  const syncEtsyInventoryIfNeeded = async (
+    item: InventoryItem & {
+      source?: string;
+      etsyConnectionId?: string;
+      etsyListingId?: string;
+      etsyShopId?: string;
+    },
+    newQuantity: number,
+    userId: string
+  ) => {
+    if (item.source !== "etsy" || !item.etsyListingId || !authUser) return;
+    if (!item.etsyConnectionId && !item.etsyShopId) return;
+    try {
+      const token = await authUser.getIdToken();
+      const res = await fetch("/api/etsy/sync-inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          userId,
+          connectionId: item.etsyConnectionId,
+          etsyShopId: item.etsyShopId,
+          listingId: item.etsyListingId,
+          newQuantity,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "PrepCorex updated; Etsy did not update",
+          description:
+            typeof data.error === "string"
+              ? data.error
+              : "Enable listings_w and re-connect Etsy.",
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "PrepCorex updated; Etsy did not update",
+        description: e instanceof Error ? e.message : "Re-connect Etsy in Integrations.",
+      });
+    }
+  };
+
   const syncExternalInventoryIfNeeded = async (
     item: InventoryItem,
     newQuantity: number,
@@ -387,6 +432,7 @@ export function AdminInventoryManagement({
     await syncShopifyInventoryIfNeeded(item as any, newQuantity, userId);
     await syncWooCommerceInventoryIfNeeded(item as any, newQuantity, userId);
     await syncTikTokInventoryIfNeeded(item as any, newQuantity, userId);
+    await syncEtsyInventoryIfNeeded(item as any, newQuantity, userId);
   };
 
   const syncShopifyProductTitleIfNeeded = async (
@@ -1039,7 +1085,7 @@ export function AdminInventoryManagement({
       const previousQuantity = Number(currentData.quantity) || 0;
       const newQuantity = previousQuantity + values.quantity;
       const lotExpiry = expiryBatchIso(values.expiryDate?.trim() || null);
-
+      
       const receivingDateTimestamp = Timestamp.fromDate(values.restockDate);
 
       const inventoryPatch: Record<string, unknown> = {
@@ -1992,9 +2038,9 @@ export function AdminInventoryManagement({
       });
       const filename = `${selectedUser.name}_inventory_${new Date().toISOString().split("T")[0]}.xlsx`;
       downloadExcelBuffer(buffer, filename);
-
-      toast({
-        title: "Download Started",
+    
+    toast({
+      title: "Download Started",
         description: `Excel file for ${selectedUser.name} (${warehouseRows.length} products). Open History column ▼ to browse events.`,
       });
     } catch (error) {
@@ -2184,7 +2230,7 @@ export function AdminInventoryManagement({
     if (additionalServices) {
       invoiceDoc.additionalServices = additionalServices;
     }
-
+    
     const finalInvoiceDoc = applyClientInvoiceLifecycleFields(invoiceDoc);
     await addDoc(collection(db, `users/${selectedUser.uid}/invoices`), finalInvoiceDoc);
     
@@ -2748,37 +2794,37 @@ export function AdminInventoryManagement({
             Manage products in <span className="font-medium text-foreground">{selectedUser.name}</span>
             {" "}({filteredInventory.length})
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDownloadInventory}
-            disabled={filteredInventory.length === 0}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadInventory}
+              disabled={filteredInventory.length === 0}
             className="flex min-h-[44px] w-full items-center gap-2 sm:min-h-9 sm:w-auto"
-          >
-            <Download className="h-4 w-4" />
+            >
+              <Download className="h-4 w-4" />
             Download Excel
-          </Button>
-        </div>
-        {loading ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
-            ))}
+            </Button>
           </div>
-        ) : (
-          <InventoryTable
-            data={inventory}
-            ownerUserId={selectedUser.uid}
-            ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
-            adminActions={{
-              onRestock: handleRestockProduct,
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+              <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ) : (
+            <InventoryTable
+              data={inventory}
+              ownerUserId={selectedUser.uid}
+              ownerUserName={selectedUser.name ?? selectedUser.email ?? "User"}
+              adminActions={{
+                onRestock: handleRestockProduct,
               onCorrectLastRestock: handleCorrectLastRestock,
-              onEdit: handleEditProductWithLog,
-              onDispose: handleRecycleProduct,
-              onDelete: handleDeleteProduct,
-            }}
-          />
-        )}
+                onEdit: handleEditProductWithLog,
+                onDispose: handleRecycleProduct,
+                onDelete: handleDeleteProduct,
+              }}
+            />
+          )}
       </div>
       )}
 
@@ -2814,13 +2860,13 @@ export function AdminInventoryManagement({
                       className="h-auto min-h-10 w-full min-w-0 justify-between gap-2 px-3 py-2 text-left"
                     >
                       <span className="min-w-0 flex-1 truncate">
-                        {moveInventoryItemId
-                          ? (() => {
-                              const selected = movableInventory.find((item) => item.id === moveInventoryItemId);
-                              if (!selected) return "Select item to move";
-                              return `${selected.productName}${(selected as any).sku ? ` | SKU: ${(selected as any).sku}` : ""} | Qty: ${selected.quantity}`;
-                            })()
-                          : "Select item to move"}
+                      {moveInventoryItemId
+                        ? (() => {
+                            const selected = movableInventory.find((item) => item.id === moveInventoryItemId);
+                            if (!selected) return "Select item to move";
+                            return `${selected.productName}${(selected as any).sku ? ` | SKU: ${(selected as any).sku}` : ""} | Qty: ${selected.quantity}`;
+                          })()
+                        : "Select item to move"}
                       </span>
                       <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -3185,8 +3231,8 @@ export function AdminInventoryManagement({
                 <Select
                   value={restockDateFilter}
                   onValueChange={(value) => {
-                    setRestockDateFilter(value);
-                    resetRestockHistoryPagination();
+                  setRestockDateFilter(value);
+                  resetRestockHistoryPagination();
                   }}
                 >
                   <SelectTrigger className="h-9 w-full">
@@ -3202,19 +3248,19 @@ export function AdminInventoryManagement({
                   </SelectContent>
                 </Select>
                 <div className="min-w-0 w-full">
-                  <DateRangePicker
-                    fromDate={restockFromDate}
-                    toDate={restockToDate}
-                    setFromDate={(d) => {
-                      setRestockFromDate(d);
-                      resetRestockHistoryPagination();
-                    }}
-                    setToDate={(d) => {
-                      setRestockToDate(d);
-                      resetRestockHistoryPagination();
-                    }}
+                <DateRangePicker
+                  fromDate={restockFromDate}
+                  toDate={restockToDate}
+                  setFromDate={(d) => {
+                    setRestockFromDate(d);
+                    resetRestockHistoryPagination();
+                  }}
+                  setToDate={(d) => {
+                    setRestockToDate(d);
+                    resetRestockHistoryPagination();
+                  }}
                     className="w-full"
-                  />
+                />
                 </div>
               </div>
             </div>
@@ -3357,28 +3403,28 @@ export function AdminInventoryManagement({
 
                 {/* Desktop table */}
                 <div className="hidden overflow-hidden rounded-lg border border-green-200 bg-green-50/30 md:block">
-                  <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                    <TableHeader className="bg-green-100/70">
-                      <TableRow>
-                        <TableHead className="min-w-[260px]">Product</TableHead>
-                        <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
+                <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                  <TableHeader className="bg-green-100/70">
+                    <TableRow>
+                      <TableHead className="min-w-[260px]">Product</TableHead>
+                      <TableHead className="min-w-[120px]">Restocked Qty</TableHead>
                         <TableHead className="min-w-[120px]">Expiry</TableHead>
-                        <TableHead className="min-w-[110px]">Previous</TableHead>
-                        <TableHead className="min-w-[120px]">New Total</TableHead>
-                        <TableHead className="min-w-[180px]">Restocked By</TableHead>
-                        <TableHead className="min-w-[150px]">Date</TableHead>
-                        <TableHead className="min-w-[140px]">Pictures</TableHead>
-                        <TableHead className="min-w-[200px]">Remarks</TableHead>
+                      <TableHead className="min-w-[110px]">Previous</TableHead>
+                      <TableHead className="min-w-[120px]">New Total</TableHead>
+                      <TableHead className="min-w-[180px]">Restocked By</TableHead>
+                      <TableHead className="min-w-[150px]">Date</TableHead>
+                      <TableHead className="min-w-[140px]">Pictures</TableHead>
+                      <TableHead className="min-w-[200px]">Remarks</TableHead>
                         <TableHead className="w-24 text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedRestockHistory.map((item) => (
-                        <TableRow key={item.id} className="bg-white/70">
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedRestockHistory.map((item) => (
+                      <TableRow key={item.id} className="bg-white/70">
                           <TableCell className="font-semibold text-slate-900">
                             {item.productName}
                           </TableCell>
-                          <TableCell>
+                        <TableCell>
                             <Badge className="bg-green-500 text-[10px] text-white">
                               +{item.restockedQuantity}
                             </Badge>
@@ -3387,68 +3433,68 @@ export function AdminInventoryManagement({
                             {expiryBatchIso(item.expiryDate) || (
                               <span className="text-xs text-muted-foreground">-</span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
+                        </TableCell>
+                        <TableCell className="text-slate-700">{item.previousQuantity}</TableCell>
                           <TableCell className="font-semibold text-green-700">
                             {item.newQuantity}
                           </TableCell>
-                          <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
-                          <TableCell className="text-slate-700">
-                            <span className="inline-flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(item.restockedAt)}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
-                              <button
-                                type="button"
+                        <TableCell className="text-slate-700">{item.restockedBy}</TableCell>
+                        <TableCell className="text-slate-700">
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(item.restockedAt)}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {Array.isArray(item.imageUrls) && item.imageUrls.length > 0 ? (
+                            <button
+                              type="button"
                                 onClick={() =>
                                   openRestockImageViewer(
                                     item.imageUrls || [],
                                     `${item.productName} - ${formatDate(item.restockedAt)}`
                                   )
                                 }
-                                className="inline-flex items-center gap-2 hover:opacity-90"
-                                title="View pictures"
-                              >
-                                <span className="relative inline-flex">
-                                  <img
-                                    src={item.imageUrls[0]}
-                                    alt="restock-pic"
-                                    className="h-9 w-9 rounded-md border object-cover"
-                                  />
-                                  {item.imageUrls.length > 1 && (
+                              className="inline-flex items-center gap-2 hover:opacity-90"
+                              title="View pictures"
+                            >
+                              <span className="relative inline-flex">
+                                <img
+                                  src={item.imageUrls[0]}
+                                  alt="restock-pic"
+                                  className="h-9 w-9 rounded-md border object-cover"
+                                />
+                                {item.imageUrls.length > 1 && (
                                     <span className="absolute -bottom-1 -right-1 rounded-full border border-white bg-green-600 px-1 py-0.5 text-[10px] leading-none text-white">
-                                      +{item.imageUrls.length - 1}
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="text-xs font-medium text-green-700">View</span>
-                              </button>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                <ImageIcon className="h-3 w-3" />
-                                None
+                                    +{item.imageUrls.length - 1}
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-slate-700">
-                            {item.remarks ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                                <span className="text-xs font-medium text-green-700">View</span>
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <ImageIcon className="h-3 w-3" />
+                              None
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-slate-700">
+                          {item.remarks ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
                                 className="h-auto max-w-[220px] justify-start truncate p-1 text-left text-xs"
-                                onClick={() => handleRemarksClick(item.remarks || "")}
-                                title={item.remarks}
-                              >
-                                {item.remarks}
-                              </Button>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
+                              onClick={() => handleRemarksClick(item.remarks || "")}
+                              title={item.remarks}
+                            >
+                              {item.remarks}
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
                             <div className="inline-flex items-center gap-1">
                               <Button
                                 variant="outline"
@@ -3460,38 +3506,38 @@ export function AdminInventoryManagement({
                                 <Edit className="mr-1 h-3.5 w-3.5" />
                                 Correct
                               </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
-                                    <AlertDialogDescription>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm" className="h-7 w-7 p-0">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Restock Entry</AlertDialogTitle>
+                                <AlertDialogDescription>
                                       Are you sure you want to delete this restock record for &quot;
                                       {item.productName}&quot;?
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => handleDeleteRestockHistory(item)}
-                                      className="bg-red-600 hover:bg-red-700"
-                                    >
-                                      Delete
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteRestockHistory(item)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
               </>
             ) : (
               <div className="py-8 text-center">
@@ -3602,13 +3648,13 @@ export function AdminInventoryManagement({
             </div>
           </CardHeader>
           <CardContent className="min-w-0 space-y-3 p-3 sm:space-y-4 sm:p-6">
-            {recycledInventoryLoading ? (
+                {recycledInventoryLoading ? (
               <div className="space-y-3">
-                {[1, 2].map((i) => (
+                    {[1, 2].map((i) => (
                   <div key={i} className="h-20 animate-pulse rounded-lg bg-muted sm:h-16" />
-                ))}
-              </div>
-            ) : filteredRecycledInventory.length > 0 ? (
+                    ))}
+                  </div>
+                ) : filteredRecycledInventory.length > 0 ? (
               <>
                 <div className="space-y-2 md:hidden">
                   {paginatedRecycledInventory.map((item) => (
@@ -3645,48 +3691,48 @@ export function AdminInventoryManagement({
                   ))}
                 </div>
                 <div className="hidden overflow-hidden rounded-lg border border-amber-200 bg-amber-50/30 md:block">
-                  <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                    <TableHeader className="bg-amber-100/70">
-                      <TableRow>
-                        <TableHead className="min-w-[220px]">Product</TableHead>
-                        <TableHead className="min-w-[120px]">Quantity</TableHead>
-                        <TableHead className="min-w-[120px]">Status</TableHead>
-                        <TableHead className="min-w-[300px]">Reason</TableHead>
-                        <TableHead className="min-w-[170px]">Disposed By</TableHead>
-                        <TableHead className="min-w-[150px]">Added</TableHead>
-                        <TableHead className="min-w-[150px]">Disposed</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedRecycledInventory.map((item) => (
-                        <TableRow key={item.id} className="bg-white/80">
+                    <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                      <TableHeader className="bg-amber-100/70">
+                        <TableRow>
+                          <TableHead className="min-w-[220px]">Product</TableHead>
+                          <TableHead className="min-w-[120px]">Quantity</TableHead>
+                          <TableHead className="min-w-[120px]">Status</TableHead>
+                          <TableHead className="min-w-[300px]">Reason</TableHead>
+                          <TableHead className="min-w-[170px]">Disposed By</TableHead>
+                          <TableHead className="min-w-[150px]">Added</TableHead>
+                          <TableHead className="min-w-[150px]">Disposed</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedRecycledInventory.map((item) => (
+                          <TableRow key={item.id} className="bg-white/80">
                           <TableCell className="font-semibold text-gray-900">
                             {item.productName}
                           </TableCell>
-                          <TableCell>
+                            <TableCell>
                             <Badge className="bg-amber-500 text-[10px] text-white">
                               Qty: {item.quantity}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
+                            </TableCell>
+                            <TableCell>
                             <Badge
                               variant={item.status === "In Stock" ? "default" : "destructive"}
                               className="text-[10px]"
                             >
-                              {item.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
-                          <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
-                          <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
+                                {item.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-amber-900">{item.remarks || "—"}</TableCell>
+                            <TableCell className="text-gray-700">{item.recycledBy}</TableCell>
+                            <TableCell className="text-gray-600">{formatDate(item.dateAdded)}</TableCell>
                           <TableCell className="font-medium text-orange-700">
                             {formatDate(item.recycledAt)}
                           </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
               </>
             ) : (
               <div className="py-8 text-center">
@@ -3696,42 +3742,42 @@ export function AdminInventoryManagement({
                   {recycledInventory.length === 0
                     ? "No inventory items have been disposed yet."
                     : "No disposed inventory items match your search or date filter."}
-                </p>
-              </div>
-            )}
+                    </p>
+                  </div>
+                )}
 
-            {filteredRecycledInventory.length > itemsPerPage && (
+                {filteredRecycledInventory.length > itemsPerPage && (
               <div className="mt-2 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between sm:pt-4">
                 <div className="text-xs text-muted-foreground sm:text-sm">
                   Showing {recycleStartIndex + 1}–
                   {Math.min(recycleEndIndex, filteredRecycledInventory.length)} of{" "}
                   {filteredRecycledInventory.length}
-                </div>
+                    </div>
                 <div className="grid grid-cols-3 items-center gap-2 sm:flex">
-                  <Button
-                    variant="outline"
-                    size="sm"
+                      <Button
+                        variant="outline"
+                        size="sm"
                     className="w-full sm:w-auto"
                     onClick={() => setRecyclePage((p) => Math.max(1, p - 1))}
-                    disabled={recyclePage === 1}
-                  >
+                        disabled={recyclePage === 1}
+                      >
                     Prev
-                  </Button>
+                      </Button>
                   <span className="text-center text-xs sm:text-sm">
                     {recyclePage}/{recycleTotalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
                     className="w-full sm:w-auto"
                     onClick={() => setRecyclePage((p) => Math.min(recycleTotalPages, p + 1))}
-                    disabled={recyclePage === recycleTotalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
+                        disabled={recyclePage === recycleTotalPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
           </CardContent>
         </Card>
       )}
@@ -3749,7 +3795,7 @@ export function AdminInventoryManagement({
                 <CardDescription className="text-xs sm:text-sm">
                   Permanently deleted products for {selectedUser.name}
                 </CardDescription>
-              </div>
+            </div>
               <Button
                 className="h-9 w-full shrink-0 sm:w-auto"
                 onClick={() => setDeleteRequestDialogOpen(true)}
@@ -3785,8 +3831,8 @@ export function AdminInventoryManagement({
               <Select
                 value={deleteLogsDateFilter}
                 onValueChange={(value) => {
-                  setDeleteLogsDateFilter(value);
-                  resetDeleteLogsPagination();
+                setDeleteLogsDateFilter(value);
+                resetDeleteLogsPagination();
                 }}
               >
                 <SelectTrigger className="h-9 w-full bg-background">
@@ -3801,19 +3847,19 @@ export function AdminInventoryManagement({
                 </SelectContent>
               </Select>
               <div className="min-w-0 w-full">
-                <DateRangePicker
-                  fromDate={deleteLogsFromDate}
-                  toDate={deleteLogsToDate}
-                  setFromDate={(d) => {
-                    setDeleteLogsFromDate(d);
-                    resetDeleteLogsPagination();
-                  }}
-                  setToDate={(d) => {
-                    setDeleteLogsToDate(d);
-                    resetDeleteLogsPagination();
-                  }}
+              <DateRangePicker
+                fromDate={deleteLogsFromDate}
+                toDate={deleteLogsToDate}
+                setFromDate={(d) => {
+                  setDeleteLogsFromDate(d);
+                  resetDeleteLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setDeleteLogsToDate(d);
+                  resetDeleteLogsPagination();
+                }}
                   className="w-full"
-                />
+              />
               </div>
             </div>
           </div>
@@ -3840,7 +3886,7 @@ export function AdminInventoryManagement({
                       <Badge className="shrink-0 bg-red-500 text-[10px] text-white">
                         -{item.quantity}
                       </Badge>
-                    </div>
+              </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge
                         variant={item.status === "In Stock" ? "default" : "destructive"}
@@ -3851,59 +3897,59 @@ export function AdminInventoryManagement({
                       <span className="text-xs font-medium text-red-700">
                         Deleted {formatDate(item.deletedAt)}
                       </span>
-                    </div>
+            </div>
                     {item.reason ? (
                       <p className="break-words text-xs text-red-800">{item.reason}</p>
                     ) : null}
                     <p className="truncate text-xs text-muted-foreground">
                       By {item.deletedBy} · Added {formatDate(item.dateAdded)}
                     </p>
-                  </div>
-                ))}
-              </div>
+          </div>
+              ))}
+            </div>
               <div className="hidden overflow-hidden rounded-lg border border-red-200 bg-red-50/30 md:block">
-                <Table containerClassName="overflow-x-auto mouse-h-scroll">
-                  <TableHeader className="bg-red-100/70">
-                    <TableRow>
-                      <TableHead className="min-w-[240px]">Product</TableHead>
-                      <TableHead className="min-w-[110px]">Quantity</TableHead>
-                      <TableHead className="min-w-[120px]">Status</TableHead>
-                      <TableHead className="min-w-[150px]">Added</TableHead>
-                      <TableHead className="min-w-[150px]">Deleted</TableHead>
-                      <TableHead className="min-w-[170px]">Deleted By</TableHead>
-                      <TableHead className="min-w-[260px]">Reason</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedDeleteLogs.map((item) => (
-                      <TableRow key={item.id} className="bg-white/70">
+              <Table containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-red-100/70">
+                  <TableRow>
+                    <TableHead className="min-w-[240px]">Product</TableHead>
+                    <TableHead className="min-w-[110px]">Quantity</TableHead>
+                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[150px]">Added</TableHead>
+                    <TableHead className="min-w-[150px]">Deleted</TableHead>
+                    <TableHead className="min-w-[170px]">Deleted By</TableHead>
+                    <TableHead className="min-w-[260px]">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedDeleteLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
                         <TableCell className="font-semibold text-slate-900">
                           {item.productName}
                         </TableCell>
-                        <TableCell>
+                      <TableCell>
                           <Badge className="bg-red-500 text-[10px] text-white">
                             -{item.quantity}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
+                      </TableCell>
+                      <TableCell>
                           <Badge
                             variant={item.status === "In Stock" ? "default" : "destructive"}
                             className="text-[10px]"
                           >
-                            {item.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
+                          {item.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-700">{formatDate(item.dateAdded)}</TableCell>
                         <TableCell className="font-semibold text-red-700">
                           {formatDate(item.deletedAt)}
                         </TableCell>
-                        <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
-                        <TableCell className="text-red-800">{item.reason}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                      <TableCell className="text-slate-700">{item.deletedBy}</TableCell>
+                      <TableCell className="text-red-800">{item.reason}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
             </>
           ) : (
             <div className="py-8 text-center">
@@ -4006,8 +4052,8 @@ export function AdminInventoryManagement({
               <Select
                 value={editLogsDateFilter}
                 onValueChange={(value) => {
-                  setEditLogsDateFilter(value);
-                  resetEditLogsPagination();
+                setEditLogsDateFilter(value);
+                resetEditLogsPagination();
                 }}
               >
                 <SelectTrigger className="h-9 w-full">
@@ -4022,19 +4068,19 @@ export function AdminInventoryManagement({
                 </SelectContent>
               </Select>
               <div className="min-w-0 w-full">
-                <DateRangePicker
-                  fromDate={editLogsFromDate}
-                  toDate={editLogsToDate}
-                  setFromDate={(d) => {
-                    setEditLogsFromDate(d);
-                    resetEditLogsPagination();
-                  }}
-                  setToDate={(d) => {
-                    setEditLogsToDate(d);
-                    resetEditLogsPagination();
-                  }}
+              <DateRangePicker
+                fromDate={editLogsFromDate}
+                toDate={editLogsToDate}
+                setFromDate={(d) => {
+                  setEditLogsFromDate(d);
+                  resetEditLogsPagination();
+                }}
+                setToDate={(d) => {
+                  setEditLogsToDate(d);
+                  resetEditLogsPagination();
+                }}
                   className="w-full"
-                />
+              />
               </div>
             </div>
           </div>
@@ -4064,7 +4110,7 @@ export function AdminInventoryManagement({
                           Renamed
                         </Badge>
                       ) : null}
-                    </div>
+              </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="rounded-md bg-white/80 px-2 py-1.5">
                         <p className="text-[10px] text-muted-foreground">Quantity</p>
@@ -4073,7 +4119,7 @@ export function AdminInventoryManagement({
                           <ArrowRight className="h-3 w-3 text-blue-500" />
                           <span className="font-semibold text-blue-700">{item.newQuantity}</span>
                         </p>
-                      </div>
+            </div>
                       <div className="rounded-md bg-white/80 px-2 py-1.5">
                         <p className="text-[10px] text-muted-foreground">Status</p>
                         <p className="inline-flex flex-wrap items-center gap-1">
@@ -4085,7 +4131,7 @@ export function AdminInventoryManagement({
                             {item.newStatus}
                           </Badge>
                         </p>
-                      </div>
+          </div>
                     </div>
                     {item.reason ? (
                       <p className="break-words text-xs text-slate-700">{item.reason}</p>
@@ -4095,67 +4141,67 @@ export function AdminInventoryManagement({
                       {formatDate(item.editedAt)} · {item.editedBy}
                     </p>
                   </div>
-                ))}
-              </div>
+              ))}
+            </div>
               <div className="hidden overflow-hidden rounded-lg border border-blue-200 bg-blue-50/30 md:block">
-                <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll">
-                  <TableHeader className="bg-blue-100/70">
-                    <TableRow>
-                      <TableHead className="w-[20%]">Product</TableHead>
-                      <TableHead className="w-[16%]">Quantity</TableHead>
-                      <TableHead className="w-[16%]">Status</TableHead>
-                      <TableHead className="w-[20%]">Reason</TableHead>
-                      <TableHead className="w-[14%]">Edited By</TableHead>
-                      <TableHead className="w-[14%]">Date</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedEditLogs.map((item) => (
-                      <TableRow key={item.id} className="bg-white/70">
-                        <TableCell className="font-semibold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <span>{item.productName}</span>
+              <Table className="table-fixed" containerClassName="overflow-x-auto mouse-h-scroll">
+                <TableHeader className="bg-blue-100/70">
+                  <TableRow>
+                    <TableHead className="w-[20%]">Product</TableHead>
+                    <TableHead className="w-[16%]">Quantity</TableHead>
+                    <TableHead className="w-[16%]">Status</TableHead>
+                    <TableHead className="w-[20%]">Reason</TableHead>
+                    <TableHead className="w-[14%]">Edited By</TableHead>
+                    <TableHead className="w-[14%]">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedEditLogs.map((item) => (
+                    <TableRow key={item.id} className="bg-white/70">
+                      <TableCell className="font-semibold text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span>{item.productName}</span>
                             {item.previousProductName &&
                             item.previousProductName !== item.productName ? (
                               <Badge variant="outline" className="text-[10px]">
                                 Renamed
                               </Badge>
                             ) : null}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-slate-700">
-                          <div className="inline-flex items-center gap-2">
-                            <span>{item.previousQuantity}</span>
-                            <ArrowRight className="h-3 w-3 text-blue-500" />
-                            <span className="font-semibold text-blue-700">{item.newQuantity}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="inline-flex items-center gap-2">
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-slate-700">
+                        <div className="inline-flex items-center gap-2">
+                          <span>{item.previousQuantity}</span>
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <span className="font-semibold text-blue-700">{item.newQuantity}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="inline-flex items-center gap-2">
                             <Badge variant="outline" className="text-[10px]">
                               {item.previousStatus}
                             </Badge>
-                            <ArrowRight className="h-3 w-3 text-blue-500" />
+                          <ArrowRight className="h-3 w-3 text-blue-500" />
                             <Badge className="bg-blue-500 text-[10px] text-white">
                               {item.newStatus}
                             </Badge>
-                          </div>
-                        </TableCell>
+                        </div>
+                      </TableCell>
                         <TableCell className="truncate text-slate-700" title={item.reason}>
                           {item.reason}
                         </TableCell>
                         <TableCell className="truncate text-slate-700">{item.editedBy}</TableCell>
-                        <TableCell className="text-slate-700">
-                          <span className="inline-flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(item.editedAt)}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                      <TableCell className="text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(item.editedAt)}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
             </>
           ) : (
             <div className="py-8 text-center">

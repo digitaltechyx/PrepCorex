@@ -58,6 +58,9 @@ const MODULE_SUBCOLLECTIONS: Record<WipeUserModuleId, string[]> = {
     "amazonConnections",
     "amazonOrders",
     "tiktokConnections",
+    "etsyConnections",
+    "etsyOrders",
+    "etsyWebhookEvents",
     "woocommerceConnections",
     "woocommerceOrders",
     "shipstationConnections",
@@ -158,6 +161,18 @@ async function wipeIntegrationShopMaps(
     const shopId = String(doc.data()?.shopId || doc.data()?.shop_id || doc.id || "").trim();
     if (!shopId) continue;
     const mapRef = db.collection("tiktokShopToUser").doc(shopId);
+    const mapSnap = await mapRef.get();
+    if (mapSnap.exists) {
+      await mapRef.delete();
+      deleted.count += 1;
+    }
+  }
+
+  const etsySnap = await userRef.collection("etsyConnections").get();
+  for (const doc of etsySnap.docs) {
+    const shopId = String(doc.data()?.shopId || doc.id || "").trim();
+    if (!shopId) continue;
+    const mapRef = db.collection("etsyShopToUser").doc(shopId);
     const mapSnap = await mapRef.get();
     if (mapSnap.exists) {
       await mapRef.delete();

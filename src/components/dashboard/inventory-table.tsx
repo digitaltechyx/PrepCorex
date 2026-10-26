@@ -622,6 +622,7 @@ function inventoryRowIsLowStockStyled(item: {
   if (item.isRequest) return false;
   if (item.source === "ebay") return false;
   if (item.source === "tiktok") return false;
+  if (item.source === "etsy") return false;
   return rowIsLowStock(item);
 }
 
@@ -643,6 +644,7 @@ function inventorySourceKey(item: InventorySourceRow): string {
   if (item.source === "ebay") return "ebay";
   if (item.source === "woocommerce") return "woocommerce";
   if (item.source === "tiktok") return "tiktok";
+  if (item.source === "etsy") return "etsy";
   return "manual";
 }
 
@@ -683,6 +685,13 @@ function inventorySourceMeta(item: InventorySourceRow) {
       label: "TikTok Shop",
       detail: String(item.shop ?? "").trim() || undefined,
       className: "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-800 dark:bg-fuchsia-950 dark:text-fuchsia-100",
+    };
+  }
+  if (item.source === "etsy") {
+    return {
+      label: "Etsy",
+      detail: String(item.shop ?? "").trim() || undefined,
+      className: "border-orange-300 bg-orange-50 text-orange-800 dark:bg-orange-950 dark:text-orange-100",
     };
   }
   return {
@@ -2030,7 +2039,8 @@ export function InventoryTable({
         item.source === "shopify" ||
         item.source === "ebay" ||
         item.source === "woocommerce" ||
-        item.source === "tiktok";
+        item.source === "tiktok" ||
+        item.source === "etsy";
 
       // Marketplace catalog rows should not inherit inbound-request photos/dates by SKU coincidence
       const matchingRequest = isMarketplace

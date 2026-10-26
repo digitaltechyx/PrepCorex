@@ -53,6 +53,7 @@ const PLATFORM_COLLECTIONS: { platform: IntegrationPlatformId; group: string }[]
   { platform: "ebay", group: "ebayConnections" },
   { platform: "amazon", group: "amazonConnections" },
   { platform: "tiktok", group: "tiktokConnections" },
+  { platform: "etsy", group: "etsyConnections" },
   { platform: "woocommerce", group: "woocommerceConnections" },
   { platform: "shipstation", group: "shipstationConnections" },
   { platform: "veeqo", group: "veeqoConnections" },
@@ -102,6 +103,11 @@ function connectionLabel(
       return {
         label: String(data.shopName ?? data.sellerName ?? "TikTok Shop"),
         sublabel: String(data.shopId ?? data.region ?? ""),
+      };
+    case "etsy":
+      return {
+        label: String(data.shopName ?? "Etsy Shop"),
+        sublabel: String(data.shopId ?? ""),
       };
     case "woocommerce":
       return {

@@ -598,6 +598,33 @@ export function ShipmentRequestsManagement({
                 });
               }
             } else if (
+              hint.source === "etsy" &&
+              hint.etsyListingId &&
+              (hint.etsyConnectionId || hint.etsyShopId)
+            ) {
+              const res = await fetch("/api/etsy/sync-inventory", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  userId: targetUserId,
+                  connectionId: hint.etsyConnectionId,
+                  etsyShopId: hint.etsyShopId,
+                  listingId: hint.etsyListingId,
+                  newQuantity: hint.newQuantity,
+                }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                toast({
+                  variant: "destructive",
+                  title: "Quantities restored in PrepCorex; Etsy did not update",
+                  description:
+                    typeof data.error === "string"
+                      ? data.error
+                      : "Re-connect Etsy in Integrations.",
+                });
+              }
+            } else if (
               hint.source === "ebay" &&
               hint.ebayConnectionId &&
               (hint.ebayOfferId || hint.ebayListingId)

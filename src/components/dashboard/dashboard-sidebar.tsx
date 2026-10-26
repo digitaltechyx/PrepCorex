@@ -84,6 +84,7 @@ const ORDER_CHILD_PATHS = [
   "/dashboard/shopify-orders",
   "/dashboard/ebay-orders",
   "/dashboard/tiktok-orders",
+  "/dashboard/etsy-orders",
   "/dashboard/amazon-orders",
   "/dashboard/shipstation-orders",
   "/dashboard/veeqo-orders",
@@ -451,6 +452,15 @@ export function DashboardSidebar() {
       requiredFeature: "view_tiktok_orders" as const,
     },
     {
+      title: "Etsy Orders",
+      url: "/dashboard/etsy-orders",
+      icon: ShoppingBag,
+      color: "text-orange-600",
+      badge: null,
+      requiredRole: "user" as const,
+      requiredFeature: "view_etsy_orders" as const,
+    },
+    {
       title: "Amazon Orders",
       url: "/dashboard/amazon-orders",
       icon: ShoppingBag,
@@ -644,6 +654,7 @@ export function DashboardSidebar() {
       hasFeature(userProfile, "manage_veeqo_orders") ||
       hasFeature(userProfile, "manage_woocommerce_orders") ||
       hasFeature(userProfile, "manage_tiktok_orders") ||
+      hasFeature(userProfile, "manage_etsy_orders") ||
       hasFeature(userProfile, "manage_amazon_orders")) &&
     onClientIntegrationsSubtree;
 

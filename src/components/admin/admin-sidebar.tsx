@@ -98,6 +98,7 @@ const MARKETPLACE_ORDERS_MENU_ROOT = "/__marketplace_orders_menu__";
 const MARKETPLACE_ORDER_CHILD_PATHS = [
   "/admin/dashboard/shopify-orders",
   "/admin/dashboard/tiktok-orders",
+  "/admin/dashboard/etsy-orders",
   "/admin/dashboard/amazon-orders",
   "/admin/dashboard/ebay-orders",
   "/admin/dashboard/shipstation-orders",
@@ -417,7 +418,7 @@ export function AdminSidebar() {
       url: "/admin/dashboard/integrations",
       icon: Plug,
       color: "text-green-600",
-      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_veeqo_orders", "manage_woocommerce_orders", "manage_tiktok_orders", "manage_amazon_orders"] as const satisfies readonly UserFeature[],
+      requiredFeaturesAnyOf: ["manage_shopify_orders", "manage_ebay_orders", "manage_shipstation_orders", "manage_veeqo_orders", "manage_woocommerce_orders", "manage_tiktok_orders", "manage_etsy_orders", "manage_amazon_orders"] as const satisfies readonly UserFeature[],
     },
     {
       title: "Shopify Orders",
@@ -434,6 +435,14 @@ export function AdminSidebar() {
       color: "text-fuchsia-600",
       badge: null,
       requiredFeature: "manage_tiktok_orders" as const,
+    },
+    {
+      title: "Etsy Orders",
+      url: "/admin/dashboard/etsy-orders",
+      icon: ShoppingBag,
+      color: "text-orange-600",
+      badge: null,
+      requiredFeature: "manage_etsy_orders" as const,
     },
     {
       title: "Amazon Orders",
