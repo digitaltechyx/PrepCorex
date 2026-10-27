@@ -1005,6 +1005,12 @@ export interface InventoryRequest {
   warehouseProcessedAt?: { seconds: number; nanoseconds: number } | string;
   /** Marks requests created after the shared warehouse inbound workflow. */
   inboundWorkflowVersion?: number;
+  /**
+   * Set at admin approve (product inbound / restock).
+   * - `normal` (default): simple receive — credit inventory immediately, no open partial line.
+   * - `partial`: warehouse receive/putaway workflow with open fulfillment until complete.
+   */
+  inboundReceiveMode?: "normal" | "partial";
   /** Good units put away to warehouse (client sellable stock source). */
   warehouseGoodReceivedQty?: number;
   /** Damaged units put away to quarantine / hold. */

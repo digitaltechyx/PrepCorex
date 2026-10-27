@@ -7,6 +7,8 @@ import type { InventoryRequest, UserProfile, InboundTrackingEntry } from "@/type
 type InventoryRequestProcessOpts = {
   quiet?: boolean;
   skipBatchSync?: boolean;
+  /** Product inbound only. Default `normal` — immediate inventory; `partial` = open warehouse receive. */
+  inboundReceiveMode?: "normal" | "partial";
 };
 
 interface InventoryItemLite {
@@ -601,78 +603,97 @@ export function InventoryRequestsManagement({
           requestUpdateData.sku = finalSku;
         }
 
-        const warehouseInboundV2 = request.inventoryType === "product";
-        if (warehouseInboundV2) {
+        const isProductInbound = request.inventoryType === "product";
+        const receiveMode: "normal" | "partial" =
+          isProductInbound && opts?.inboundReceiveMode === "partial" ? "partial" : "normal";
+        const usePartialInbound = isProductInbound && receiveMode === "partial";
+
+        if (isProductInbound) {
+          requestUpdateData.inboundReceiveMode = receiveMode;
+        }
+
+        if (usePartialInbound) {
+          // Partial: keep request open for warehouse receive / putaway (may arrive in multiple lots).
           requestUpdateData.fulfillmentStatus = "open";
           requestUpdateData.warehouseGoodReceivedQty = 0;
           requestUpdateData.warehouseDamagedReceivedQty = 0;
           requestUpdateData.inboundWorkflowVersion = 2;
+        } else if (isProductInbound) {
+          // Normal (default): simple receive — credit inventory now, no open partial line.
+          requestUpdateData.fulfillmentStatus = "closed";
+          requestUpdateData.warehouseGoodReceivedQty = finalQuantity;
+          requestUpdateData.warehouseDamagedReceivedQty = 0;
+          requestUpdateData.inboundWorkflowVersion = 1;
+          requestUpdateData.closedAt = approvedAt;
+          requestUpdateData.closedBy = adminProfile.uid;
+          requestUpdateData.closeReason = "normal_receive";
         }
-        
+
         // Update request status (single update with all changes)
         transaction.update(requestRef, requestUpdateData);
-        
-        // Handle inventory update/create (legacy: box/pallet/container; products use warehouse putaway)
-        if (!warehouseInboundV2) {
-        if (isRestock && existingProductDoc && existingProductDoc.exists()) {
-          // For restock: Update existing inventory item
-          const existingData = existingProductDoc.data();
-          const currentQuantity = existingData.quantity || 0;
-          const newQuantity = currentQuantity + finalQuantity;
-          
-          // Update existing product with new quantity
-          const restockUpdate: Record<string, unknown> = {
-            quantity: newQuantity,
-            requestedQuantity: requestedQty,
-            receivedQuantity: finalQuantity,
-            receivingDate: receivingDateTimestamp,
-            approvedBy: adminProfile.uid,
-            approvedAt,
-            updatedAt: Timestamp.now(),
-            remarks: remarksToSave,
-            imageUrls: finalImageUrls,
-            sourceRequestId: request.id,
-          };
-          if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
-            restockUpdate.inboundTrackings = (request as any).inboundTrackings;
+
+        // Inventory create/update: non-products always; products only on Normal approve.
+        // Partial products wait for warehouse putaway to create/link stock.
+        if (!usePartialInbound) {
+          if (isRestock && existingProductDoc && existingProductDoc.exists()) {
+            // For restock: Update existing inventory item
+            const existingData = existingProductDoc.data();
+            const currentQuantity = existingData.quantity || 0;
+            const newQuantity = currentQuantity + finalQuantity;
+
+            const restockUpdate: Record<string, unknown> = {
+              quantity: newQuantity,
+              requestedQuantity: requestedQty,
+              receivedQuantity: finalQuantity,
+              receivingDate: receivingDateTimestamp,
+              approvedBy: adminProfile.uid,
+              approvedAt,
+              updatedAt: Timestamp.now(),
+              remarks: remarksToSave,
+              imageUrls: finalImageUrls,
+              sourceRequestId: request.id,
+              status,
+            };
+            if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
+              restockUpdate.inboundTrackings = (request as any).inboundTrackings;
+            }
+            transaction.update(existingProductRef!, restockUpdate);
+          } else {
+            // For new product/box/pallet OR restock with product not found: Create new inventory item
+            const inventoryRef = collection(db, `users/${userId}/inventory`);
+            const addDate =
+              request.addDate && typeof request.addDate === "object" && "seconds" in request.addDate
+                ? Timestamp.fromMillis(request.addDate.seconds * 1000)
+                : Timestamp.now();
+
+            const finalData: any = {
+              productName: finalProductName,
+              quantity: finalQuantity,
+              requestedQuantity: requestedQty,
+              receivedQuantity: finalQuantity,
+              sourceRequestId: request.id,
+              dateAdded: addDate,
+              receivingDate: receivingDateTimestamp,
+              status,
+              inventoryType: request.inventoryType,
+              requestedBy: request.requestedBy,
+              approvedBy: adminProfile.uid,
+              approvedAt,
+              remarks: remarksToSave,
+              imageUrls: finalImageUrls,
+            };
+            if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
+              finalData.inboundTrackings = (request as any).inboundTrackings;
+            }
+
+            if (request.inventoryType === "product" && finalSku) {
+              finalData.sku = finalSku;
+            }
+
+            const newInventoryDocRef = doc(inventoryRef);
+            createdInventoryDocId = newInventoryDocRef.id;
+            transaction.set(newInventoryDocRef, finalData);
           }
-          transaction.update(existingProductRef!, restockUpdate);
-        } else {
-          // For new product/box/pallet OR restock with product not found: Create new inventory item
-          const inventoryRef = collection(db, `users/${userId}/inventory`);
-          const addDate = request.addDate && typeof request.addDate === 'object' && 'seconds' in request.addDate
-            ? Timestamp.fromMillis(request.addDate.seconds * 1000)
-            : Timestamp.now();
-          
-          const finalData: any = {
-            productName: finalProductName,
-            quantity: finalQuantity,
-            requestedQuantity: requestedQty,
-            receivedQuantity: finalQuantity,
-            sourceRequestId: request.id,
-            dateAdded: addDate,
-            receivingDate: receivingDateTimestamp,
-            status,
-            inventoryType: request.inventoryType,
-            requestedBy: request.requestedBy,
-            approvedBy: adminProfile.uid,
-            approvedAt,
-            remarks: remarksToSave,
-            imageUrls: finalImageUrls,
-          };
-          if (Array.isArray((request as any).inboundTrackings) && (request as any).inboundTrackings.length > 0) {
-            finalData.inboundTrackings = (request as any).inboundTrackings;
-          }
-          
-          // Only include SKU for product type
-          if (request.inventoryType === "product" && finalSku) {
-            finalData.sku = finalSku;
-          }
-          
-          const newInventoryDocRef = doc(inventoryRef);
-          createdInventoryDocId = newInventoryDocRef.id;
-          transaction.set(newInventoryDocRef, finalData);
-        }
         }
       });
 
@@ -794,21 +815,23 @@ export function InventoryRequestsManagement({
       }
 
       if (!opts?.quiet) {
-      await addDoc(collection(db, `users/${userId}/notifications`), {
-        type: "inventory_request",
-        title: "Inventory request approved",
-        message:
-          request.inventoryType === "container"
-            ? "Your container handling request has been approved."
-            : request.inventoryType === "product"
-            ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
-            : "Your inventory request has been approved and added to inventory.",
-        isRead: false,
-        targetUrl: "/dashboard/inventory",
-        relatedRequestId: request.id,
-        createdAt: Timestamp.now(),
-        createdBy: adminProfile.uid,
-      });
+        const usePartialInbound =
+          request.inventoryType === "product" && opts?.inboundReceiveMode === "partial";
+        await addDoc(collection(db, `users/${userId}/notifications`), {
+          type: "inventory_request",
+          title: "Inventory request approved",
+          message:
+            request.inventoryType === "container"
+              ? "Your container handling request has been approved."
+              : usePartialInbound
+                ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
+                : "Your inventory request has been approved and added to inventory.",
+          isRead: false,
+          targetUrl: "/dashboard/inventory",
+          relatedRequestId: request.id,
+          createdAt: Timestamp.now(),
+          createdBy: adminProfile.uid,
+        });
       }
 
       const isRestock = (request as any).productSubType === "restock";
@@ -819,20 +842,21 @@ export function InventoryRequestsManagement({
         await refreshBatchCounts(batchId);
       }
       if (!opts?.quiet) {
-        const warehouseInboundV2 = request.inventoryType === "product";
-      toast({
-        title: "Success",
-        description: isRestock 
-            ? warehouseInboundV2
+        const usePartialInbound =
+          request.inventoryType === "product" && opts?.inboundReceiveMode === "partial";
+        toast({
+          title: "Success",
+          description: isRestock
+            ? usePartialInbound
               ? "Restock approved — complete receiving below or close to finish later from Pending receive."
-            : "Restock request approved. Quantity added to existing product."
-          : request.inventoryType === "container"
-          ? "Container handling request approved and invoice generated."
-              : warehouseInboundV2
+              : "Restock approved. Quantity added to the existing product."
+            : request.inventoryType === "container"
+              ? "Container handling request approved and invoice generated."
+              : usePartialInbound
                 ? "Approved — complete receiving below or close for Pending receive."
-          : "Inventory request approved and added to inventory.",
-      });
-        if (warehouseInboundV2) {
+                : "Inventory request approved and added to inventory.",
+        });
+        if (usePartialInbound) {
           setSelectedRequest({
             ...request,
             status: "approved",
@@ -840,6 +864,7 @@ export function InventoryRequestsManagement({
             warehouseGoodReceivedQty: 0,
             warehouseDamagedReceivedQty: 0,
             inboundWorkflowVersion: 2,
+            inboundReceiveMode: "partial",
             receivedQuantity: finalQuantity,
             requestedQuantity: requestedQty,
             productName: finalProductName,
@@ -1690,7 +1715,17 @@ function ReviewRequestDialog({
   request: InventoryRequest;
   clientUserId: string;
   clientDisplayName?: string | null;
-  onApprove: (request: InventoryRequest, receivingDate: Date, status: "In Stock" | "Out of Stock", remarks?: string, editedQuantity?: number, editedProductName?: string, editedSku?: string, imageUrls?: string[]) => void;
+  onApprove: (
+    request: InventoryRequest,
+    receivingDate: Date,
+    status: "In Stock" | "Out of Stock",
+    remarks?: string,
+    editedQuantity?: number,
+    editedProductName?: string,
+    editedSku?: string,
+    imageUrls?: string[],
+    opts?: InventoryRequestProcessOpts
+  ) => void;
   onReject: (request: InventoryRequest, reason: string, evidenceUrls: string[]) => void | Promise<void>;
   onClose: () => void;
   onReceiveComplete?: () => void;
@@ -1703,6 +1738,8 @@ function ReviewRequestDialog({
   const [remarks, setRemarks] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
+  /** Default Normal for all product inbound / restock. Partial only when admin selects it. */
+  const [inboundReceiveMode, setInboundReceiveMode] = useState<"normal" | "partial">("normal");
   const requestedQty = getRequestedQuantity(request as any);
   const [editedQuantity, setEditedQuantity] = useState<number>(
     (request as any).receivedQuantity ?? requestedQty
@@ -1730,6 +1767,7 @@ function ReviewRequestDialog({
 
   useEffect(() => {
     setAction(null);
+    setInboundReceiveMode("normal");
   }, [request.id, request.status, request.fulfillmentStatus]);
 
   // Heal inflated warehouseGoodReceivedQty from putaway logs so detail shows 60/100 not 100/100.
@@ -2023,8 +2061,21 @@ function ReviewRequestDialog({
       imageUrls = uploaded;
     }
 
-    // Pass remarks, edited quantity, edited product name, edited SKU, and image URLs
-    onApprove(request, receivingDate, status, remarks, editedQuantity, editedProductName, editedSku, imageUrls.length > 0 ? imageUrls : undefined);
+    // Pass remarks, edited quantity, edited product name, edited SKU, image URLs, and receive mode
+    onApprove(
+      request,
+      receivingDate,
+      status,
+      remarks,
+      editedQuantity,
+      editedProductName,
+      editedSku,
+      imageUrls.length > 0 ? imageUrls : undefined,
+      {
+        inboundReceiveMode:
+          request.inventoryType === "product" ? inboundReceiveMode : "normal",
+      }
+    );
   };
 
   const handleRejectClick = async () => {
@@ -2301,6 +2352,29 @@ function ReviewRequestDialog({
                 </p>
               </div>
 
+              {request.inventoryType === "product" && (
+                <div className="space-y-2">
+                  <Label>Receive workflow *</Label>
+                  <Select
+                    value={inboundReceiveMode}
+                    onValueChange={(value: "normal" | "partial") => setInboundReceiveMode(value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal (default) — add stock now</SelectItem>
+                      <SelectItem value="partial">Partial — warehouse receive / putaway</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {inboundReceiveMode === "partial"
+                      ? "Keeps this request open for dock receive and putaway. Use when stock may arrive in multiple lots."
+                      : "Credits inventory immediately with this received quantity. Use for complete single receives and restocks."}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <Label>Receiving Date</Label>
                 <DatePicker date={receivingDate} setDate={(date) => date && setReceivingDate(date)} />
@@ -2418,7 +2492,9 @@ function ReviewRequestDialog({
                   className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Confirm Approval
+                  {request.inventoryType === "product" && inboundReceiveMode === "partial"
+                    ? "Approve for partial receive"
+                    : "Confirm Approval"}
                 </Button>
                 <Button
                   variant="outline"

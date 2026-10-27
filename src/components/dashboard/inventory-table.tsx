@@ -2075,12 +2075,12 @@ export function InventoryTable({
         matchingRequest?.approvedAt ||
         undefined;
 
+      // Only attach open inbound progress via explicit sourceRequestId.
+      // SKU/name fallback incorrectly linked restocks to an older open inbound (e.g. 5/12).
       const sourceRequestId = String((item as any).sourceRequestId ?? "").trim();
-      const openInboundRequest =
-        (sourceRequestId ? openInboundByRequestId.get(sourceRequestId) : undefined) ??
-        (matchingRequest && isOpenProductInboundRequest(matchingRequest)
-          ? matchingRequest
-          : undefined);
+      const openInboundRequest = sourceRequestId
+        ? openInboundByRequestId.get(sourceRequestId)
+        : undefined;
       
       return {
         ...item,
