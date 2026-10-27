@@ -1782,11 +1782,17 @@ export function AddInventoryRequestForm({
               />
             )}
 
-            {/* New products (single mode) — compact on mobile, full fields on sm+ */}
+            {/* New products (single mode) — compact essential row; optionals behind More */}
             {inventoryType === "product" && productSubType === "new" && productEntryMode === "single" && (
-              <div className="min-w-0 space-y-2.5 rounded-xl border bg-card/90 p-3 shadow-sm sm:space-y-3 sm:p-4">
-                <Label className="text-sm font-medium">Products *</Label>
-                <div className="space-y-2 sm:space-y-3">
+              <div className="min-w-0 space-y-2 rounded-xl border bg-card/90 p-3 shadow-sm sm:p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-sm font-medium">Products *</Label>
+                  <p className="hidden text-[11px] text-muted-foreground sm:block">
+                    Name, SKU, qty on one row — More for optionals
+                  </p>
+                </div>
+
+                <div className="space-y-2">
                   {newProductRows.map((row, index) => {
                     const extrasOpen = expandedNewProductExtras.has(row.id);
                     const hasOptionalValue = Boolean(
@@ -1800,214 +1806,206 @@ export function AddInventoryRequestForm({
                         row.measurements.unitWeightLb ||
                         row.trackingNumber?.trim()
                     );
+                    const toggleExtras = () =>
+                      setExpandedNewProductExtras((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(row.id)) next.delete(row.id);
+                        else next.add(row.id);
+                        return next;
+                      });
                     return (
                       <div
                         key={row.id}
-                        className="min-w-0 space-y-2 rounded-lg border bg-background p-2.5 sm:space-y-3 sm:p-3"
+                        className="min-w-0 rounded-lg border bg-background"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            <span className="sm:hidden">P{index + 1}</span>
-                            <span className="hidden sm:inline">Product {index + 1}</span>
+                        {/* Essential row: # | name | SKU | qty | More | remove */}
+                        <div className="flex flex-wrap items-center gap-1.5 p-2 sm:flex-nowrap sm:gap-2 sm:p-2.5">
+                          <span className="w-5 shrink-0 text-center text-xs font-semibold tabular-nums text-muted-foreground sm:w-7">
+                            {index + 1}
                           </span>
-                          {newProductRows.length > 1 && (
+                          <Input
+                            placeholder="Product name *"
+                            aria-label="Product name"
+                            value={row.productName}
+                            onChange={(e) =>
+                              updateNewProductRow(row.id, { productName: e.target.value })
+                            }
+                            className="h-9 min-w-0 flex-1 basis-[min(100%,12rem)] rounded-md sm:basis-auto"
+                          />
+                          <Input
+                            placeholder="SKU"
+                            aria-label="SKU (optional)"
+                            value={row.sku}
+                            onChange={(e) =>
+                              updateNewProductRow(row.id, { sku: e.target.value })
+                            }
+                            className="h-9 w-[7.5rem] shrink-0 rounded-md sm:w-[8.5rem]"
+                          />
+                          <Input
+                            type="number"
+                            min="1"
+                            aria-label="Quantity"
+                            value={row.quantity}
+                            onChange={(e) =>
+                              updateNewProductRow(row.id, {
+                                quantity: Math.max(
+                                  1,
+                                  Number.parseInt(e.target.value || "1", 10)
+                                ),
+                              })
+                            }
+                            className="h-9 w-[4.25rem] shrink-0 rounded-md tabular-nums"
+                          />
+                          <div className="ml-auto flex shrink-0 items-center gap-1">
                             <Button
                               type="button"
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="h-8 shrink-0 px-2 text-destructive hover:text-destructive"
-                              onClick={() => {
-                                removeNewProductRow(row.id);
-                                setExpandedNewProductExtras((prev) => {
-                                  const next = new Set(prev);
-                                  next.delete(row.id);
-                                  return next;
-                                });
-                              }}
+                              className={cn(
+                                "h-9 gap-1 px-2 text-[11px]",
+                                extrasOpen && "border-primary/40 bg-primary/5",
+                                hasOptionalValue && !extrasOpen && "border-amber-300/80"
+                              )}
+                              onClick={toggleExtras}
+                              aria-expanded={extrasOpen}
                             >
-                              <Trash2 className="h-4 w-4 sm:mr-1" />
-                              <span className="hidden sm:inline">Remove</span>
+                              More
+                              {hasOptionalValue && !extrasOpen ? (
+                                <span className="text-[10px] text-amber-700">•</span>
+                              ) : null}
+                              <ChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 transition-transform",
+                                  extrasOpen && "rotate-180"
+                                )}
+                              />
                             </Button>
-                          )}
-                        </div>
-
-                        {/* Always visible essentials */}
-                        <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                          <div className="col-span-2 space-y-1">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              Product Name *
-                            </Label>
-                      <Input
-                              placeholder="Product name"
-                              value={row.productName}
-                              onChange={(e) =>
-                                updateNewProductRow(row.id, { productName: e.target.value })
-                              }
-                              className="h-10 rounded-lg sm:h-11"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              SKU (optional)
-                            </Label>
-                            <Input
-                              placeholder="Add later from Inventory if needed"
-                              value={row.sku}
-                              onChange={(e) => updateNewProductRow(row.id, { sku: e.target.value })}
-                              className="h-10 rounded-lg sm:h-11"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              Qty *
-                            </Label>
-                            <Input
-                              type="number"
-                              min="1"
-                              value={row.quantity}
-                              onChange={(e) =>
-                                updateNewProductRow(row.id, {
-                                  quantity: Math.max(1, Number.parseInt(e.target.value || "1", 10)),
-                                })
-                              }
-                              className="h-10 rounded-lg sm:h-11"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Mobile: collapse optionals; desktop: always show */}
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-between rounded-md border border-dashed px-2.5 py-2 text-left text-[11px] font-medium text-muted-foreground sm:hidden"
-                          onClick={() =>
-                            setExpandedNewProductExtras((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(row.id)) next.delete(row.id);
-                              else next.add(row.id);
-                              return next;
-                            })
-                          }
-                        >
-                          <span>
-                            {extrasOpen ? "Hide" : "More"} options
-                            {hasOptionalValue && !extrasOpen ? " · filled" : ""}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              "h-4 w-4 transition-transform",
-                              extrasOpen && "rotate-180"
-                            )}
-                          />
-                        </button>
-
-                        <div
-                          className={cn(
-                            "grid grid-cols-2 gap-2 sm:grid sm:gap-3",
-                            extrasOpen ? "grid" : "hidden sm:grid"
-                          )}
-                        >
-                          <div className="col-span-2 space-y-1 sm:col-span-2">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              UPC / EAN / FNSKU / ASIN
-                            </Label>
-                            <Input
-                              placeholder="Identifier (optional)"
-                              value={row.retailIdentifier}
-                              onChange={(e) =>
-                                updateNewProductRow(row.id, { retailIdentifier: e.target.value })
-                              }
-                              className="h-10 rounded-lg sm:h-11"
-                            />
-                          </div>
-                          <div className="col-span-2 space-y-1 sm:col-span-1">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              Expiry
-                            </Label>
-                            <DatePicker
-                              className="h-10 sm:h-11"
-                              date={row.expiryDate}
-                              setDate={(date) => updateNewProductRow(row.id, { expiryDate: date })}
-                            />
-                          </div>
-                          <div className="col-span-2 sm:col-span-2">
-                            <ProductUnitMeasurementsFields
-                              compact
-                              idPrefix={`np-m-${row.id}`}
-                              value={row.measurements}
-                              onChange={(measurements) =>
-                                updateNewProductRow(row.id, { measurements })
-                              }
-                            />
-                          </div>
-                          <div className="col-span-2 space-y-1">
-                            <Label className="text-[11px] text-muted-foreground sm:text-xs">
-                              Remarks
-                            </Label>
-                            <Textarea
-                              placeholder="Notes for this product"
-                              value={row.remarks}
-                              onChange={(e) =>
-                                updateNewProductRow(row.id, { remarks: e.target.value })
-                              }
-                              className="min-h-[56px] rounded-lg text-sm sm:min-h-[72px]"
-                            />
-                          </div>
-                          <div className="col-span-2 space-y-1.5">
-                            <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:text-xs">
-                              <ImagePlus className="h-3.5 w-3.5" />
-                              Picture
-                            </Label>
-                            <Input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => handleNewProductImageSelect(row.id, e)}
-                              className="h-10 rounded-lg text-xs file:mr-2 file:text-xs sm:h-11"
-                            />
-                            {row.imagePreviewUrl && (
-                              <div className="rounded-lg border bg-muted/20 p-2">
-                                <img
-                                  src={row.imagePreviewUrl}
-                                  alt={`${row.productName || "Product"} preview`}
-                                  className="h-16 w-16 rounded-md border object-cover sm:h-24 sm:w-24"
-                                />
-                              </div>
-                            )}
-                          </div>
-                          {createsMultipleInboundRequests && inboundTrackingMode === "per_item" && (
-                            <div className="col-span-2 space-y-1 border-t pt-2 sm:pt-3">
-                              <Label className="text-[11px] font-medium text-muted-foreground sm:text-xs">
-                                Tracking
-                              </Label>
-                              <InboundTrackingFields
-                                compact
-                                idPrefix={`product-trk-${row.id}`}
-                                value={{
-                                  trackingNumber: row.trackingNumber,
-                                  carrier: row.carrier,
+                            {newProductRows.length > 1 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 text-destructive hover:text-destructive"
+                                onClick={() => {
+                                  removeNewProductRow(row.id);
+                                  setExpandedNewProductExtras((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(row.id);
+                                    return next;
+                                  });
                                 }}
-                                onChange={(next) =>
+                                aria-label={`Remove product ${index + 1}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {extrasOpen ? (
+                          <div className="grid grid-cols-2 gap-2 border-t bg-muted/20 px-2.5 py-2.5 sm:gap-3 sm:px-3 sm:py-3">
+                            <div className="col-span-2 space-y-1 sm:col-span-1">
+                              <Label className="text-[11px] text-muted-foreground">
+                                UPC / EAN / FNSKU / ASIN
+                              </Label>
+                              <Input
+                                placeholder="Identifier (optional)"
+                                value={row.retailIdentifier}
+                                onChange={(e) =>
                                   updateNewProductRow(row.id, {
-                                    trackingNumber: next.trackingNumber,
-                                    carrier: next.carrier,
+                                    retailIdentifier: e.target.value,
                                   })
+                                }
+                                className="h-9 rounded-md"
+                              />
+                            </div>
+                            <div className="col-span-2 space-y-1 sm:col-span-1">
+                              <Label className="text-[11px] text-muted-foreground">Expiry</Label>
+                              <DatePicker
+                                className="h-9"
+                                date={row.expiryDate}
+                                setDate={(date) =>
+                                  updateNewProductRow(row.id, { expiryDate: date })
                                 }
                               />
                             </div>
-                          )}
-                        </div>
+                            <div className="col-span-2">
+                              <ProductUnitMeasurementsFields
+                                compact
+                                idPrefix={`np-m-${row.id}`}
+                                value={row.measurements}
+                                onChange={(measurements) =>
+                                  updateNewProductRow(row.id, { measurements })
+                                }
+                              />
+                            </div>
+                            <div className="col-span-2 space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Remarks</Label>
+                              <Textarea
+                                placeholder="Notes for this product"
+                                value={row.remarks}
+                                onChange={(e) =>
+                                  updateNewProductRow(row.id, { remarks: e.target.value })
+                                }
+                                className="min-h-[52px] rounded-md text-sm"
+                              />
+                            </div>
+                            <div className="col-span-2 space-y-1.5">
+                              <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                <ImagePlus className="h-3.5 w-3.5" />
+                                Picture
+                              </Label>
+                              <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => handleNewProductImageSelect(row.id, e)}
+                                className="h-9 rounded-md text-xs file:mr-2 file:text-xs"
+                              />
+                              {row.imagePreviewUrl ? (
+                                <div className="rounded-md border bg-background p-2">
+                                  <img
+                                    src={row.imagePreviewUrl}
+                                    alt={`${row.productName || "Product"} preview`}
+                                    className="h-14 w-14 rounded-md border object-cover"
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                            {createsMultipleInboundRequests &&
+                            inboundTrackingMode === "per_item" ? (
+                              <div className="col-span-2 space-y-1 border-t pt-2">
+                                <Label className="text-[11px] font-medium text-muted-foreground">
+                                  Tracking
+                                </Label>
+                                <InboundTrackingFields
+                                  compact
+                                  idPrefix={`product-trk-${row.id}`}
+                                  value={{
+                                    trackingNumber: row.trackingNumber,
+                                    carrier: row.carrier,
+                                  }}
+                                  onChange={(next) =>
+                                    updateNewProductRow(row.id, {
+                                      trackingNumber: next.trackingNumber,
+                                      carrier: next.carrier,
+                                    })
+                                  }
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
                 </div>
-                <p className="hidden text-xs text-muted-foreground sm:block">
-                  Each product has its own expiry, picture, and remarks. Use Add Product for another item.
-                </p>
+
                 <div className="flex sm:justify-end">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-10 w-full sm:h-9 sm:w-auto"
+                    className="h-9 w-full sm:w-auto"
                     onClick={addNewProductRow}
                   >
                     <Plus className="mr-1.5 h-4 w-4" />
