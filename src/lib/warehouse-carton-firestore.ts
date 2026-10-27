@@ -695,14 +695,23 @@ export async function createReceiveBatch(input: {
   const cartonIds: string[] = [];
   for (const cfg of input.cartons) {
     const copies = Math.max(1, Math.floor(cfg.copies || 1));
-    const validLines = cfg.lines.filter(
-      (l) => l.sku.trim() && Math.max(0, Math.floor(l.quantity)) >= 1
-    );
+    const cfgRequestId = cfg.inventoryRequestId?.trim() || "";
+    // SKU is optional on client inbound — derive a stable warehouse key from the request id.
+    const validLines = cfg.lines
+      .map((l) => {
+        const requestId = l.inventoryRequestId?.trim() || cfgRequestId;
+        const sku =
+          l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
+        return { ...l, sku };
+      })
+      .filter((l) => l.sku && Math.max(0, Math.floor(l.quantity)) >= 1);
     const useClosedCrossdock =
       input.receiveMode === "crossdock" && validLines.length === 0;
 
     if (validLines.length === 0 && !useClosedCrossdock) {
-      throw new Error("Each carton must have at least one line with SKU and quantity ≥ 1.");
+      throw new Error(
+        "Each carton must have at least one line with quantity ≥ 1 (SKU optional when linked to an inbound request)."
+      );
     }
 
     for (let copy = 0; copy < copies; copy++) {

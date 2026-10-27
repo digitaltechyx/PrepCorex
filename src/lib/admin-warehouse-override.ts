@@ -189,8 +189,10 @@ export async function adminCompleteInboundReceiveAndPutaway(
     throw new Error("Enter at least 1 good or damaged unit.");
   }
   const qty = goodQty;
-  const sku = String((request as InventoryRequest & { sku?: string }).sku ?? "").trim();
-  if (!sku) throw new Error("Request is missing SKU.");
+  // SKU is optional on client inbound — warehouse still needs a stable line key for bins.
+  const sku =
+    String((request as InventoryRequest & { sku?: string }).sku ?? "").trim() ||
+    `NOSKU-${input.requestId}`;
 
   const areas = await listWarehouseAreas(input.warehouseId);
   const eligible = fallbackAreas(areas);
@@ -715,11 +717,9 @@ export async function adminBatchReceiveInboundRequests(input: {
         errors.push({ requestId: item.requestId, error: "Nothing left to receive." });
         continue;
       }
-      const sku = String((request as InventoryRequest & { sku?: string }).sku ?? "").trim();
-      if (!sku) {
-        errors.push({ requestId: item.requestId, error: "Request is missing SKU." });
-        continue;
-      }
+      const sku =
+        String((request as InventoryRequest & { sku?: string }).sku ?? "").trim() ||
+        `NOSKU-${item.requestId}`;
 
       const destination = await resolveBatchItemPutawayDestination({
         warehouseId: input.shared.warehouseId,

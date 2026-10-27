@@ -1586,11 +1586,15 @@ function ReceiveForm({
         }
       }
       for (const c of cartons) {
+        const cartonRequestId = c.inventoryRequestId?.trim() || "";
         for (const l of c.lines) {
-          if (!l.sku.trim()) {
+          const requestId = l.inventoryRequestId?.trim() || cartonRequestId;
+          const resolvedSku = l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
+          if (!resolvedSku) {
             toast({
               title: "Missing SKU",
-              description: "Every line needs a SKU.",
+              description:
+                "Every line needs a SKU, or must be linked to an inbound request (SKU optional on the request).",
               variant: "destructive",
             });
             return;
@@ -1600,7 +1604,7 @@ function ReceiveForm({
           if (good + dmg < 1) {
             toast({
               title: "Quantity required",
-              description: `SKU ${l.sku} needs at least 1 unit.`,
+              description: `SKU ${resolvedSku} needs at least 1 unit.`,
               variant: "destructive",
             });
             return;
@@ -1661,6 +1665,7 @@ function ReceiveForm({
 
       const payloadCartons = cartons.map((c) => {
         const copies = showCopies ? Math.max(1, parseInt(c.copies, 10) || 1) : 1;
+        const cartonRequestId = c.inventoryRequestId?.trim() || "";
         const flatLines: Array<{
           sku: string;
           productTitle?: string | null;
@@ -1672,9 +1677,12 @@ function ReceiveForm({
         for (const l of c.lines) {
           const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
           const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
+          const requestId = l.inventoryRequestId?.trim() || cartonRequestId;
+          const sku =
+            l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
           if (good > 0) {
             flatLines.push({
-              sku: l.sku.trim(),
+              sku,
               productTitle: l.productTitle.trim() || null,
               quantity: good,
               lot: l.lot.trim() || null,
@@ -1686,7 +1694,7 @@ function ReceiveForm({
           }
           if (dmg > 0) {
             flatLines.push({
-              sku: l.sku.trim(),
+              sku,
               productTitle: l.productTitle.trim() || null,
               quantity: dmg,
               lot: l.lot.trim() || null,
