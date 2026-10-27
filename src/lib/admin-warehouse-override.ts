@@ -30,6 +30,7 @@ import {
 } from "@/lib/warehouse-putaway-disposition";
 import { formatExpiryForInput } from "@/lib/warehouse-inbound-requests";
 import { appendInboundRemarksLog } from "@/lib/inventory-remarks-log";
+import { warehouseSkuForRequest } from "@/lib/inventory-sku";
 import { disposeQuarantineLine, listQuarantineHolds, releaseQuarantineLineToStorage } from "@/lib/warehouse-quarantine";
 import { isFbaLabelWorkflowRequest } from "@/lib/fba-shipment-workflow";
 import { normalizeCourierScan } from "@/lib/warehouse-courier-label";
@@ -190,9 +191,11 @@ export async function adminCompleteInboundReceiveAndPutaway(
   }
   const qty = goodQty;
   // SKU is optional on client inbound — warehouse still needs a stable line key for bins.
-  const sku =
-    String((request as InventoryRequest & { sku?: string }).sku ?? "").trim() ||
-    `NOSKU-${input.requestId}`;
+  // Client inventory will store blank SKU (not this placeholder) so they can add it once later.
+  const sku = warehouseSkuForRequest({
+    sku: (request as InventoryRequest & { sku?: string }).sku,
+    requestId: input.requestId,
+  });
 
   const areas = await listWarehouseAreas(input.warehouseId);
   const eligible = fallbackAreas(areas);
@@ -717,9 +720,10 @@ export async function adminBatchReceiveInboundRequests(input: {
         errors.push({ requestId: item.requestId, error: "Nothing left to receive." });
         continue;
       }
-      const sku =
-        String((request as InventoryRequest & { sku?: string }).sku ?? "").trim() ||
-        `NOSKU-${item.requestId}`;
+      const sku = warehouseSkuForRequest({
+        sku: (request as InventoryRequest & { sku?: string }).sku,
+        requestId: item.requestId,
+      });
 
       const destination = await resolveBatchItemPutawayDestination({
         warehouseId: input.shared.warehouseId,

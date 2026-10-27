@@ -26,6 +26,7 @@ import {
   isExpiryPast,
 } from "@/lib/warehouse-carton-states";
 import { resolveSharedReceiveLot } from "@/lib/warehouse-receive-lot";
+import { clientFacingSku, warehouseSkuForRequest } from "@/lib/inventory-sku";
 import {
   buildClosedCrossdockLine,
   closedCrossdockProductTitle,
@@ -700,8 +701,9 @@ export async function createReceiveBatch(input: {
     const validLines = cfg.lines
       .map((l) => {
         const requestId = l.inventoryRequestId?.trim() || cfgRequestId;
-        const sku =
-          l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
+        const sku = requestId
+          ? warehouseSkuForRequest({ sku: l.sku, requestId })
+          : clientFacingSku(l.sku) || l.sku.trim();
         return { ...l, sku };
       })
       .filter((l) => l.sku && Math.max(0, Math.floor(l.quantity)) >= 1);

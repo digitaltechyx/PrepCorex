@@ -2389,8 +2389,9 @@ export function BuyLabelsForm({
                                     key={item.id}
                                     type="button"
                                     className={cn(
-                                      "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
-                                      selected && "bg-accent"
+                                      "group flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm",
+                                      "hover:bg-accent hover:text-accent-foreground",
+                                      selected && "bg-accent text-accent-foreground"
                                     )}
                                     onClick={() => togglePackageProduct(item)}
                                   >
@@ -2410,11 +2411,23 @@ export function BuyLabelsForm({
                                         ) : null}
                                       </div>
                                       {meta ? (
-                                        <div className="truncate text-xs text-muted-foreground">
+                                        <div
+                                          className={cn(
+                                            "truncate text-xs text-muted-foreground",
+                                            "group-hover:text-accent-foreground/85",
+                                            selected && "text-accent-foreground/85"
+                                          )}
+                                        >
                                           {meta}
                                         </div>
                                       ) : (
-                                        <div className="text-xs text-amber-700">
+                                        <div
+                                          className={cn(
+                                            "text-xs text-amber-700",
+                                            "group-hover:text-amber-100",
+                                            selected && "text-amber-100"
+                                          )}
+                                        >
                                           No L/W/H or weight on file
                                         </div>
                                       )}

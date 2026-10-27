@@ -36,6 +36,7 @@ import {
   listWarehouseCartons,
   listWarehousePallets,
 } from "@/lib/warehouse-carton-firestore";
+import { warehouseSkuForRequest } from "@/lib/inventory-sku";
 import { printContainerLabels } from "@/lib/warehouse-container-label-pdf";
 import {
   buildWarehouseCartonLabelsPdf,
@@ -1589,7 +1590,9 @@ function ReceiveForm({
         const cartonRequestId = c.inventoryRequestId?.trim() || "";
         for (const l of c.lines) {
           const requestId = l.inventoryRequestId?.trim() || cartonRequestId;
-          const resolvedSku = l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
+          const resolvedSku = requestId
+            ? warehouseSkuForRequest({ sku: l.sku, requestId })
+            : l.sku.trim();
           if (!resolvedSku) {
             toast({
               title: "Missing SKU",
@@ -1678,8 +1681,9 @@ function ReceiveForm({
           const good = Math.max(0, parseInt(l.goodQty, 10) || 0);
           const dmg = Math.max(0, parseInt(l.damagedQty, 10) || 0);
           const requestId = l.inventoryRequestId?.trim() || cartonRequestId;
-          const sku =
-            l.sku.trim() || (requestId ? `NOSKU-${requestId}` : "");
+          const sku = requestId
+            ? warehouseSkuForRequest({ sku: l.sku, requestId })
+            : l.sku.trim();
           if (good > 0) {
             flatLines.push({
               sku,

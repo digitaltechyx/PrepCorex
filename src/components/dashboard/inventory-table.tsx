@@ -59,6 +59,7 @@ import {
   type OtherResourcesInventoryRow,
 } from "@/components/inventory/inventory-other-resources-sheet";
 import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
+import { clientFacingSku } from "@/lib/inventory-sku";
 import type { InboundTrackingEntry } from "@/types";
 import { format } from "date-fns";
 import { AddInventoryRequestForm } from "./add-inventory-request-form";
@@ -724,13 +725,17 @@ function canEditInventoryExpiry(item: InventorySourceRow): boolean {
 }
 
 /**
- * One-time SKU fill from Inventory: only when SKU is still empty.
+ * One-time SKU fill from Inventory: only when SKU is still empty (or a warehouse NOSKU placeholder).
  * If they set SKU on the inbound request (or already used this pencil), no option.
  */
 function canAddInventorySku(item: InventorySourceRow & { sku?: string | null; skuSetFromInventory?: boolean }): boolean {
-  if (String(item.sku || "").trim()) return false;
+  if (clientFacingSku(item.sku)) return false;
   if (item.skuSetFromInventory) return false;
   return true;
+}
+
+function displayInventorySku(item: { sku?: string | null }): string {
+  return clientFacingSku(item.sku) || "N/A";
 }
 
 /** Fallback when layout has not measured yet. */
@@ -1495,7 +1500,7 @@ export function InventoryTable({
     setEditingInventoryMetadata(item);
     setInventoryMetadataEditMode(mode);
     setInventoryMetadataExpiryDate(toDateInputValue(item.expiryDate));
-    setInventoryMetadataSku(String((item as { sku?: string }).sku || "").trim());
+    setInventoryMetadataSku(clientFacingSku((item as { sku?: string }).sku) || "");
     setInventoryMetadataMeasurements(
       draftFromMeasurementSource(item as unknown as Record<string, unknown>)
     );
@@ -1530,7 +1535,7 @@ export function InventoryTable({
           setIsUpdatingInventoryMetadata(false);
           return;
         }
-        if (String((editingInventoryMetadata as { sku?: string }).sku || "").trim()) {
+        if (clientFacingSku((editingInventoryMetadata as { sku?: string }).sku)) {
           toast({
             variant: "destructive",
             title: "SKU already set",
@@ -2481,7 +2486,7 @@ export function InventoryTable({
                       <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
                         <span className="inline-flex min-w-0 items-center gap-0.5">
                           <span className="truncate">
-                            SKU: {(item as any).sku || "N/A"}
+                            SKU: {displayInventorySku(item as { sku?: string | null })}
                           </span>
                           {!hasAdminActions &&
                           !(item as any).isRequest &&
@@ -2961,7 +2966,7 @@ export function InventoryTable({
                     </TableCell>
                     <TableCell className="hidden md:table-cell whitespace-nowrap">
                       <div className="flex items-center gap-1">
-                        <span>{(item as any).sku || "N/A"}</span>
+                        <span>{displayInventorySku(item as { sku?: string | null })}</span>
                         {!hasAdminActions &&
                           !(item as any).isRequest &&
                           !(item as any).isBatch &&

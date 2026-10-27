@@ -798,12 +798,12 @@ export function InternalMoveManagement() {
                       <button
                         key={row.key}
                         type="button"
-                        className="flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        className="group flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
                         onClick={() => addProductLine(row)}
                       >
                         <div className="min-w-0">
                           <p className="truncate font-medium">{row.item.productName}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">
+                          <p className="truncate text-[11px] text-muted-foreground group-hover:text-accent-foreground/85">
                             {row.userName}
                             {row.item.sku ? ` · ${row.item.sku}` : ""}
                           </p>

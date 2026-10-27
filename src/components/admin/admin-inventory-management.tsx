@@ -2900,12 +2900,20 @@ export function AdminInventoryManagement({
                               setMoveInventoryItemId(item.id);
                               setMoveItemPickerOpen(false);
                             }}
-                            className={`w-full min-w-0 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent ${
-                              moveInventoryItemId === item.id ? "bg-accent" : ""
+                            className={`group w-full min-w-0 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground ${
+                              moveInventoryItemId === item.id
+                                ? "bg-accent text-accent-foreground"
+                                : ""
                             }`}
                           >
                             <span className="block truncate font-medium">{item.productName}</span>
-                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            <span
+                              className={`mt-0.5 block truncate text-xs text-muted-foreground group-hover:text-accent-foreground/85 ${
+                                moveInventoryItemId === item.id
+                                  ? "text-accent-foreground/85"
+                                  : ""
+                              }`}
+                            >
                               {(item as any).sku ? `SKU: ${(item as any).sku} · ` : ""}
                               Qty: {item.quantity}
                             </span>

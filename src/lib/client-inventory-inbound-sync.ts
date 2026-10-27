@@ -26,6 +26,7 @@ import {
   seedExpiryBatchesFromLegacy,
   type ExpiryBatch,
 } from "@/lib/inventory-expiry-batches";
+import { clientFacingSku, isWarehousePlaceholderSku } from "@/lib/inventory-sku";
 
 export type PutawaySyncAssignment = {
   lineId: string;
@@ -373,6 +374,10 @@ async function syncPutawayLine(input: {
     if (!invSnap.data()?.receivingDate) {
       patch.receivingDate = serverTimestamp();
     }
+    // Strip warehouse placeholder SKUs so the client can add a real SKU once.
+    if (isWarehousePlaceholderSku(String(invSnap.data()?.sku ?? ""))) {
+      patch.sku = deleteField();
+    }
     if (Object.keys(patch).length === 0) return { shopify: null, ebay: null };
     patch.updatedAt = serverTimestamp();
     await updateDoc(invRef, patch);
@@ -391,7 +396,12 @@ async function syncPutawayLine(input: {
       : requestData?.productName?.trim()) ||
     input.carton.productTitle?.trim() ||
     "Product";
-  const sku = input.line.sku?.trim() || (requestData?.inventoryType === "container" ? null : requestData?.sku?.trim()) || null;
+  // Never credit client inventory with warehouse NOSKU-* placeholders.
+  const sku = clientFacingSku(
+    input.line.sku?.trim() ||
+      (requestData?.inventoryType === "container" ? null : requestData?.sku?.trim()) ||
+      null
+  );
   const isRestock = requestData?.productSubType === "restock";
   const remarks = input.carton.notes?.trim() || requestData?.remarks?.trim() || null;
 
@@ -479,6 +489,9 @@ async function syncPutawayLine(input: {
       }
       tx.set(inventoryRef, invPatch);
     } else {
+      if (isWarehousePlaceholderSku(String(invSnap.data()?.sku ?? ""))) {
+        invPatch.sku = deleteField();
+      }
       if (remarks) invPatch.remarks = remarks;
       if (photoUrls.length > 0) {
         const prevRemarks = Array.isArray(invSnap.data()?.remarksImageUrls)
@@ -577,10 +590,17 @@ async function syncPutawayLine(input: {
         ? nextReqGood
         : nextReqGood + nextReqDamaged;
 
+      const alreadyClosed =
+        requestData.fulfillmentStatus === "closed";
+      const receiveMode = String(requestData.inboundReceiveMode ?? "normal")
+        .trim()
+        .toLowerCase();
+      const isPartialReceive = receiveMode === "partial";
+
       const reqPatch: Record<string, unknown> = {
         warehouseGoodReceivedQty: nextReqGood,
         warehouseDamagedReceivedQty: nextReqDamaged,
-        fulfillmentStatus: requestData.fulfillmentStatus === "closed" ? "closed" : "open",
+        fulfillmentStatus: alreadyClosed ? "closed" : "open",
         updatedAt: serverTimestamp(),
       };
 
@@ -603,19 +623,22 @@ async function syncPutawayLine(input: {
         reqPatch.lastDamagedPutawayAreaCode = putawayBinPath ? null : putawayArea;
       }
 
-      // Product inbound stays open until an admin closes it (allows over-receive).
+      // Normal product inbound: close after receive + putaway.
+      // Partial stays open until an admin closes manually (multi-lot / over-receive).
       // Container handling still auto-closes once contents are put away.
-      if (
-        isContainerReq &&
-        totalReceived >= expected &&
-        expected > 0 &&
-        requestData.fulfillmentStatus !== "closed"
-      ) {
-        reqPatch.fulfillmentStatus = "closed";
-        reqPatch.closedAt = serverTimestamp();
-        reqPatch.closeReason =
-          "Container contents put away — products added to inventory";
-        reqPatch.receivingDate = serverTimestamp();
+      if (!alreadyClosed) {
+        if (isContainerReq && totalReceived >= expected && expected > 0) {
+          reqPatch.fulfillmentStatus = "closed";
+          reqPatch.closedAt = serverTimestamp();
+          reqPatch.closeReason =
+            "Container contents put away — products added to inventory";
+          reqPatch.receivingDate = serverTimestamp();
+        } else if (!isContainerReq && !isPartialReceive) {
+          reqPatch.fulfillmentStatus = "closed";
+          reqPatch.closedAt = serverTimestamp();
+          reqPatch.closeReason = "Normal inbound — closed after receive & putaway";
+          reqPatch.receivingDate = serverTimestamp();
+        }
       }
 
       tx.update(reqRef, reqPatch);

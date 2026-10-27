@@ -525,6 +525,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     const isApproved = request.status === "approved";
     // Exact "open" only — missing status means legacy admin-fulfilled, not Warehouse Ops.
     const isOpen = String(request.fulfillmentStatus ?? "").trim().toLowerCase() === "open";
+    const isPartialReceive =
+      String(request.inboundReceiveMode ?? "normal").trim().toLowerCase() === "partial";
     const requestForQty =
       healedInboundGoodQty != null
         ? ({ ...request, warehouseGoodReceivedQty: healedInboundGoodQty } as InventoryRequest)
@@ -787,13 +789,17 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           warehouseGoodReceivedQty: receivedAfter,
         } as InventoryRequest);
         toast({
-          title: "Receive complete — stock added",
+          title: isPartialReceive
+            ? "Receive complete — stock added"
+            : "Receive complete — inbound closed",
           description: `${result.quantityReceived} unit(s) → ${result.putawayDestination}. ${
-            left > 0
-              ? `${left} still under requested qty.`
-              : receivedAfter > requestedTotal
-                ? `Over requested (${receivedAfter}/${requestedTotal}). Close when done.`
-                : "Requested qty met — close when you are done receiving."
+            isPartialReceive
+              ? left > 0
+                ? `${left} still under requested qty.`
+                : receivedAfter > requestedTotal
+                  ? `Over requested (${receivedAfter}/${requestedTotal}). Close when done.`
+                  : "Requested qty met — close when you are done receiving."
+              : "Normal workflow — request closed after putaway."
           }`,
         });
         const selectedWarehouse = activeWarehouses.find(
@@ -834,8 +840,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
           Admin inbound processing
         </div>
         <p className="text-xs text-muted-foreground">
-          Receive in partials anytime — including more than requested. Request stays open until you
-          close it. First receive chooses the bin; later receives reuse it unless you change it.
+          {isPartialReceive
+            ? "Partial workflow: receive in lots anytime — including more than requested. Request stays open until you close it manually. First receive chooses the bin; later receives reuse it unless you change it."
+            : "Normal workflow: receive & put away once. The request closes automatically after putaway. First receive chooses the storage bin."}
         </p>
         <div className="grid grid-cols-3 gap-2 rounded-md border bg-background/80 p-2 text-center text-xs">
           <div>
@@ -1284,17 +1291,19 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                 ? "Receive more & put away"
                 : "Receive partial & put away"}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              setCloseRemarks("");
-              setCloseDialogOpen(true);
-            }}
-          >
-            Close inbound request
-          </Button>
+          {isPartialReceive || receivedSoFar > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                setCloseRemarks("");
+                setCloseDialogOpen(true);
+              }}
+            >
+              Close inbound request
+            </Button>
+          ) : null}
           <Dialog
             open={closeDialogOpen}
             onOpenChange={(open) => {

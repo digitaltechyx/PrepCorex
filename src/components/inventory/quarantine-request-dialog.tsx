@@ -285,13 +285,20 @@ export function QuarantineRequestDialog({
                             setLotAllocations([]);
                           }}
                           className={cn(
-                            "flex min-w-0 w-full items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-left hover:bg-accent",
-                            active && "bg-accent"
+                            "group flex min-w-0 w-full items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-left",
+                            "hover:bg-accent hover:text-accent-foreground",
+                            active && "bg-accent text-accent-foreground"
                           )}
                         >
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{item.productName}</p>
-                            <p className="truncate text-[11px] text-muted-foreground">
+                            <p
+                              className={cn(
+                                "truncate text-[11px] text-muted-foreground",
+                                "group-hover:text-accent-foreground/85",
+                                active && "text-accent-foreground/85"
+                              )}
+                            >
                               {copy.qtyLabel}: {availableQtyForKind(item, kind)}
                               {item.sku ? ` · SKU ${item.sku}` : ""}
                               {lots.length > 0 ? ` · ${lots.length} lot${lots.length === 1 ? "" : "s"}` : ""}

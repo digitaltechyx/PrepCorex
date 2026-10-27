@@ -2360,17 +2360,17 @@ function ReviewRequestDialog({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="normal">
-                        Normal (default) — warehouse receive &amp; putaway
+                        Normal (default) — closes after receive &amp; putaway
                       </SelectItem>
                       <SelectItem value="partial">
-                        Partial — multi-lot warehouse receive &amp; putaway
+                        Partial — stays open until closed manually
                       </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {inboundReceiveMode === "partial"
-                      ? "Same dock receive and putaway flow when freight may arrive in multiple lots. Progress stays open until complete or closed."
-                      : "Uses warehouse receive and putaway for this request’s own quantity. Stock appears only after putaway."}
+                      ? "Multi-lot receive & putaway. Request stays open so more lots can arrive; admin closes it when done."
+                      : "Single receive & putaway. Request closes automatically after putaway. SKU is optional — client can add it once later from Inventory."}
                   </p>
                 </div>
               )}

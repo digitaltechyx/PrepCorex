@@ -2894,12 +2894,16 @@ function ReviewShipmentDialog({
                               type="button"
                               disabled={disabled}
                               onClick={() => setAddProductId(p.id)}
-                              className={`flex w-full flex-col items-start gap-0.5 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 ${
-                                selected ? "bg-accent" : ""
+                              className={`group flex w-full flex-col items-start gap-0.5 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50 ${
+                                selected ? "bg-accent text-accent-foreground" : ""
                               }`}
                             >
                               <span className="font-medium leading-snug">{p.productName}</span>
-                              <span className="text-muted-foreground">
+                              <span
+                                className={`text-muted-foreground group-hover:text-accent-foreground/85 ${
+                                  selected ? "text-accent-foreground/85" : ""
+                                }`}
+                              >
                                 {p.sku && p.sku !== p.productName ? `${p.sku} · ` : ""}
                                 {p.quantity} avail
                                 {p.alreadyOnOrder ? " · already on order (add another line OK)" : ""}

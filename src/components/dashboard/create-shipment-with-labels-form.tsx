@@ -2023,6 +2023,10 @@ export function CreateShipmentWithLabelsForm({
                                         )
                                       );
                                       const requiredUnits = lineQty * linePackOf;
+                                      const availableQty = Math.max(
+                                        0,
+                                        Math.floor(Number(selectedProduct?.quantity) || 0)
+                                      );
                                       const lineLotAllocations =
                                         (form.watch(
                                           `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.lotAllocations`
@@ -2044,6 +2048,14 @@ export function CreateShipmentWithLabelsForm({
                                             </div>
                                             <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
                                               Line {shipmentIndex + 1}
+                                              {selectedProduct ? (
+                                                <>
+                                                  {" · "}
+                                                  {isPrepLine
+                                                    ? `Pending inbound: ${availableQty}`
+                                                    : `In stock: ${availableQty}`}
+                                                </>
+                                              ) : null}
                                             </span>
                                             {!isPrepLine && expiryLots.length > 0 ? (
                                               <div className="mt-1.5 space-y-1">
@@ -2134,6 +2146,28 @@ export function CreateShipmentWithLabelsForm({
                                               );
                                             }}
                                           />
+                                          {selectedProduct ? (
+                                            <p
+                                              className={`text-[10px] font-medium leading-tight ${
+                                                requiredUnits > availableQty
+                                                  ? "text-destructive"
+                                                  : "text-muted-foreground"
+                                              }`}
+                                              title={
+                                                isPrepLine
+                                                  ? `Pending inbound: ${availableQty}`
+                                                  : `In stock: ${availableQty}`
+                                              }
+                                            >
+                                              {isPrepLine ? "Pending" : "Avail"} {availableQty}
+                                              {linePackOf > 1 ? (
+                                                <span className="font-normal text-muted-foreground">
+                                                  {" "}
+                                                  · need {requiredUnits}
+                                                </span>
+                                              ) : null}
+                                            </p>
+                                          ) : null}
                                           </div>
                                           <div className="min-w-0 space-y-1">
                                             <span className="text-[10px] text-muted-foreground md:hidden">Pack</span>
