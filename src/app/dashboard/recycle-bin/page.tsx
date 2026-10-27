@@ -28,6 +28,7 @@ import { RotateCcw, Search, X, Calendar, Plus, Loader2, Clock, CheckCircle, XCir
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
 import { canUseCsvImport } from "@/lib/csv-import-permissions";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 export default function RecycleBinPage() {
   const { userProfile } = useAuth();
@@ -62,7 +63,11 @@ export default function RecycleBinPage() {
     [disposeRequests]
   );
 
-  const inStockInventory = inventory.filter((item) => item.quantity > 0);
+  const inStockInventory = inventory.filter(
+    (item) =>
+      item.quantity > 0 &&
+      !isIntegrationInventorySource((item as { source?: string }).source)
+  );
   const selectedProduct = inStockInventory.find((p) => p.id === selectedProductId);
   const maxQty = selectedProduct?.quantity ?? 0;
 

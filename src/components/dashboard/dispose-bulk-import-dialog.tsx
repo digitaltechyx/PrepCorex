@@ -28,6 +28,7 @@ import {
   type DisposeBulkValidatedRow,
 } from "@/lib/dispose-bulk-import";
 import type { InventoryItem } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 type DisposeBulkImportDialogProps = {
   open: boolean;
@@ -165,7 +166,11 @@ export function DisposeBulkImportDialog({
     }
   };
 
-  const eligibleCount = inventory.filter((item) => Number(item.quantity) > 0).length;
+  const eligibleCount = inventory.filter(
+    (item) =>
+      Number(item.quantity) > 0 &&
+      !isIntegrationInventorySource((item as { source?: string }).source)
+  ).length;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

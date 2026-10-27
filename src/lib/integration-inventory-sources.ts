@@ -24,6 +24,22 @@ export function isIntegrationInventorySource(
   );
 }
 
+/** True for PrepCorex warehouse stock (not Shopify/eBay/Woo/TikTok/Etsy/Amazon catalog rows). */
+export function isWarehouseInventoryItem(item: {
+  source?: string | null;
+} | null | undefined): boolean {
+  if (!item) return false;
+  return !isIntegrationInventorySource(item.source);
+}
+
+/** Product pickers / outbound / buy-label / restock lists — warehouse stock only. */
+export function filterWarehouseInventoryItems<T extends { source?: string | null }>(
+  items: T[] | null | undefined
+): T[] {
+  if (!items?.length) return [];
+  return items.filter((item) => isWarehouseInventoryItem(item));
+}
+
 export function integrationInventorySourceLabel(source: string | null | undefined): string {
   switch (String(source || "").toLowerCase()) {
     case "shopify":

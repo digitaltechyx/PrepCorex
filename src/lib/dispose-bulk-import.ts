@@ -1,5 +1,6 @@
 import type { DisposeInventoryStockStatus, InventoryItem } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 export const DISPOSE_BULK_CSV_HEADERS = [
   "Product ID",
@@ -110,8 +111,9 @@ function expiryToMs(expiryDate: InventoryItem["expiryDate"] | undefined): number
   return null;
 }
 
-/** Eligible for dispose template: any sellable row with quantity > 0 (in stock, low stock, expired). */
+/** Eligible for dispose template: warehouse sellable rows only (not marketplace Other Resources). */
 export function isDisposeTemplateEligible(item: InventoryItem): boolean {
+  if (isIntegrationInventorySource((item as { source?: string }).source)) return false;
   return Number(item.quantity) > 0;
 }
 

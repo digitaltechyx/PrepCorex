@@ -1006,9 +1006,9 @@ export interface InventoryRequest {
   /** Marks requests created after the shared warehouse inbound workflow. */
   inboundWorkflowVersion?: number;
   /**
-   * Set at admin approve (product inbound / restock).
-   * - `normal` (default): simple receive — credit inventory immediately, no open partial line.
-   * - `partial`: warehouse receive/putaway workflow with open fulfillment until complete.
+   * Set at admin approve (product inbound / restock). Both modes use warehouse receive + putaway.
+   * - `normal` (default): standard dock receive/putaway for this request’s own qty.
+   * - `partial`: same warehouse workflow when stock may arrive across multiple lots.
    */
   inboundReceiveMode?: "normal" | "partial";
   /** Good units put away to warehouse (client sellable stock source). */

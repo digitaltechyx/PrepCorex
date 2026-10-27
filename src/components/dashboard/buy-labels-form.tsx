@@ -62,6 +62,7 @@ import {
   type LabelPaymentSource,
 } from "@/lib/label-billing";
 import { hasRole } from "@/lib/permissions";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { findDefaultWarehouseLocationIdInList } from "@/lib/default-warehouse";
 import {
@@ -638,6 +639,7 @@ export function BuyLabelsForm({
     );
     return [...(inventoryItems || [])]
       .filter((item) => Boolean(item.productName?.trim()))
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
       .sort((a, b) => {
         const aSku = String(a.sku || "").trim().toLowerCase();
         const bSku = String(b.sku || "").trim().toLowerCase();

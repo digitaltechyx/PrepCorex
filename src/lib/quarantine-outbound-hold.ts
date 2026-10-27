@@ -1,4 +1,5 @@
 import type { InventoryItem, QuarantineRequest } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 export type QuarantineLotHold = {
   /** Units held on open quarantine (move-to) requests for this product. */
@@ -123,6 +124,7 @@ export function inventoryForOutboundWithQuarantineHolds(
 ): InventoryItem[] {
   const holds = buildOpenQuarantineHolds(requests);
   return inventory
+    .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
     .map((item) => {
       const qty = outboundSellableQuantity(item, holds);
       if (qty <= 0) return null;

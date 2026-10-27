@@ -11,6 +11,7 @@ import { collection, addDoc, serverTimestamp, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase";
 import { getFolderInfo } from "@/lib/pdf-upload";
 import type { UploadedPDF, InventoryItem } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { 
   isUploadTimeAllowed, 
   getNewJerseyTimeString, 
@@ -75,6 +76,7 @@ function InventorySelectButton({ inventory, selectedProductId, disabled, onSelec
     const normalized = query.trim().toLowerCase();
     return inventory
       .filter((item) => item.quantity > 0)
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
       .filter((item) => item.productName.toLowerCase().includes(normalized));
   }, [inventory, query]);
 

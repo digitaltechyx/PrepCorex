@@ -33,6 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCollection } from "@/hooks/use-collection";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { calculatePrepUnitPrice } from "@/lib/pricing-utils";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
 import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 
@@ -123,7 +124,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
   // Fetch user's pricing from their assigned profile (falls back to Standard if empty)
   const {
-    pricingRules,
+            pricingRules,
     boxForwardingPricing,
     palletForwardingPricing,
     additionalServicesPricing,
@@ -448,6 +449,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
     const normalizedQuery = query.trim().toLowerCase();
     return inventory
       .filter((item) => item.quantity > 0)
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
       .filter((item) => {
         const inventoryType = (item as any).inventoryType;
         // Filter by shipment type
@@ -931,9 +933,9 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                 {shipmentType === "product" ? (
                   <BoxSuggestionCard
                     lines={fields.map((field, index) => {
-                      const productMeta = inventory.find((item) => item.id === field.productId);
-                      const quantity = form.watch(`shipments.${index}.quantity`) || 0;
-                      const packOf = form.watch(`shipments.${index}.packOf`) || 1;
+                  const productMeta = inventory.find((item) => item.id === field.productId);
+                    const quantity = form.watch(`shipments.${index}.quantity`) || 0;
+                    const packOf = form.watch(`shipments.${index}.packOf`) || 1;
                       return {
                         productId: field.productId,
                         productName: productMeta?.productName,

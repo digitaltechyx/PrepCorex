@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import type { AdminShopifyOrder } from "@/lib/shopify-admin-orders";
 import type { InventoryItem } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -103,10 +104,12 @@ export function ShopifyQuickFulfillDialog({
       try {
         const snap = await getDocs(collection(db, `users/${order.ownerUserId}/inventory`));
         if (cancelled) return;
-        const items = snap.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...(docSnap.data() as Omit<InventoryItem, "id">),
-        }));
+        const items = snap.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as Omit<InventoryItem, "id">),
+          }))
+          .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source));
         setInventory(items);
 
         const handoffProductId = (labelHandoff?.inventoryProductId || "").trim();
@@ -160,13 +163,9 @@ export function ShopifyQuickFulfillDialog({
 
   const selectableInventory = useMemo(() => {
     return inventory
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
       .filter((item) => item.status !== "Out of Stock" || item.quantity > 0)
-      .sort((a, b) => {
-        const aShopify = a.source === "shopify" ? 1 : 0;
-        const bShopify = b.source === "shopify" ? 1 : 0;
-        if (aShopify !== bShopify) return aShopify - bShopify;
-        return a.productName.localeCompare(b.productName);
-      });
+      .sort((a, b) => a.productName.localeCompare(b.productName));
   }, [inventory]);
 
   const filteredPickerInventory = useMemo(() => {

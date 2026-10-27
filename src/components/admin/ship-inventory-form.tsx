@@ -17,6 +17,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/hooks/use-toast";
 import { db } from "@/lib/firebase";
 import type { InventoryItem, ShipmentProductItem, LabelProductDetail } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { Checkbox } from "@/components/ui/checkbox";
 
 const shipmentItemSchema = z.object({
@@ -98,6 +99,7 @@ export function ShipInventoryForm({ userId, inventory, prefillData, onSuccess }:
     const normalizedQuery = query.trim().toLowerCase();
     return inventory
       .filter((item) => item.quantity > 0)
+      .filter((item) => !isIntegrationInventorySource((item as { source?: string }).source))
       .filter((item) => item.productName.toLowerCase().includes(normalizedQuery));
   }, [inventory, query]);
 

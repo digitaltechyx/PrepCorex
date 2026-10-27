@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Loader2, Plus, Trash2, ImagePlus, X, Upload } from "lucide-react";
 import type { InventoryItem } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import {
   Select,
   SelectContent,
@@ -72,6 +73,7 @@ function ReturnDraftEditor({
 }) {
   const { toast } = useToast();
   const availableInventory = inventory.filter((item) => {
+    if (isIntegrationInventorySource((item as { source?: string }).source)) return false;
     const inventoryType = (item as InventoryItem & { inventoryType?: string }).inventoryType;
     const isExcludedType =
       inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet";

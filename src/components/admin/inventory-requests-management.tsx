@@ -7,7 +7,7 @@ import type { InventoryRequest, UserProfile, InboundTrackingEntry } from "@/type
 type InventoryRequestProcessOpts = {
   quiet?: boolean;
   skipBatchSync?: boolean;
-  /** Product inbound only. Default `normal` — immediate inventory; `partial` = open warehouse receive. */
+  /** Product inbound only. Default `normal` = standard warehouse receive/putaway; `partial` = multi-lot. */
   inboundReceiveMode?: "normal" | "partial";
 };
 
@@ -606,35 +606,25 @@ export function InventoryRequestsManagement({
         const isProductInbound = request.inventoryType === "product";
         const receiveMode: "normal" | "partial" =
           isProductInbound && opts?.inboundReceiveMode === "partial" ? "partial" : "normal";
-        const usePartialInbound = isProductInbound && receiveMode === "partial";
+        // Both Normal and Partial use warehouse receive + putaway.
+        // Normal = expected full receive in the standard dock/putaway flow.
+        // Partial = same workflow when stock may arrive across multiple lots.
+        const useWarehouseReceivePutaway = isProductInbound;
 
         if (isProductInbound) {
           requestUpdateData.inboundReceiveMode = receiveMode;
-        }
-
-        if (usePartialInbound) {
-          // Partial: keep request open for warehouse receive / putaway (may arrive in multiple lots).
           requestUpdateData.fulfillmentStatus = "open";
           requestUpdateData.warehouseGoodReceivedQty = 0;
           requestUpdateData.warehouseDamagedReceivedQty = 0;
           requestUpdateData.inboundWorkflowVersion = 2;
-        } else if (isProductInbound) {
-          // Normal (default): simple receive — credit inventory now, no open partial line.
-          requestUpdateData.fulfillmentStatus = "closed";
-          requestUpdateData.warehouseGoodReceivedQty = finalQuantity;
-          requestUpdateData.warehouseDamagedReceivedQty = 0;
-          requestUpdateData.inboundWorkflowVersion = 1;
-          requestUpdateData.closedAt = approvedAt;
-          requestUpdateData.closedBy = adminProfile.uid;
-          requestUpdateData.closeReason = "normal_receive";
         }
 
         // Update request status (single update with all changes)
         transaction.update(requestRef, requestUpdateData);
 
-        // Inventory create/update: non-products always; products only on Normal approve.
-        // Partial products wait for warehouse putaway to create/link stock.
-        if (!usePartialInbound) {
+        // Inventory create/update for non-products only.
+        // Products wait for warehouse receive + putaway to create/link stock.
+        if (!useWarehouseReceivePutaway) {
           if (isRestock && existingProductDoc && existingProductDoc.exists()) {
             // For restock: Update existing inventory item
             const existingData = existingProductDoc.data();
@@ -659,7 +649,7 @@ export function InventoryRequestsManagement({
             }
             transaction.update(existingProductRef!, restockUpdate);
           } else {
-            // For new product/box/pallet OR restock with product not found: Create new inventory item
+            // For box/pallet OR restock with product not found: Create new inventory item
             const inventoryRef = collection(db, `users/${userId}/inventory`);
             const addDate =
               request.addDate && typeof request.addDate === "object" && "seconds" in request.addDate
@@ -815,15 +805,14 @@ export function InventoryRequestsManagement({
       }
 
       if (!opts?.quiet) {
-        const usePartialInbound =
-          request.inventoryType === "product" && opts?.inboundReceiveMode === "partial";
+        const useWarehouseReceivePutaway = request.inventoryType === "product";
         await addDoc(collection(db, `users/${userId}/notifications`), {
           type: "inventory_request",
           title: "Inventory request approved",
           message:
             request.inventoryType === "container"
               ? "Your container handling request has been approved."
-              : usePartialInbound
+              : useWarehouseReceivePutaway
                 ? "Your inventory request has been approved. Stock will appear after warehouse receiving and putaway."
                 : "Your inventory request has been approved and added to inventory.",
           isRead: false,
@@ -842,21 +831,28 @@ export function InventoryRequestsManagement({
         await refreshBatchCounts(batchId);
       }
       if (!opts?.quiet) {
-        const usePartialInbound =
-          request.inventoryType === "product" && opts?.inboundReceiveMode === "partial";
+        const useWarehouseReceivePutaway = request.inventoryType === "product";
+        const receiveMode: "normal" | "partial" =
+          useWarehouseReceivePutaway && opts?.inboundReceiveMode === "partial"
+            ? "partial"
+            : "normal";
         toast({
           title: "Success",
           description: isRestock
-            ? usePartialInbound
-              ? "Restock approved — complete receiving below or close to finish later from Pending receive."
+            ? useWarehouseReceivePutaway
+              ? receiveMode === "partial"
+                ? "Restock approved for partial receive — complete dock receive/putaway below (or later from Pending receive)."
+                : "Restock approved — complete warehouse receive and putaway below (or later from Pending receive)."
               : "Restock approved. Quantity added to the existing product."
             : request.inventoryType === "container"
               ? "Container handling request approved and invoice generated."
-              : usePartialInbound
-                ? "Approved — complete receiving below or close for Pending receive."
+              : useWarehouseReceivePutaway
+                ? receiveMode === "partial"
+                  ? "Approved for partial receive — complete dock receive/putaway below or from Pending receive."
+                  : "Approved — complete warehouse receive and putaway below or from Pending receive."
                 : "Inventory request approved and added to inventory.",
         });
-        if (usePartialInbound) {
+        if (useWarehouseReceivePutaway) {
           setSelectedRequest({
             ...request,
             status: "approved",
@@ -864,7 +860,7 @@ export function InventoryRequestsManagement({
             warehouseGoodReceivedQty: 0,
             warehouseDamagedReceivedQty: 0,
             inboundWorkflowVersion: 2,
-            inboundReceiveMode: "partial",
+            inboundReceiveMode: receiveMode,
             receivedQuantity: finalQuantity,
             requestedQuantity: requestedQty,
             productName: finalProductName,
@@ -2363,14 +2359,18 @@ function ReviewRequestDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="normal">Normal (default) — add stock now</SelectItem>
-                      <SelectItem value="partial">Partial — warehouse receive / putaway</SelectItem>
+                      <SelectItem value="normal">
+                        Normal (default) — warehouse receive &amp; putaway
+                      </SelectItem>
+                      <SelectItem value="partial">
+                        Partial — multi-lot warehouse receive &amp; putaway
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
                     {inboundReceiveMode === "partial"
-                      ? "Keeps this request open for dock receive and putaway. Use when stock may arrive in multiple lots."
-                      : "Credits inventory immediately with this received quantity. Use for complete single receives and restocks."}
+                      ? "Same dock receive and putaway flow when freight may arrive in multiple lots. Progress stays open until complete or closed."
+                      : "Uses warehouse receive and putaway for this request’s own quantity. Stock appears only after putaway."}
                   </p>
                 </div>
               )}
@@ -2492,8 +2492,10 @@ function ReviewRequestDialog({
                   className="min-h-[44px] flex-1 sm:min-h-9"
                 >
                   {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {request.inventoryType === "product" && inboundReceiveMode === "partial"
-                    ? "Approve for partial receive"
+                  {request.inventoryType === "product"
+                    ? inboundReceiveMode === "partial"
+                      ? "Approve for partial receive"
+                      : "Approve for warehouse receive"
                     : "Confirm Approval"}
                 </Button>
                 <Button

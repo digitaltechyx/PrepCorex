@@ -1,6 +1,7 @@
 import type { InventoryItem } from "@/types";
 import { downloadCSV } from "@/lib/csv-utils";
 import type { InboundBulkRowError, InboundBulkValidatedRow } from "@/lib/inbound-bulk-import";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 
 export const RESTOCK_BULK_CSV_HEADERS = [
   "SKU",
@@ -17,6 +18,7 @@ type RestockProduct = InventoryItem & { sku?: string; imageUrl?: string; imageUr
 
 /** Same eligibility as manual restock dropdown in Add Inventory Request. */
 export function isRestockEligibleProduct(item: InventoryItem): boolean {
+  if (isIntegrationInventorySource((item as { source?: string }).source)) return false;
   const inventoryType = (item as InventoryItem & { inventoryType?: string }).inventoryType;
   if (inventoryType === "box" || inventoryType === "container" || inventoryType === "pallet") {
     return false;

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import type { DisposeBatch, DisposeBatchLine, DisposeRequest, UserProfile, InventoryItem } from "@/types";
+import { isIntegrationInventorySource } from "@/lib/integration-inventory-sources";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
@@ -606,7 +607,15 @@ export function DisposeRequestsManagement({
     }
   };
 
-  const inStockInventory = useMemo(() => inventory.filter((item) => item.quantity > 0), [inventory]);
+  const inStockInventory = useMemo(
+    () =>
+      inventory.filter(
+        (item) =>
+          item.quantity > 0 &&
+          !isIntegrationInventorySource((item as { source?: string }).source)
+      ),
+    [inventory]
+  );
   const behalfProduct = inStockInventory.find((p) => p.id === behalfProductId);
   const behalfMaxQty = behalfProduct?.quantity ?? 0;
 
