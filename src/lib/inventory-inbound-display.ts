@@ -34,7 +34,18 @@ export function warehouseGoodReceivedQty(req: InventoryRequest): number {
 export function isOpenProductInboundRequest(req: InventoryRequest): boolean {
   if (req.status !== "approved") return false;
   if (req.inventoryType !== "product" && req.inventoryType !== "container") return false;
-  if (req.fulfillmentStatus === "closed") return false;
+
+  const fulfillment = String(req.fulfillmentStatus ?? "")
+    .trim()
+    .toLowerCase();
+  // Only explicitly open requests count. Missing/legacy/closed must not show as Receiving.
+  if (fulfillment !== "open") return false;
+
+  // Fully put away — stop Receiving overlay even if close was missed.
+  const expected = expectedApprovedInboundQty(req);
+  const good = warehouseGoodReceivedQty(req);
+  if (expected > 0 && good >= expected) return false;
+
   return true;
 }
 

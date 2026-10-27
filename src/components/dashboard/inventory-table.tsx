@@ -76,6 +76,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   collection,
+  deleteField,
   doc,
   getDocs,
   query,
@@ -1205,6 +1206,30 @@ export function InventoryTable({
       )
     );
   }, [data, effectiveUserId, knownExpiriesByKey]);
+
+  // Closed / completed inbounds must not keep inventory rows in "Receiving" via stale sourceRequestId.
+  useEffect(() => {
+    if (!effectiveUserId || data.length === 0 || inventoryRequests.length === 0) return;
+    const requestById = new Map(inventoryRequests.map((req) => [req.id, req]));
+    const stale = data.filter((item) => {
+      const sourceId = String((item as InventoryItem & { sourceRequestId?: string }).sourceRequestId ?? "").trim();
+      if (!sourceId) return false;
+      const req = requestById.get(sourceId);
+      if (!req) return false;
+      return !isOpenProductInboundRequest(req);
+    });
+    if (stale.length === 0) return;
+
+    void Promise.all(
+      stale.map((item) =>
+        updateDoc(doc(db, `users/${effectiveUserId}/inventory`, item.id), {
+          sourceRequestId: deleteField(),
+        }).catch((err) => {
+          console.warn("[inventory] clear closed inbound link skipped", item.id, err);
+        })
+      )
+    );
+  }, [data, effectiveUserId, inventoryRequests]);
 
   // Legacy 1-line batches often lack mirrored inventoryRequests — client can create for self.
   useEffect(() => {

@@ -752,6 +752,25 @@ export async function closeInventoryRequest(input: {
     tx.update(ref, patch);
   });
 
+  // Detach inventory rows from this inbound so the client table stops showing
+  // "Receiving" / recv progress after close (sourceRequestId would otherwise keep linking).
+  try {
+    const inventoryCol = collection(db, "users", input.clientUserId, "inventory");
+    const linked = await getDocs(
+      query(inventoryCol, where("sourceRequestId", "==", input.requestId), limit(25))
+    );
+    await Promise.all(
+      linked.docs.map((inventoryDoc) =>
+        updateDoc(inventoryDoc.ref, {
+          sourceRequestId: deleteField(),
+          updatedAt: serverTimestamp(),
+        })
+      )
+    );
+  } catch (err) {
+    console.warn("[closeInventoryRequest] clear sourceRequestId failed", err);
+  }
+
   if (!remarksNote) return;
 
   try {
