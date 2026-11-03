@@ -334,6 +334,11 @@ service cloud.firestore {
       allow read, write: if isAdminOrSubAdmin();
     }
 
+    // ---- PrepCorex → CRM invoice sync queue ----
+    match /prepcorex_invoice_sync/{docId} {
+      allow read, write: if isAdminOrSubAdmin();
+    }
+
     // ---- LOCATIONS ----
     // Clients need read access to render warehouse names + shipping address card.
     // Writes remain admin/sub_admin only.

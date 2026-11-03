@@ -540,11 +540,21 @@ const {
   runClientInvoiceReminders,
 } = require("./client-invoice-automation");
 
+const { upsertPrepcorexInvoiceSync } = require("./prepcorex-invoice-crm-sync");
+
 exports.onClientInvoiceCreated = functions.firestore
   .document("users/{userId}/invoices/{invoiceId}")
   .onCreate(async (snap, context) => {
     const { userId, invoiceId } = context.params;
     const invoice = snap.data() || {};
+
+    // Always mirror into CRM Invoice Sync queue (idempotent).
+    try {
+      await upsertPrepcorexInvoiceSync(admin.firestore(), userId, invoiceId, invoice);
+    } catch (err) {
+      console.error("CRM invoice sync mirror failed:", userId, invoiceId, err);
+    }
+
     if (invoice.status !== "pending") return null;
     if (invoice.invoiceCreatedEmailSentAt) return null;
 
@@ -568,6 +578,20 @@ exports.onClientInvoiceCreated = functions.firestore
       }
     } catch (err) {
       console.error("Client invoice created email failed:", userId, invoiceId, err);
+    }
+    return null;
+  });
+
+/** Keep CRM sync mirror totals/status fresh when a client invoice is updated. */
+exports.onClientInvoiceUpdated = functions.firestore
+  .document("users/{userId}/invoices/{invoiceId}")
+  .onUpdate(async (change, context) => {
+    const { userId, invoiceId } = context.params;
+    const invoice = change.after.data() || {};
+    try {
+      await upsertPrepcorexInvoiceSync(admin.firestore(), userId, invoiceId, invoice);
+    } catch (err) {
+      console.error("CRM invoice sync mirror update failed:", userId, invoiceId, err);
     }
     return null;
   });
