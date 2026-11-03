@@ -83,7 +83,7 @@ const EVENT_BADGE: Record<string, string> = {
 const EVENT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "all", label: "All events" },
   { value: "received", label: "Inbound approved" },
-  { value: "inbound_request", label: "Inbound requests" },
+  { value: "inbound_request", label: "Inbound / restock requests" },
   { value: "restock", label: "Restock" },
   { value: "shipped", label: "Outbound / Scheduled" },
   { value: "quarantine", label: "Quarantine" },

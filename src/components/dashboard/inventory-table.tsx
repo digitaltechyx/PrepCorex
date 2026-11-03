@@ -637,8 +637,17 @@ type InventorySourceRow = {
   source?: string;
   shop?: string;
   isRequest?: boolean;
+  requestData?: InventoryRequest;
   openInboundRequest?: InventoryRequest;
 };
+
+function isRestockInventoryRequest(req?: InventoryRequest | null): boolean {
+  if (!req) return false;
+  if (req.productSubType === "restock") return true;
+  if (req.productSubType === "new") return false;
+  // Older restocks often only set productId.
+  return Boolean(String(req.productId || "").trim());
+}
 
 function inventorySourceKey(item: InventorySourceRow): string {
   if (item.isRequest || item.openInboundRequest) return "inbound";
@@ -652,9 +661,19 @@ function inventorySourceKey(item: InventorySourceRow): string {
 
 function inventorySourceMeta(item: InventorySourceRow) {
   if (item.isRequest || item.openInboundRequest) {
+    const req = item.openInboundRequest ?? item.requestData;
+    const restock = isRestockInventoryRequest(req);
+    if (restock) {
+      return {
+        label: "Restock",
+        detail: item.openInboundRequest ? "Receiving" : "Not received yet",
+        className:
+          "border-sky-300 bg-sky-50 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
+      };
+    }
     return {
       label: "Inbound",
-      detail: item.openInboundRequest ? "Receiving" : "Warehouse request",
+      detail: item.openInboundRequest ? "Receiving" : "New product request",
       className: "border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
     };
   }
@@ -2398,7 +2417,7 @@ export function InventoryTable({
               <SelectContent>
                 <SelectItem value="all">All sources</SelectItem>
                 <SelectItem value="manual">Manual</SelectItem>
-                <SelectItem value="inbound">Inbound requests</SelectItem>
+                <SelectItem value="inbound">Inbound / restock requests</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>

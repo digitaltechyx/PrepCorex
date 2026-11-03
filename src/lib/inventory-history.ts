@@ -359,7 +359,7 @@ function formatHistoryBy(user: string, event: string): string {
   const v = (user ?? "").trim();
   if (!v || v === "—") return v || "—";
   if (!isLikelyAuthUid(v)) return v;
-  if (event === "Inbound requested") return "Client";
+  if (event === "Inbound requested" || event === "Restock requested") return "Client";
   return "PSF Operations";
 }
 
@@ -946,17 +946,26 @@ export function buildInventoryHistory(
         user: req.approvedBy ?? "Admin",
       });
     } else if (req.status === "pending") {
+      const isRestock =
+        req.productSubType === "restock" ||
+        (req.productSubType !== "new" && Boolean(String(req.productId || "").trim()));
+      const qty = req.requestedQuantity ?? req.quantity;
       raw.push({
         timestamp: toTimestamp(req.requestedAt ?? req.addDate),
-        event: "Inbound requested",
+        event: isRestock ? "Restock requested" : "Inbound requested",
         eventType: "inbound_request",
-        details: `Requested ${req.requestedQuantity ?? req.quantity} units · ${req.inventoryType ?? "product"}`,
+        details: isRestock
+          ? `Restock requested ${qty} units · not received yet · ${req.inventoryType ?? "product"}`
+          : `Requested ${qty} units · ${req.inventoryType ?? "product"}`,
         user: req.requestedBy ?? "Client",
       });
     } else if (req.status === "rejected") {
+      const isRestock =
+        req.productSubType === "restock" ||
+        (req.productSubType !== "new" && Boolean(String(req.productId || "").trim()));
       raw.push({
         timestamp: ts,
-        event: "Inbound rejected",
+        event: isRestock ? "Restock rejected" : "Inbound rejected",
         eventType: "inbound_request",
         details: req.rejectionReason?.trim() || "Request rejected",
         user: req.rejectedBy ?? "Admin",
@@ -1328,8 +1337,8 @@ export function buildInventoryHistory(
               s.shipTo ? `to ${s.shipTo}` : "",
               "Product return (not taken from on-hand stock)",
               s.remarks?.trim() || "",
-            ]
-              .filter(Boolean)
+        ]
+          .filter(Boolean)
               .join(" · ")
           : formatOutboundShipmentDetails({
               units: line.units,
