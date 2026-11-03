@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -75,11 +75,14 @@ export function PaymentDialog({
   const [selectedMethod, setSelectedMethod] = useState<"new" | string>("new");
   const [saveCard, setSaveCard] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  /** Avoid depending on inline getIdToken from parent — that remounted this dialog every render. */
+  const getIdTokenRef = useRef(getIdToken);
+  getIdTokenRef.current = getIdToken;
 
   const loadCards = useCallback(async () => {
     setCardsLoading(true);
     try {
-      const token = await getIdToken();
+      const token = await getIdTokenRef.current();
       const res = await fetch("/api/stripe/payment-methods", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -87,11 +90,12 @@ export function PaymentDialog({
       if (!res.ok) throw new Error(data.error || "Failed to load cards");
       const list = Array.isArray(data.cards) ? (data.cards as SavedCardOption[]) : [];
       setCards(list);
-      if (list.length > 0) {
-        setSelectedMethod(list[0].id);
-      } else {
-        setSelectedMethod("new");
-      }
+      // Keep the user's current selection so CardElement is not remounted mid-entry.
+      setSelectedMethod((prev) => {
+        if (prev === "new") return "new";
+        if (list.some((card) => card.id === prev)) return prev;
+        return list.length > 0 ? list[0].id : "new";
+      });
     } catch (error: unknown) {
       console.warn("load saved cards", error);
       setCards([]);
@@ -99,7 +103,7 @@ export function PaymentDialog({
     } finally {
       setCardsLoading(false);
     }
-  }, [getIdToken]);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -109,13 +113,14 @@ export function PaymentDialog({
       setRemovingId(null);
       return;
     }
+    // Load saved cards once when the dialog opens — not on every parent re-render.
     void loadCards();
   }, [open, loadCards]);
 
   const handleRemoveCard = async (paymentMethodId: string) => {
     setRemovingId(paymentMethodId);
     try {
-      const token = await getIdToken();
+      const token = await getIdTokenRef.current();
       const res = await fetch(
         `/api/stripe/payment-methods?paymentMethodId=${encodeURIComponent(paymentMethodId)}`,
         {

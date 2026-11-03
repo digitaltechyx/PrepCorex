@@ -1242,10 +1242,25 @@ export function buildInventoryHistory(
     });
   }
 
+  // Only suppress shipped[] fallback when a change log for THIS product actually
+  // renders (non-zero). Zero-delta dispatch/ship logs are hidden above but used to
+  // still block fallback via shippedId — that dropped real Shipped rows from history.
   const shippedIdsFromChangeLogs = new Set(
     (sources.inventoryChangeLogs ?? [])
-      .map((log) => (log.shippedId != null ? String(log.shippedId).trim() : ""))
-      .filter(Boolean)
+      .filter((log) => inventoryChangeLogMatchesItem(log, item))
+      .filter((log) => {
+        if (
+          !isPackDetailsChangeLog(log) &&
+          isZeroStockChangeLog(log) &&
+          (log.eventType === "outbound_restored" ||
+            log.eventType === "outbound_dispatch" ||
+            log.eventType === "outbound_shipped")
+        ) {
+          return false;
+        }
+        return Boolean(log.shippedId != null && String(log.shippedId).trim());
+      })
+      .map((log) => String(log.shippedId).trim())
   );
   const outboundQtyByRequestProduct = new Set<string>();
   for (const log of sources.inventoryChangeLogs ?? []) {
@@ -1283,7 +1298,9 @@ export function buildInventoryHistory(
     if (s.items?.length) {
       for (const line of s.items) {
         const matchesLine =
-          productIdsMatch(item, line.productId) || namesMatch(item, line.productName);
+          productIdsMatch(item, line.productId) ||
+          namesMatch(item, line.productName) ||
+          skusMatch(item, line.sku);
         if (!matchesLine) continue;
         const units = unitsShippedFromLine(line);
         if (units <= 0) continue;
