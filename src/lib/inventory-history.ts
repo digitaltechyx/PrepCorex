@@ -319,6 +319,16 @@ function businessOutboundTimestamp(dateValue: unknown, createdAtValue?: unknown)
 }
 
 function isInboundHistoryEvent(e: RawEvent): boolean {
+  // Outbound reserve/restore/dispatch must never count as inbound — same-day
+  // "receive before ship" reordering was putting line restores above earlier reserves
+  // and rewriting Before/After via the running ledger.
+  if (
+    e.outboundLinkKind === "restore" ||
+    e.outboundLinkKind === "reserve" ||
+    e.outboundLinkKind === "dispatch"
+  ) {
+    return false;
+  }
   if (e.eventType === "received" || e.eventType === "restock" || e.eventType === "created") {
     return true;
   }
@@ -335,7 +345,13 @@ function isOutboundHistoryEvent(e: RawEvent): boolean {
   ) {
     return true;
   }
-  if (e.outboundLinkKind === "dispatch" || e.outboundLinkKind === "reserve") return true;
+  if (
+    e.outboundLinkKind === "dispatch" ||
+    e.outboundLinkKind === "reserve" ||
+    e.outboundLinkKind === "restore"
+  ) {
+    return true;
+  }
   if ((e.qtyChange ?? 0) < 0) return true;
   return false;
 }
@@ -652,13 +668,17 @@ function canLinkStockChain(a: RawEvent, b: RawEvent): boolean {
 /** Pick next event when several are valid — stock chain only when time order agrees. */
 function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
   // Same calendar day: inbound/receive before outbound/ship (backdated ships must not precede receives).
+  // Skip when both rows are outbound-linked (reserve/restore/dispatch) — keep real timestamps.
   if (a.timestamp && b.timestamp && calendarDayKey(a.timestamp) === calendarDayKey(b.timestamp)) {
-    const aIn = isInboundHistoryEvent(a);
-    const bIn = isInboundHistoryEvent(b);
-    const aOut = isOutboundHistoryEvent(a);
-    const bOut = isOutboundHistoryEvent(b);
-    if (aIn && bOut) return -1;
-    if (aOut && bIn) return 1;
+    const bothOutboundLinked = Boolean(a.outboundLinkKind) && Boolean(b.outboundLinkKind);
+    if (!bothOutboundLinked) {
+      const aIn = isInboundHistoryEvent(a);
+      const bIn = isInboundHistoryEvent(b);
+      const aOut = isOutboundHistoryEvent(a);
+      const bOut = isOutboundHistoryEvent(b);
+      if (aIn && bOut) return -1;
+      if (aOut && bIn) return 1;
+    }
   }
 
   // Calendar time first so Overview # / Newest-first matches Date+Time.
@@ -1083,11 +1103,19 @@ export function buildInventoryHistory(
             : log.eventType === "outbound_restored"
               ? "Outbound cancelled — restored"
               : log.eventType === "outbound_line_restored"
-                ? "Outbound line edited — restored"
+                ? String(log.details ?? "")
+                    .toLowerCase()
+                    .includes("removed")
+                  ? "Outbound line removed — restored"
+                  : "Outbound line edited — restored"
                 : log.eventType === "outbound_line_reserved"
                   ? requestAlreadyDispatched
                     ? "Shipped — admin added units to request"
-                    : "Outbound line edited — additional reserve"
+                    : String(log.details ?? "")
+                          .toLowerCase()
+                          .includes("added")
+                      ? "Outbound line added — reserved"
+                      : "Outbound line edited — additional reserve"
                   : log.eventType === "outbound_dispatch"
                     ? "Shipped"
                     : log.eventType === "outbound_shipped"
@@ -1171,19 +1199,21 @@ export function buildInventoryHistory(
 
     const isPackLayoutOnly = packDetailsChange;
 
-    // Merge +qty stays on the stock trail (absorbs source on-hand). Restored stock is inbound-style.
+    // Line edits use "edited" so badges stay distinct from inbound Restock / outbound Shipped.
+    // Full cancel-restore stays restock-like (stock returned to sellable).
     const historyEventType =
-      log.eventType === "outbound_restored" ||
-      log.eventType === "outbound_line_restored" ||
-      log.eventType === "shopify_qf_product_correct_credit" ||
-      log.eventType === "quarantine_release" ||
-      isProductMerge
-        ? ("restock" as const)
-        : isQuarantineChangeLog(log)
-          ? log.eventType === "quarantine_dispose" || log.eventType === "dispose"
-            ? ("disposed" as const)
-            : ("quarantine" as const)
-          : ("shipped" as const);
+      log.eventType === "outbound_line_restored" || log.eventType === "outbound_line_reserved"
+        ? ("edited" as const)
+        : log.eventType === "outbound_restored" ||
+            log.eventType === "shopify_qf_product_correct_credit" ||
+            log.eventType === "quarantine_release" ||
+            isProductMerge
+          ? ("restock" as const)
+          : isQuarantineChangeLog(log)
+            ? log.eventType === "quarantine_dispose" || log.eventType === "dispose"
+              ? ("disposed" as const)
+              : ("quarantine" as const)
+            : ("shipped" as const);
 
     const isReservedAtCreateDispatch =
       log.eventType === "outbound_dispatch" &&

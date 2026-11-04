@@ -87,7 +87,7 @@ const EVENT_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "restock", label: "Restock" },
   { value: "shipped", label: "Outbound / Scheduled" },
   { value: "quarantine", label: "Quarantine" },
-  { value: "edited", label: "Edits" },
+  { value: "edited", label: "Edits / line changes" },
   { value: "disposed", label: "Disposed" },
   { value: "deleted", label: "Deleted" },
   { value: "created", label: "Created" },

@@ -49,7 +49,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Search, Filter, X, Eye, Clock, XCircle, Trash2, FileText } from "lucide-react";
+import { Search, Filter, X, Eye, Clock, XCircle, Trash2, FileText, Pencil } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
@@ -64,6 +64,7 @@ import {
   type ShippedOrderCorrectionContext,
 } from "@/components/dashboard/shipped-order-details-dialog";
 import { OutboundShipmentVideoDialog } from "@/components/dashboard/outbound-shipment-video-dialog";
+import { ClientPendingOutboundEditDialog } from "@/components/dashboard/client-pending-outbound-edit-dialog";
 import { formatOutboundPackLine } from "@/lib/warehouse-outbound-lines";
 import { isWarehouseDispatchedRequest } from "@/lib/warehouse-outbound-request-status";
 import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
@@ -296,6 +297,7 @@ export function ShippedTable({
   const [cancellingRequest, setCancellingRequest] = useState<ShipmentRequest | null>(null);
   const [cancellationReason, setCancellationReason] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<ShipmentRequest | null>(null);
 
   useEffect(() => {
     const raw = searchParams.get("status")?.toLowerCase();
@@ -640,7 +642,9 @@ export function ShippedTable({
         ),
         createdAt: req.requestedAt,
         additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
-        canCancelRequest: status === "Pending" && (req.status || "pending") === "pending" && index === 0,
+        // Show on every expanded line of a pending request (edit/cancel apply to the whole order).
+        canCancelRequest: status === "Pending" && (req.status || "pending") === "pending",
+        canEditRequest: status === "Pending" && (req.status || "pending") === "pending",
         warehouseLineEditNotice: warehouseLineEditNotice(shipment as Record<string, unknown>),
         warehouseLineEditReason: String(shipment.warehouseLineEditReason ?? "").trim() || null,
       };
@@ -1096,63 +1100,74 @@ export function ShippedTable({
                   ) : (
                     <Badge variant="default" className="w-fit mt-1">Shipped</Badge>
                   )}
-                  {!isAdminView && (item as any).canCancelRequest && (
+                  <div className="mt-2 flex flex-row flex-nowrap items-center gap-1.5 overflow-x-auto">
+                    {!isAdminView && (item as any).canEditRequest && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs"
+                        onClick={() => setEditingRequest((item as any).rawRequest as ShipmentRequest)}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
+                    )}
+                    {!isAdminView && (item as any).canCancelRequest && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 text-xs text-destructive border-destructive/40 hover:text-destructive"
+                        onClick={() => {
+                          setCancellingRequest((item as any).rawRequest as ShipmentRequest);
+                          setCancellationReason("");
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        Cancel
+                      </Button>
+                    )}
+                    {!isAdminView &&
+                      (item as any).isRequest &&
+                      ((item as any).requestStatus === "awaiting_label_upload" ||
+                        ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
+                          (item as any).rawRequest?.fbaPallets?.length > 0) &&
+                          (item as any).rawRequest?.fbaLabelWorkflow))) && (
+                      <Button
+                        size="sm"
+                        className="h-7 shrink-0 text-xs"
+                        onClick={() => {
+                          setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
+                          setUploadFiles([]);
+                        }}
+                      >
+                        {(item as any).rawRequest?.fbaMasterCases?.length ||
+                        (item as any).rawRequest?.fbaPallets?.length
+                          ? "Upload label"
+                          : "Upload Label"}
+                      </Button>
+                    )}
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
-                      className="mt-2 h-7 text-xs text-destructive border-destructive/40 hover:text-destructive"
-                      onClick={() => {
-                        setCancellingRequest((item as any).rawRequest as ShipmentRequest);
-                        setCancellationReason("");
-                      }}
+                      className="h-7 shrink-0 gap-1 text-xs"
+                      onClick={() => handleShipmentDetailsClick(item)}
                     >
-                      <Trash2 className="h-3 w-3 mr-1" />
-                      Cancel request
+                      <FileText className="h-3 w-3" />
+                      Details
                     </Button>
-                  )}
-                  {!isAdminView &&
-                    (item as any).isRequest &&
-                    ((item as any).requestStatus === "awaiting_label_upload" ||
-                      ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
-                        (item as any).rawRequest?.fbaPallets?.length > 0) &&
-                        (item as any).rawRequest?.fbaLabelWorkflow))) && (
-                    <Button
-                      size="sm"
-                      className="mt-2 h-7 text-xs"
-                      onClick={() => {
-                        setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
-                        setUploadFiles([]);
-                      }}
-                    >
-                      {(item as any).rawRequest?.fbaMasterCases?.length ||
-                      (item as any).rawRequest?.fbaPallets?.length
-                        ? "Upload label (dims ready)"
-                        : "Upload Label"}
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="mt-2 h-7 gap-1 text-xs"
-                    onClick={() => handleShipmentDetailsClick(item)}
-                  >
-                    <FileText className="h-3 w-3" />
-                    Details
-                  </Button>
-                  {(() => {
-                    const shipmentId = outboundVideoShipmentId(item as any);
-                    if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
-                    return (
-                      <div className="mt-2">
+                    {(() => {
+                      const shipmentId = outboundVideoShipmentId(item as any);
+                      if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
+                      return (
                         <OutboundShipmentVideoDialog
                           shipmentRequestId={shipmentId}
                           clientUserId={clientUserId}
                           triggerLabel="Watch outbound video"
                         />
-                      </div>
-                    );
-                  })()}
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             ))
@@ -1407,23 +1422,9 @@ export function ShippedTable({
                         ) : (
                           <Badge variant="default" className="w-fit">Shipped</Badge>
                         )}
-                        {!isAdminView && (item as any).canCancelRequest && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="mt-1 h-7 px-2 text-xs text-destructive hover:text-destructive"
-                            onClick={() => {
-                              setCancellingRequest((item as any).rawRequest as ShipmentRequest);
-                              setCancellationReason("");
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3 mr-1" />
-                            Cancel
-                          </Button>
-                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-wrap items-center justify-end gap-1">
+                        <div className="flex flex-row flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
                           {(() => {
                             const shipmentId = outboundVideoShipmentId(item as any);
                             if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
@@ -1436,11 +1437,38 @@ export function ShippedTable({
                               />
                             );
                           })()}
+                          {!isAdminView && (item as any).canEditRequest && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 shrink-0 gap-1 text-xs"
+                              onClick={() => setEditingRequest((item as any).rawRequest as ShipmentRequest)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Edit
+                            </Button>
+                          )}
+                          {!isAdminView && (item as any).canCancelRequest && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 shrink-0 gap-1 text-xs text-destructive border-destructive/40 hover:text-destructive"
+                              onClick={() => {
+                                setCancellingRequest((item as any).rawRequest as ShipmentRequest);
+                                setCancellationReason("");
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Cancel
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 gap-1 text-xs"
+                            className="h-8 shrink-0 gap-1 text-xs"
                             onClick={() => handleShipmentDetailsClick(item)}
                           >
                             <FileText className="h-3.5 w-3.5" />
@@ -1651,6 +1679,17 @@ export function ShippedTable({
           </div>
         </DialogContent>
       </Dialog>
+
+      <ClientPendingOutboundEditDialog
+        open={editingRequest !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingRequest(null);
+        }}
+        request={editingRequest}
+        clientUserId={userProfile?.uid || ""}
+        editedBy={user?.uid || userProfile?.uid || ""}
+        inventory={inventory}
+      />
 
       <Dialog
         open={cancellingRequest !== null}

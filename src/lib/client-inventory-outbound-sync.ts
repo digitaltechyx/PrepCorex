@@ -1638,9 +1638,12 @@ export async function adjustClientInventoryForOutboundLineEdit(input: {
           );
 
     const eventType = unitDelta > 0 ? "outbound_line_reserved" : "outbound_line_restored";
+    const boxesBefore = Math.max(0, Math.floor(input.boxesBefore ?? 0));
     const detailLead =
       unitDelta > 0
-        ? "Outbound line edited — additional reserve"
+        ? boxesBefore === 0
+          ? "Outbound line added — reserved"
+          : "Outbound line edited — additional reserve"
         : boxesAfter === 0
           ? "Outbound line removed — restored"
           : "Outbound line edited — restored";
