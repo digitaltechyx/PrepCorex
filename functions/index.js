@@ -632,6 +632,14 @@ exports.processClientAccountInactivity = functions.pubsub
     return null;
   });
 
+// ---- Admin Notifications: email info@ on each new request create (no cron) ----
+const { registerAdminRequestNotifyTriggers } = require("./admin-request-notify-email");
+registerAdminRequestNotifyTriggers(exports, functions, {
+  nodemailer,
+  createSmtpTransporter,
+  admin,
+});
+
 // Inbound tracking 6h cron lives in functions-inbound-cron/ (separate codebase for faster deploy).
 // CRM Lexi cron lives in CRM-PrepCorex/functions (not here).
 
