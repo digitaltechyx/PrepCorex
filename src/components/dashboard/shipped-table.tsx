@@ -49,13 +49,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Search, Filter, ListFilter, X, Eye, Clock, XCircle, Trash2, FileText } from "lucide-react";
+import { Search, Filter, X, Eye, Clock, XCircle, Trash2, FileText } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { useCollection } from "@/hooks/use-collection";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -132,6 +133,27 @@ function rowSortTimeMs(item: { date?: unknown; createdAt?: unknown }): number {
   return toSortTimeMs(item.createdAt);
 }
 
+/** Local calendar day key so sort matches the Date column (not event time-of-day). */
+function calendarDayKey(ms: number): number {
+  if (!ms) return 0;
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return 0;
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+/** Newest calendar date first; same day → newer timestamp; then id. */
+function compareRowsByDateDesc(
+  a: { id?: string; date?: unknown; createdAt?: unknown },
+  b: { id?: string; date?: unknown; createdAt?: unknown }
+): number {
+  const aMs = rowSortTimeMs(a);
+  const bMs = rowSortTimeMs(b);
+  const dayDiff = calendarDayKey(bMs) - calendarDayKey(aMs);
+  if (dayDiff !== 0) return dayDiff;
+  if (bMs !== aMs) return bMs - aMs;
+  return String(b.id || "").localeCompare(String(a.id || ""));
+}
+
 function formatRestockDate(restockedAt: RestockHistory["restockedAt"]) {
   if (typeof restockedAt === "string") {
     return format(new Date(restockedAt), "d MMM yyyy");
@@ -150,7 +172,6 @@ type ShippedRowStatus =
   | "Rejected"
   | "Cancelled";
 
-const STATUS_FILTER_ALL = "all";
 const STATUS_URL_PENDING = "pending";
 const STATUS_URL_SHIPPED = "shipped";
 const STATUS_URL_CANCELLED = "cancelled";
@@ -225,10 +246,16 @@ function rowMatchesStatusFilter(
   item: { status?: string },
   statusFilter: string
 ): boolean {
-  if (statusFilter === STATUS_FILTER_ALL) return true;
   const s = (item.status || "") as ShippedRowStatus;
-  if (statusFilter === STATUS_URL_PENDING) return isAwaitingFulfillmentRowStatus(s);
   if (statusFilter === STATUS_URL_SHIPPED) return s === "Shipped";
+  // Pending tab: open requests + cancelled/rejected (not shipped)
+  if (statusFilter === STATUS_URL_PENDING) {
+    return (
+      isAwaitingFulfillmentRowStatus(s) ||
+      s === "Cancelled" ||
+      s === "Rejected"
+    );
+  }
   if (statusFilter === STATUS_URL_CANCELLED) return s === "Cancelled";
   return true;
 }
@@ -260,7 +287,8 @@ export function ShippedTable({
   const { recordedShipmentIds } = useWarehouseCameraSessions(clientUserId);
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>(STATUS_FILTER_ALL);
+  /** Tabs: pending (open/cancelled/rejected) vs shipped only. */
+  const [statusFilter, setStatusFilter] = useState<string>(STATUS_URL_PENDING);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedUploadRequest, setSelectedUploadRequest] = useState<ShipmentRequest | null>(null);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
@@ -273,6 +301,9 @@ export function ShippedTable({
     const raw = searchParams.get("status")?.toLowerCase();
     if (raw === STATUS_URL_PENDING || raw === STATUS_URL_SHIPPED) {
       setStatusFilter(raw);
+    } else if (raw === STATUS_URL_CANCELLED) {
+      // Cancelled lives under Pending tab
+      setStatusFilter(STATUS_URL_PENDING);
     }
     const dateRaw = searchParams.get("date")?.toLowerCase();
     if (dateRaw && DATE_FILTER_KEYS.has(dateRaw)) {
@@ -628,7 +659,11 @@ export function ShippedTable({
       .forEach((req) => {
         const rowStatus = displayStatusForOpenRequest(req.status);
         (req.shipments || []).forEach((shipment, index) => {
-          pendingItems.push(convertShipmentToDisplay(req, shipment, rowStatus, index));
+          const row = convertShipmentToDisplay(req, shipment, rowStatus, index);
+          pendingItems.push({
+            ...row,
+            rowKey: `pending-${req.id}-${index}`,
+          });
         });
       });
 
@@ -649,6 +684,7 @@ export function ShippedTable({
             date: dispatchDate,
             status: "Shipped" as const,
             isRequest: false,
+            rowKey: `dispatch-fallback-${req.id}-${index}`,
           });
         });
       });
@@ -659,7 +695,10 @@ export function ShippedTable({
       .filter(req => req.status?.toLowerCase() === "rejected")
       .forEach(req => {
         req.shipments.forEach((shipment, index) => {
-          rejectedItems.push(convertShipmentToDisplay(req, shipment, "Rejected", index));
+          rejectedItems.push({
+            ...convertShipmentToDisplay(req, shipment, "Rejected", index),
+            rowKey: `rejected-${req.id}-${index}`,
+          });
         });
       });
 
@@ -668,7 +707,10 @@ export function ShippedTable({
       .filter(req => req.status === "cancelled")
       .forEach(req => {
         req.shipments.forEach((shipment, index) => {
-          cancelledItems.push(convertShipmentToDisplay(req, shipment, "Cancelled", index));
+          cancelledItems.push({
+            ...convertShipmentToDisplay(req, shipment, "Cancelled", index),
+            rowKey: `cancelled-${req.id}-${index}`,
+          });
         });
       });
 
@@ -677,11 +719,15 @@ export function ShippedTable({
     data.forEach(item => {
       // Check if item has an items array (multiple products)
       if (item.items && Array.isArray(item.items) && item.items.length > 0) {
-        item.items.forEach((it: any) => {
+        item.items.forEach((it: any, lineIndex: number) => {
+          const productId = String(it.productId || "").trim() || "line";
+          // Include lineIndex so duplicate productIds on one shipped doc stay unique.
+          const rowId = `${item.id}-${productId}-${lineIndex}`;
           shippedItems.push({
             ...item,
             shippedDocId: item.id,
-            id: `${item.id}-${it.productId || Math.random()}`,
+            id: rowId,
+            rowKey: rowId,
             productName: it.productName || item.productName,
             shippedQty: it.shippedQty || 0,
             boxesShipped: it.boxesShipped || 0,
@@ -694,9 +740,12 @@ export function ShippedTable({
         });
       } else {
         // Single product
+        const rowId = String(item.id || "").trim() || `shipped-${shippedItems.length}`;
         shippedItems.push({
           ...item,
           shippedDocId: item.id,
+          id: rowId,
+          rowKey: `shipped-doc-${rowId}`,
           status: "Shipped" as "Pending" | "Shipped" | "Rejected",
           isRequest: false,
           additionalServices: item.additionalServices || (item as any).selectedAdditionalServices,
@@ -713,25 +762,39 @@ export function ShippedTable({
       ...shippedItems,
     ];
 
-    const sortedItems = allItems.sort((a, b) => {
-      const diff = rowSortTimeMs(b) - rowSortTimeMs(a);
-      if (diff !== 0) return diff;
-      return String(b.id || "").localeCompare(String(a.id || ""));
-    });
+    const sortedItems = allItems.sort(compareRowsByDateDesc);
 
     // Show "Last restocked" only once per product (on the first/latest row)
+    // and guarantee unique React keys even if source data collides.
     const seenProducts = new Set<string>();
-    return sortedItems.map((item) => {
+    const seenKeys = new Set<string>();
+    return sortedItems.map((item, index) => {
       const productKey = String(item.productName || "").trim().toLowerCase();
       const showLastRestock = productKey ? !seenProducts.has(productKey) : false;
       if (productKey && showLastRestock) {
         seenProducts.add(productKey);
       }
-      return { ...item, showLastRestock };
+      let rowKey = String(
+        (item as { rowKey?: string }).rowKey || item.id || `row-${index}`
+      ).trim();
+      if (!rowKey || seenKeys.has(rowKey)) {
+        rowKey = `${rowKey || "row"}__${index}`;
+      }
+      seenKeys.add(rowKey);
+      return { ...item, showLastRestock, rowKey };
     });
   }, [data, pendingShipmentRequests, inventory]);
 
-  // Filtered data — keep date-wise order (most recent first)
+  const pendingTabCount = useMemo(
+    () => combinedData.filter((item) => rowMatchesStatusFilter(item, STATUS_URL_PENDING)).length,
+    [combinedData]
+  );
+  const shippedTabCount = useMemo(
+    () => combinedData.filter((item) => rowMatchesStatusFilter(item, STATUS_URL_SHIPPED)).length,
+    [combinedData]
+  );
+
+  // Filtered data — date-wise within the active tab (newest calendar day first)
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -763,11 +826,7 @@ export function ShippedTable({
       return matchesSearch && matchesDate && matchesStatus;
     });
 
-    return [...filtered].sort((a, b) => {
-      const diff = rowSortTimeMs(b) - rowSortTimeMs(a);
-      if (diff !== 0) return diff;
-      return String(b.id || "").localeCompare(String(a.id || ""));
-    });
+    return [...filtered].sort(compareRowsByDateDesc);
   }, [combinedData, searchTerm, dateFilter, statusFilter]);
 
   // Pagination calculations
@@ -830,88 +889,94 @@ export function ShippedTable({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <CardTitle className="text-base sm:text-lg lg:text-xl">
-              Order Shipped ({filteredData.filter((item: any) => !item.isRequest || (!isAwaitingFulfillmentRowStatus(item.status) && item.status !== "Rejected")).length})
-              {pendingCount > 0 && (
+              Ship orders
+              {statusFilter === STATUS_URL_PENDING ? (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({pendingCount} awaiting ship)
+                  ({filteredData.length} pending
+                  {rejectedCount > 0 ? ` · ${rejectedCount} rejected` : ""}
+                  {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""})
                 </span>
-              )}
-              {rejectedCount > 0 && (
+              ) : (
                 <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({rejectedCount} Rejected)
-                </span>
-              )}
-              {cancelledCount > 0 && (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({cancelledCount} Cancelled)
+                  ({filteredData.length} shipped)
                 </span>
               )}
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
-              Details of products that have been shipped.
+              Pending and shipped outbound lines, each tab sorted by date (newest first).
             </CardDescription>
           </div>
           <div className="flex items-center gap-3">
-            {pendingCount > 0 && (
+            {pendingCount > 0 && statusFilter === STATUS_URL_SHIPPED ? (
               <Badge variant="outline" className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {pendingCount} awaiting ship
               </Badge>
-            )}
+            ) : null}
           </div>
         </div>
       </CardHeader>
       ) : null}
       <CardContent className={embedded ? "p-0 sm:p-6" : "p-0 sm:p-6"}>
-        {/* Search and Filter Controls */}
-        <div className="flex flex-col gap-4 mb-6 px-6 lg:flex-row lg:flex-wrap lg:items-end">
-          <div className="min-w-0 flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search shipped orders..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-              {searchTerm && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
-                  onClick={() => setSearchTerm("")}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              )}
+        {/* Tabs + search / date filter */}
+        <div className="flex flex-col gap-4 mb-6 px-6">
+          <Tabs
+            value={statusFilter === STATUS_URL_SHIPPED ? STATUS_URL_SHIPPED : STATUS_URL_PENDING}
+            onValueChange={(value) => {
+              setStatusFilter(value);
+              setCurrentPage(1);
+            }}
+          >
+            <TabsList className="grid w-full max-w-md grid-cols-2 bg-muted/80 p-1">
+              <TabsTrigger
+                value={STATUS_URL_PENDING}
+                className="data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=inactive]:text-amber-900/70 hover:text-amber-950"
+              >
+                Pending ({pendingTabCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value={STATUS_URL_SHIPPED}
+                className="data-[state=active]:bg-sky-600 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=inactive]:text-sky-900/70 hover:text-sky-950"
+              >
+                Shipped ({shippedTabCount})
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
+            <div className="min-w-0 flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder={
+                    statusFilter === STATUS_URL_SHIPPED
+                      ? "Search shipped orders..."
+                      : "Search pending orders..."
+                  }
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+                {searchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => setSearchTerm("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:max-w-md lg:max-w-none lg:shrink-0">
-            <div className="w-full sm:min-w-[11rem]">
+            <div className="w-full sm:max-w-[11rem] lg:shrink-0">
               <Select
-                value={statusFilter}
+                value={dateFilter}
                 onValueChange={(value) => {
-                  setStatusFilter(value);
+                  setDateFilter(value);
                   setCurrentPage(1);
                 }}
               >
-                <SelectTrigger>
-                  <ListFilter className="h-4 w-4 mr-2 shrink-0" />
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={STATUS_FILTER_ALL}>All statuses</SelectItem>
-                  <SelectItem value={STATUS_URL_PENDING}>Pending / awaiting ship</SelectItem>
-                  <SelectItem value={STATUS_URL_SHIPPED}>Shipped</SelectItem>
-                  <SelectItem value={STATUS_URL_CANCELLED}>Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-full sm:min-w-[11rem]">
-              <Select value={dateFilter} onValueChange={(value) => {
-                setDateFilter(value);
-                setCurrentPage(1);
-              }}>
                 <SelectTrigger>
                   <Filter className="h-4 w-4 mr-2 shrink-0" />
                   <SelectValue placeholder="Filter by date" />
@@ -931,8 +996,11 @@ export function ShippedTable({
         {/* Mobile Card List */}
         <div className="block sm:hidden px-4 space-y-3">
           {filteredData.length > 0 ? (
-            paginatedData.map((item) => (
-              <div key={item.id} className="border rounded-lg p-3 bg-white">
+            paginatedData.map((item, index) => (
+              <div
+                key={String((item as { rowKey?: string }).rowKey || item.id || `m-${index}`)}
+                className="border rounded-lg p-3 bg-white"
+              >
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-semibold text-sm">{item.productName}</div>
@@ -1119,8 +1187,11 @@ export function ShippedTable({
           </TableHeader>
           <TableBody>
                 {filteredData.length > 0 ? (
-                  paginatedData.map((item) => (
-                    <TableRow key={item.id} className="text-xs sm:text-sm">
+                  paginatedData.map((item, index) => (
+                    <TableRow
+                      key={String((item as { rowKey?: string }).rowKey || item.id || `t-${index}`)}
+                      className="text-xs sm:text-sm"
+                    >
                       <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                         <div className="flex flex-col sm:block">
                           <span className="font-medium">{item.productName}</span>
