@@ -175,6 +175,7 @@ type ShippedRowStatus =
 
 const STATUS_URL_PENDING = "pending";
 const STATUS_URL_SHIPPED = "shipped";
+const STATUS_URL_REJECTED = "rejected";
 const STATUS_URL_CANCELLED = "cancelled";
 
 /** Open outbound requests still reserved / in warehouse flow (not yet in `shipped`). */
@@ -249,14 +250,8 @@ function rowMatchesStatusFilter(
 ): boolean {
   const s = (item.status || "") as ShippedRowStatus;
   if (statusFilter === STATUS_URL_SHIPPED) return s === "Shipped";
-  // Pending tab: open requests + cancelled/rejected (not shipped)
-  if (statusFilter === STATUS_URL_PENDING) {
-    return (
-      isAwaitingFulfillmentRowStatus(s) ||
-      s === "Cancelled" ||
-      s === "Rejected"
-    );
-  }
+  if (statusFilter === STATUS_URL_PENDING) return isAwaitingFulfillmentRowStatus(s);
+  if (statusFilter === STATUS_URL_REJECTED) return s === "Rejected";
   if (statusFilter === STATUS_URL_CANCELLED) return s === "Cancelled";
   return true;
 }
@@ -301,11 +296,13 @@ export function ShippedTable({
 
   useEffect(() => {
     const raw = searchParams.get("status")?.toLowerCase();
-    if (raw === STATUS_URL_PENDING || raw === STATUS_URL_SHIPPED) {
+    if (
+      raw === STATUS_URL_PENDING ||
+      raw === STATUS_URL_SHIPPED ||
+      raw === STATUS_URL_REJECTED ||
+      raw === STATUS_URL_CANCELLED
+    ) {
       setStatusFilter(raw);
-    } else if (raw === STATUS_URL_CANCELLED) {
-      // Cancelled lives under Pending tab
-      setStatusFilter(STATUS_URL_PENDING);
     }
     const dateRaw = searchParams.get("date")?.toLowerCase();
     if (dateRaw && DATE_FILTER_KEYS.has(dateRaw)) {
@@ -369,8 +366,6 @@ export function ShippedTable({
   }, [restockHistory]);
 
   const pendingCount = pendingShipmentRequests.filter(isOpenUndispatchedShipmentRequest).length;
-  const rejectedCount = pendingShipmentRequests.filter(req => req.status?.toLowerCase() === "rejected").length;
-  const cancelledCount = pendingShipmentRequests.filter(req => req.status === "cancelled").length;
 
   const handleCancelShipmentRequest = async () => {
     if (!cancellingRequest?.id || !userProfile?.uid) return;
@@ -468,9 +463,23 @@ export function ShippedTable({
 
     if (item.isRequest && rawRequest) {
       payload = shippedItemFromShipmentRequest(rawRequest);
+    } else if (rawRequest && String(item.status || "") === "Shipped") {
+      // Prefer full request lines when multiple legacy shipped docs were merged.
+      payload = shippedItemFromShipmentRequest(rawRequest);
+      detailsItem = resolveShippedDoc(item);
     } else {
       detailsItem = resolveShippedDoc(item);
-      payload = (detailsItem || item) as ShippedItem;
+      const base = (detailsItem || item) as ShippedItem;
+      const mergedItems = Array.isArray(item.items) ? item.items : base.items;
+      payload = {
+        ...base,
+        items: mergedItems,
+        productName: item.productName || base.productName,
+        boxesShipped: item.boxesShipped ?? base.boxesShipped,
+        shippedQty: item.shippedQty ?? base.shippedQty,
+        totalBoxes: item.totalBoxes ?? (base as { totalBoxes?: number }).totalBoxes,
+        totalUnits: item.totalUnits ?? (base as { totalUnits?: number }).totalUnits,
+      } as ShippedItem;
     }
 
     setShipmentDetailsItem(detailsItem);
@@ -599,35 +608,79 @@ export function ShippedTable({
 
   // Combine shipped items, pending, and rejected shipment requests into one list
   const combinedData = useMemo(() => {
-    // Helper function to convert a single shipment from request to display format
-    const convertShipmentToDisplay = (
-      req: ShipmentRequest,
-      shipment: any,
-      status: ShippedRowStatus,
-      index: number
-    ) => {
-      const inventoryItem = inventory.find(item => item.id === shipment.productId);
-      const productUnits = (shipment.quantity || 0) * (shipment.packOf || 1);
-      
-      return {
-        id: `request-${req.id}-${index}`,
-        productName:
+    /** One table row per outbound request (not per product line). */
+    const convertRequestToDisplay = (req: ShipmentRequest, status: ShippedRowStatus) => {
+      const shipments = Array.isArray(req.shipments) ? req.shipments : [];
+      const activeLines = shipments.filter((s) => !Boolean((s as { warehouseLineRemoved?: boolean }).warehouseLineRemoved));
+      const lines = activeLines.length > 0 ? activeLines : shipments;
+
+      let totalBoxes = 0;
+      let totalUnits = 0;
+      const packSizes = new Set<number>();
+      const productNames: string[] = [];
+      const editNotices: string[] = [];
+      let isPrepOutbound = Boolean((req as { isPrepOutbound?: boolean }).isPrepOutbound);
+      let additionalServices =
+        (req as { additionalServices?: unknown }).additionalServices ??
+        (req as { selectedAdditionalServices?: unknown }).selectedAdditionalServices;
+
+      for (const shipment of lines) {
+        const boxes = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
+        const packOf = Math.max(1, Math.floor(Number(shipment.packOf) || 1));
+        totalBoxes += boxes;
+        totalUnits += boxes * packOf;
+        packSizes.add(packOf);
+
+        const inventoryItem = inventory.find((item) => item.id === shipment.productId);
+        const name =
           inventoryItem?.productName ||
           String(shipment.productName ?? "").trim() ||
-          "Unknown Product",
+          "Unknown Product";
+        productNames.push(name);
+
+        const notice = warehouseLineEditNotice(shipment as Record<string, unknown>);
+        if (notice) editNotices.push(`${name}: ${notice}`);
+
+        if (
+          (shipment as { sourceInventoryRequestId?: string }).sourceInventoryRequestId ||
+          String(shipment.productId ?? "").startsWith("prep:")
+        ) {
+          isPrepOutbound = true;
+        }
+        if ((shipment as { selectedAdditionalServices?: unknown }).selectedAdditionalServices) {
+          additionalServices =
+            (shipment as { selectedAdditionalServices?: unknown }).selectedAdditionalServices;
+        }
+      }
+
+      const uniqueNames = Array.from(
+        new Set(productNames.map((n) => n.trim()).filter(Boolean))
+      );
+      const productName =
+        uniqueNames.length === 0
+          ? "Outbound request"
+          : uniqueNames.length === 1
+            ? uniqueNames[0]!
+            : `${uniqueNames[0]} +${uniqueNames.length - 1} more`;
+
+      return {
+        id: `request-${req.id}`,
+        productName,
+        searchText: uniqueNames.join(" ").toLowerCase(),
+        lineCount: uniqueNames.length,
         date: req.date,
-        shippedQty: productUnits,
-        boxesShipped: shipment.quantity || 0,
-        packOf: shipment.packOf || 1,
-        unitPrice: shipment.unitPrice || 0,
+        shippedQty: totalUnits,
+        boxesShipped: totalBoxes,
+        packOf: packSizes.size === 1 ? [...packSizes][0]! : "Mixed",
+        unitPrice: 0,
         shipTo: req.shipTo || "",
         service: req.service || "FBA/WFS/TFS",
         productType: req.productType || "Standard",
         remarks:
           status === "Rejected"
-            ? ((req as any).rejectionReason || req.remarks || "")
+            ? ((req as { rejectionReason?: string }).rejectionReason || req.remarks || "")
             : status === "Cancelled"
-              ? ((req as any).cancellationReason || req.remarks || "")
+              ? ((req as { cancellationReason?: string }).cancellationReason || req.remarks || "")
               : (req.remarks || ""),
         status: status as ShippedRowStatus,
         isRequest: true,
@@ -635,18 +688,18 @@ export function ShippedTable({
         shipmentRequestId: req.id,
         requestStatus: req.status || "pending",
         rawRequest: req,
-        isPrepOutbound: Boolean(
-          (req as any).isPrepOutbound ||
-            shipment.sourceInventoryRequestId ||
-            String(shipment.productId ?? "").startsWith("prep:")
-        ),
+        isPrepOutbound,
         createdAt: req.requestedAt,
-        additionalServices: shipment.selectedAdditionalServices || (req as any).additionalServices,
-        // Show on every expanded line of a pending request (edit/cancel apply to the whole order).
+        additionalServices,
         canCancelRequest: status === "Pending" && (req.status || "pending") === "pending",
         canEditRequest: status === "Pending" && (req.status || "pending") === "pending",
-        warehouseLineEditNotice: warehouseLineEditNotice(shipment as Record<string, unknown>),
-        warehouseLineEditReason: String(shipment.warehouseLineEditReason ?? "").trim() || null,
+        warehouseLineEditNotice:
+          editNotices.length === 0
+            ? null
+            : editNotices.length === 1
+              ? editNotices[0]
+              : `${editNotices.length} lines updated by warehouse`,
+        warehouseLineEditReason: null,
       };
     };
 
@@ -662,12 +715,9 @@ export function ShippedTable({
       .filter(isOpenUndispatchedShipmentRequest)
       .forEach((req) => {
         const rowStatus = displayStatusForOpenRequest(req.status);
-        (req.shipments || []).forEach((shipment, index) => {
-          const row = convertShipmentToDisplay(req, shipment, rowStatus, index);
-          pendingItems.push({
-            ...row,
-            rowKey: `pending-${req.id}-${index}`,
-          });
+        pendingItems.push({
+          ...convertRequestToDisplay(req, rowStatus),
+          rowKey: `pending-${req.id}`,
         });
       });
 
@@ -682,80 +732,157 @@ export function ShippedTable({
           (req as { warehouseDispatchedClientSyncAt?: unknown }).warehouseDispatchedClientSyncAt ||
           req.confirmedAt ||
           req.date;
-        (req.shipments || []).forEach((shipment, index) => {
-          dispatchedFallbackItems.push({
-            ...convertShipmentToDisplay(req, shipment, "Shipped", index),
-            date: dispatchDate,
-            status: "Shipped" as const,
-            isRequest: false,
-            rowKey: `dispatch-fallback-${req.id}-${index}`,
-          });
+        dispatchedFallbackItems.push({
+          ...convertRequestToDisplay(req, "Shipped"),
+          date: dispatchDate,
+          status: "Shipped" as const,
+          isRequest: false,
+          rowKey: `dispatch-fallback-${req.id}`,
         });
       });
 
-    // Convert rejected shipment requests - expand each shipment into separate row
     const rejectedItems: any[] = [];
     pendingShipmentRequests
-      .filter(req => req.status?.toLowerCase() === "rejected")
-      .forEach(req => {
-        req.shipments.forEach((shipment, index) => {
-          rejectedItems.push({
-            ...convertShipmentToDisplay(req, shipment, "Rejected", index),
-            rowKey: `rejected-${req.id}-${index}`,
-          });
+      .filter((req) => req.status?.toLowerCase() === "rejected")
+      .forEach((req) => {
+        rejectedItems.push({
+          ...convertRequestToDisplay(req, "Rejected"),
+          rowKey: `rejected-${req.id}`,
         });
       });
 
     const cancelledItems: any[] = [];
     pendingShipmentRequests
-      .filter(req => req.status === "cancelled")
-      .forEach(req => {
-        req.shipments.forEach((shipment, index) => {
-          cancelledItems.push({
-            ...convertShipmentToDisplay(req, shipment, "Cancelled", index),
-            rowKey: `cancelled-${req.id}-${index}`,
-          });
+      .filter((req) => req.status === "cancelled")
+      .forEach((req) => {
+        cancelledItems.push({
+          ...convertRequestToDisplay(req, "Cancelled"),
+          rowKey: `cancelled-${req.id}`,
         });
       });
 
-    // Convert shipped items - expand items array into separate rows
-    const shippedItems: any[] = [];
-    data.forEach(item => {
-      // Check if item has an items array (multiple products)
-      if (item.items && Array.isArray(item.items) && item.items.length > 0) {
-        item.items.forEach((it: any, lineIndex: number) => {
-          const productId = String(it.productId || "").trim() || "line";
-          // Include lineIndex so duplicate productIds on one shipped doc stay unique.
-          const rowId = `${item.id}-${productId}-${lineIndex}`;
-          shippedItems.push({
-            ...item,
-            shippedDocId: item.id,
-            id: rowId,
-            rowKey: rowId,
-            productName: it.productName || item.productName,
-            shippedQty: it.shippedQty || 0,
-            boxesShipped: it.boxesShipped || 0,
-            packOf: it.packOf || item.packOf || 1,
-            unitPrice: it.unitPrice || item.unitPrice || 0,
-            status: "Shipped" as "Pending" | "Shipped" | "Rejected",
-            isRequest: false,
-            additionalServices: it.additionalServices || item.additionalServices || (item as any).selectedAdditionalServices,
+    /** Build one display row from one or more shipped docs (legacy = 1 doc per SKU). */
+    const buildShippedOrderRow = (docs: ShippedItem[], groupKey: string) => {
+      const sorted = [...docs].sort((a, b) => rowSortTimeMs(b) - rowSortTimeMs(a));
+      const primary = sorted[0]!;
+      const mergedLines: Array<Record<string, unknown>> = [];
+      const packSizes = new Set<number>();
+      const searchNames: string[] = [];
+      let sumBoxes = 0;
+      let sumUnits = 0;
+
+      for (const docRow of sorted) {
+        const lines = Array.isArray(docRow.items) ? docRow.items : [];
+        if (lines.length > 0) {
+          for (const it of lines) {
+            const boxes = Math.max(0, Math.floor(Number(it.boxesShipped) || 0));
+            const pack = Math.max(1, Math.floor(Number(it.packOf) || Number(docRow.packOf) || 1));
+            const units = Math.max(0, Math.floor(Number(it.shippedQty) || boxes * pack));
+            sumBoxes += boxes;
+            sumUnits += units;
+            packSizes.add(pack);
+            const name = String(it.productName || "").trim();
+            if (name) searchNames.push(name);
+            mergedLines.push({ ...it });
+          }
+        } else {
+          const boxes = Math.max(
+            0,
+            Math.floor(
+              Number((docRow as { totalBoxes?: number; boxesShipped?: number }).totalBoxes) ||
+                Number(docRow.boxesShipped) ||
+                0
+            )
+          );
+          const pack = Math.max(1, Math.floor(Number(docRow.packOf) || 1));
+          const units = Math.max(
+            0,
+            Math.floor(
+              Number((docRow as { totalUnits?: number; shippedQty?: number }).totalUnits) ||
+                Number(docRow.shippedQty) ||
+                boxes * pack
+            )
+          );
+          sumBoxes += boxes;
+          sumUnits += units;
+          packSizes.add(pack);
+          const name = String(docRow.productName || "").trim();
+          if (name) searchNames.push(name);
+          mergedLines.push({
+            productName: name || "Product",
+            boxesShipped: boxes,
+            shippedQty: units,
+            packOf: pack,
+            unitPrice: docRow.unitPrice || 0,
           });
-        });
-      } else {
-        // Single product
-        const rowId = String(item.id || "").trim() || `shipped-${shippedItems.length}`;
-        shippedItems.push({
-          ...item,
-          shippedDocId: item.id,
-          id: rowId,
-          rowKey: `shipped-doc-${rowId}`,
-          status: "Shipped" as "Pending" | "Shipped" | "Rejected",
-          isRequest: false,
-          additionalServices: item.additionalServices || (item as any).selectedAdditionalServices,
-        });
+        }
       }
-    });
+
+      const uniqueNames = Array.from(new Set(searchNames.map((n) => n.trim()).filter(Boolean)));
+      const productName =
+        uniqueNames.length === 0
+          ? String(primary.productName || "Shipped order").trim() || "Shipped order"
+          : uniqueNames.length === 1
+            ? uniqueNames[0]!
+            : `${uniqueNames[0]} +${uniqueNames.length - 1} more`;
+
+      const reqId = String(
+        (primary as { shipmentRequestId?: string }).shipmentRequestId ?? ""
+      ).trim();
+      const linkedRequest = reqId
+        ? pendingShipmentRequests.find((r) => r.id === reqId) ?? null
+        : null;
+
+      return {
+        ...primary,
+        shippedDocId: primary.id,
+        shippedDocIds: sorted.map((d) => d.id).filter(Boolean),
+        id: reqId ? `shipped-req-${reqId}` : `shipped-doc-${String(primary.id || groupKey)}`,
+        rowKey: reqId ? `shipped-req-${reqId}` : `shipped-doc-${String(primary.id || groupKey)}`,
+        shipmentRequestId: reqId || null,
+        requestId: reqId || undefined,
+        rawRequest: linkedRequest,
+        items: mergedLines,
+        productName,
+        searchText: uniqueNames.join(" ").toLowerCase(),
+        lineCount: Math.max(1, uniqueNames.length || mergedLines.length || 1),
+        shippedQty: sumUnits,
+        boxesShipped: sumBoxes,
+        totalBoxes: sumBoxes,
+        totalUnits: sumUnits,
+        packOf: packSizes.size === 1 ? [...packSizes][0]! : "Mixed",
+        status: "Shipped" as const,
+        isRequest: false,
+        additionalServices:
+          primary.additionalServices ||
+          (primary as { selectedAdditionalServices?: unknown }).selectedAdditionalServices,
+      };
+    };
+
+    // One row per outbound request. Legacy data often wrote one `shipped` doc per SKU.
+    const shippedItems: any[] = [];
+    const shippedGroups = new Map<string, ShippedItem[]>();
+    const orphanShipped: ShippedItem[] = [];
+
+    for (const item of data) {
+      const reqId = String(
+        (item as { shipmentRequestId?: string }).shipmentRequestId ?? ""
+      ).trim();
+      if (reqId) {
+        const list = shippedGroups.get(reqId) ?? [];
+        list.push(item);
+        shippedGroups.set(reqId, list);
+      } else {
+        orphanShipped.push(item);
+      }
+    }
+
+    for (const [reqId, docs] of shippedGroups) {
+      shippedItems.push(buildShippedOrderRow(docs, reqId));
+    }
+    for (const item of orphanShipped) {
+      shippedItems.push(buildShippedOrderRow([item], String(item.id || shippedItems.length)));
+    }
 
     // Combine and sort by ship Date column (most recent first)
     const allItems = [
@@ -797,11 +924,23 @@ export function ShippedTable({
     () => combinedData.filter((item) => rowMatchesStatusFilter(item, STATUS_URL_SHIPPED)).length,
     [combinedData]
   );
+  const rejectedTabCount = useMemo(
+    () => combinedData.filter((item) => rowMatchesStatusFilter(item, STATUS_URL_REJECTED)).length,
+    [combinedData]
+  );
+  const cancelledTabCount = useMemo(
+    () => combinedData.filter((item) => rowMatchesStatusFilter(item, STATUS_URL_CANCELLED)).length,
+    [combinedData]
+  );
 
   // Filtered data — date-wise within the active tab (newest calendar day first)
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
-      const matchesSearch = item.productName.toLowerCase().includes(searchTerm.toLowerCase());
+      const q = searchTerm.toLowerCase().trim();
+      const haystack = String(
+        (item as { searchText?: string }).searchText || item.productName || ""
+      ).toLowerCase();
+      const matchesSearch = !q || haystack.includes(q) || item.productName.toLowerCase().includes(q);
       const matchesStatus = rowMatchesStatusFilter(item, statusFilter);
 
       let matchesDate = true;
@@ -894,20 +1033,20 @@ export function ShippedTable({
           <div>
             <CardTitle className="text-base sm:text-lg lg:text-xl">
               Ship orders
-              {statusFilter === STATUS_URL_PENDING ? (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({filteredData.length} pending
-                  {rejectedCount > 0 ? ` · ${rejectedCount} rejected` : ""}
-                  {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""})
-                </span>
-              ) : (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  ({filteredData.length} shipped)
-                </span>
-              )}
+              <span className="text-sm font-normal text-muted-foreground ml-2">
+                ({filteredData.length}{" "}
+                {statusFilter === STATUS_URL_SHIPPED
+                  ? "shipped"
+                  : statusFilter === STATUS_URL_REJECTED
+                    ? "rejected"
+                    : statusFilter === STATUS_URL_CANCELLED
+                      ? "cancelled"
+                      : "pending"}
+                )
+              </span>
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
-              Pending and shipped outbound lines, each tab sorted by date (newest first).
+              One row per outbound request. Use the tabs for pending, shipped, rejected, or cancelled.
             </CardDescription>
           </div>
           <div className="flex items-center gap-3">
@@ -925,13 +1064,13 @@ export function ShippedTable({
         {/* Tabs + search / date filter */}
         <div className="flex flex-col gap-4 mb-6 px-6">
           <Tabs
-            value={statusFilter === STATUS_URL_SHIPPED ? STATUS_URL_SHIPPED : STATUS_URL_PENDING}
+            value={statusFilter}
             onValueChange={(value) => {
               setStatusFilter(value);
               setCurrentPage(1);
             }}
           >
-            <TabsList className="grid w-full max-w-md grid-cols-2 bg-muted/80 p-1">
+            <TabsList className="grid w-full max-w-3xl grid-cols-2 sm:grid-cols-4 bg-muted/80 p-1 h-auto gap-1">
               <TabsTrigger
                 value={STATUS_URL_PENDING}
                 className="data-[state=active]:bg-amber-500 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=inactive]:text-amber-900/70 hover:text-amber-950"
@@ -944,6 +1083,18 @@ export function ShippedTable({
               >
                 Shipped ({shippedTabCount})
               </TabsTrigger>
+              <TabsTrigger
+                value={STATUS_URL_REJECTED}
+                className="data-[state=active]:bg-rose-600 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=inactive]:text-rose-900/70 hover:text-rose-950"
+              >
+                Rejected ({rejectedTabCount})
+              </TabsTrigger>
+              <TabsTrigger
+                value={STATUS_URL_CANCELLED}
+                className="data-[state=active]:bg-slate-600 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=inactive]:text-slate-700/70 hover:text-slate-900"
+              >
+                Cancelled ({cancelledTabCount})
+              </TabsTrigger>
             </TabsList>
           </Tabs>
 
@@ -955,7 +1106,11 @@ export function ShippedTable({
                   placeholder={
                     statusFilter === STATUS_URL_SHIPPED
                       ? "Search shipped orders..."
-                      : "Search pending orders..."
+                      : statusFilter === STATUS_URL_REJECTED
+                        ? "Search rejected orders..."
+                        : statusFilter === STATUS_URL_CANCELLED
+                          ? "Search cancelled orders..."
+                          : "Search pending orders..."
                   }
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -1008,6 +1163,12 @@ export function ShippedTable({
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-semibold text-sm">{item.productName}</div>
+                    {(item as { lineCount?: number }).lineCount != null &&
+                    (item as { lineCount?: number }).lineCount! > 1 ? (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {(item as { lineCount?: number }).lineCount} products · open Details
+                      </p>
+                    ) : null}
                     {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice ? (
                       <p className="mt-1 text-[11px] font-normal text-amber-800">
                         {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice}
@@ -1210,6 +1371,12 @@ export function ShippedTable({
                       <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                         <div className="flex flex-col sm:block">
                           <span className="font-medium">{item.productName}</span>
+                          {(item as { lineCount?: number }).lineCount != null &&
+                          (item as { lineCount?: number }).lineCount! > 1 ? (
+                            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                              {(item as { lineCount?: number }).lineCount} products · open Details
+                            </p>
+                          ) : null}
                           {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice ? (
                             <p className="mt-1 text-[11px] font-normal text-amber-800 dark:text-amber-200">
                               {(item as { warehouseLineEditNotice?: string | null }).warehouseLineEditNotice}

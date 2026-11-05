@@ -421,6 +421,10 @@ export function ShipmentRequestsManagement({
           warehousePickStatus: "ready",
           warehousePackStatus: "pending",
           shipments: resolvedShipments,
+          // Persist admin-selected ship date so dispatch / stock history use it (not the client's original request date).
+          ...(shippingDate && !Number.isNaN(shippingDate.getTime())
+            ? { date: Timestamp.fromDate(shippingDate) }
+            : {}),
           ...(crossdockHoldFulfillment
             ? { crossdockFulfillment: true }
             : alreadyReserved || existingTiming === "create"
@@ -477,6 +481,9 @@ export function ShipmentRequestsManagement({
         warehousePickStatus: "ready",
         warehousePackStatus: "pending",
         shipments: resolvedShipments as ShipmentRequest["shipments"],
+        ...(shippingDate && !Number.isNaN(shippingDate.getTime())
+          ? { date: Timestamp.fromDate(shippingDate) as ShipmentRequest["date"] }
+          : {}),
       });
     } catch (error: any) {
       toast({

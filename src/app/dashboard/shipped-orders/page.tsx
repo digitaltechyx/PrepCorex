@@ -27,7 +27,7 @@ export default function ShippedOrdersPage() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-xl font-bold text-white">
-                Shipped Orders ({shippedData.length})
+                Shipped Orders
               </CardTitle>
               <CardDescription className="text-purple-100 mt-1">
                 Track your shipped orders

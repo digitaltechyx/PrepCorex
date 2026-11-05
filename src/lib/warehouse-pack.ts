@@ -1221,9 +1221,34 @@ export async function completeDispatchHandoff(input: {
     throw new Error("Enter or scan courier tracking to dispatch.");
   }
 
+  // Prefer admin-confirmed ship date on the request (set at confirm), not click time.
+  const requestShipDate = (() => {
+    const raw = data.date as
+      | Date
+      | string
+      | { toDate?: () => Date; seconds?: number }
+      | null
+      | undefined;
+    if (!raw) return null;
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
+    if (typeof raw === "string") {
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof raw === "object" && typeof raw.toDate === "function") {
+      const d = raw.toDate();
+      return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+    }
+    if (typeof raw === "object" && raw.seconds != null) {
+      return new Date(Number(raw.seconds) * 1000);
+    }
+    return null;
+  })();
+
   const shopifyHints = await applyClientInventoryOnDispatch({
     clientUserId: input.clientUserId,
     shipmentRequestId: input.shipmentRequestId,
+    shippingDate: requestShipDate,
   });
 
   const batch = writeBatch(db);
