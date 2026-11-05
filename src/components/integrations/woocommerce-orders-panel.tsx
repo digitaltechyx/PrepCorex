@@ -433,7 +433,7 @@ export function WooCommerceOrdersPanel({
     const from = startOfDay(dateFrom);
     const to = endOfDay(dateTo);
 
-    return orders.filter((o) => {
+    const filtered = orders.filter((o) => {
       if (statusFilter !== "all" && String(o.status || "") !== statusFilter) return false;
 
       if (from || to) {
@@ -461,6 +461,14 @@ export function WooCommerceOrdersPanel({
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
+    });
+
+    return filtered.sort((a, b) => {
+      const aRaw = a.dateCreated || a.dateModified || a.syncedAt || "";
+      const bRaw = b.dateCreated || b.dateModified || b.syncedAt || "";
+      const aMs = aRaw ? Date.parse(aRaw) : 0;
+      const bMs = bRaw ? Date.parse(bRaw) : 0;
+      return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
     });
   }, [orders, search, statusFilter, dateFrom, dateTo]);
 

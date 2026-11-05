@@ -22,7 +22,6 @@ import {
   DollarSign,
   AlertTriangle,
   Truck,
-  CheckCircle2,
   PlugZap,
   FileText,
   Copy,
@@ -698,85 +697,114 @@ export default function DashboardPage() {
     return "bg-neutral-100 text-neutral-700";
   };
 
+  const cardPad = "px-3 pb-3 pt-3 sm:px-6 sm:pb-6 sm:pt-6";
+  const cardHeaderPad = "px-3 pb-2 pt-3 sm:px-6 sm:pt-6";
+
   return (
-    <div className="min-h-full bg-neutral-50/80">
-      <div className="mx-auto max-w-[1600px] space-y-8 px-4 py-6 md:px-6">
+    <div className="min-h-full min-w-0 bg-neutral-50/80">
+      <div className="mx-auto max-w-[1600px] space-y-3 pb-20 sm:space-y-6 sm:pb-8">
         {userProfile?.clientId && (
-          <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm">
-            <span>Your client ID:</span>
-            <span className="font-mono font-semibold text-foreground">#{userProfile.clientId}</span>
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 text-xs text-muted-foreground shadow-sm sm:px-3 sm:py-2 sm:text-sm">
+            <span className="shrink-0">Client ID:</span>
+            <span className="truncate font-mono font-semibold text-foreground">#{userProfile.clientId}</span>
           </div>
         )}
-        {/* KPI cards - soft shadows, rounded-xl */}
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+
+        {/* Date picker */}
+        {nav && (
+          <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+            <span className="text-xs font-medium text-neutral-600 sm:text-sm">Date range</span>
+            <DateRangePicker
+              fromDate={nav.dateRangeFrom}
+              toDate={nav.dateRangeTo}
+              setFromDate={nav.setDateRangeFrom}
+              setToDate={nav.setDateRangeTo}
+              className="h-9 w-full min-w-0 border-neutral-200 bg-white text-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:w-[280px]"
+            />
+          </div>
+        )}
+
+        {/* KPI cards — horizontal strip on mobile */}
+        <section className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
           {kpiCards.map((kpi) => {
             const Icon = kpi.icon;
             const href = "href" in kpi ? kpi.href : undefined;
             const cardContent = (
               <Card
                 className={cn(
-                  "overflow-hidden rounded-xl border-neutral-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]",
+                  "h-full min-w-0 overflow-hidden rounded-xl border-neutral-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]",
                   href && "cursor-pointer hover:border-neutral-300/80"
                 )}
               >
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between">
-                    <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", kpi.iconBg)}>
-                      <Icon className="h-5 w-5" />
+                <CardContent className="px-3 py-2.5 sm:p-5">
+                  <div className="flex items-center gap-3 sm:block">
+                    <div
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 sm:rounded-xl",
+                        kpi.iconBg
+                      )}
+                    >
+                      <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+                    </div>
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-3 sm:mt-3 sm:block">
+                      <p className="order-2 shrink-0 text-xl font-semibold tracking-tight text-neutral-900 sm:order-none sm:text-2xl">
+                        {kpi.value}
+                      </p>
+                      <div className="order-1 min-w-0 sm:order-none sm:mt-0.5">
+                        <p className="text-sm font-medium text-neutral-700 sm:text-neutral-600">{kpi.title}</p>
+                        <p className="mt-0.5 text-[11px] leading-snug text-neutral-500 sm:mt-1 sm:text-xs">
+                          {kpi.hint}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <p className="mt-3 text-2xl font-semibold tracking-tight text-neutral-900">{kpi.value}</p>
-                  <p className="mt-0.5 text-sm font-medium text-neutral-600">{kpi.title}</p>
-                  <p className="mt-1 text-xs text-neutral-500">{kpi.hint}</p>
                 </CardContent>
               </Card>
             );
             if (href) {
               return (
-                <Link key={kpi.title} href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded-xl">
+                <Link
+                  key={kpi.title}
+                  href={href}
+                  className="block min-w-0 rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                >
                   {cardContent}
                 </Link>
               );
             }
-            return <span key={kpi.title} className="block">{cardContent}</span>;
+            return (
+              <span key={kpi.title} className="block min-w-0">
+                {cardContent}
+              </span>
+            );
           })}
         </section>
 
-        {/* Date picker - filter analytics by range */}
-        {nav && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-neutral-600">Date range:</span>
-            <DateRangePicker
-              fromDate={nav.dateRangeFrom}
-              toDate={nav.dateRangeTo}
-              setFromDate={nav.setDateRangeFrom}
-              setToDate={nav.setDateRangeTo}
-              className="h-9 w-full min-w-[240px] border-neutral-200 bg-white text-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)] sm:w-[280px]"
-            />
-          </div>
-        )}
-
-        {/* Analytics: Line chart + Donut */}
-        <section className="grid gap-6 xl:grid-cols-12">
-          <Card className="xl:col-span-7 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-base font-semibold text-neutral-900">Inventory & Shipment Activity</CardTitle>
-                  <CardDescription className="text-neutral-500">
+        {/* Analytics: trend chart + shipment address */}
+        <section className="grid gap-3 sm:gap-4 xl:grid-cols-12 xl:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:col-span-7">
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">
+                    Inventory & Shipment Activity
+                  </CardTitle>
+                  <CardDescription className="text-xs text-neutral-500 sm:text-sm">
                     {hasDateRange ? "Shipped vs added in selected date range" : "Shipped vs added inventory over time"}
                   </CardDescription>
                 </div>
                 {!hasDateRange && (
-                  <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
+                  <div className="inline-flex self-start rounded-lg border border-neutral-200 bg-neutral-50/80 p-1">
                     {([7, 14, 30] as const).map((d) => (
                       <button
                         key={d}
                         type="button"
                         onClick={() => setTrendRange(d)}
                         className={cn(
-                          "rounded-md px-3 py-1.5 text-xs font-medium transition",
-                          trendRange === d ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500 hover:text-neutral-700"
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition sm:px-3 sm:py-1.5",
+                          trendRange === d
+                            ? "bg-white text-neutral-900 shadow-sm"
+                            : "text-neutral-500 hover:text-neutral-700"
                         )}
                       >
                         {d}d
@@ -786,11 +814,11 @@ export default function DashboardPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
-              <ChartContainer config={trendChartConfig} className="h-[280px] w-full">
+            <CardContent className={cn(cardPad, "pt-0")}>
+              <ChartContainer config={trendChartConfig} className="h-[200px] w-full sm:h-[280px]">
                 <AreaChart data={inventoryAndShipmentTrend}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(229 231 235)" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
                   <Area dataKey="added" type="monotone" fill="var(--color-added)" fillOpacity={0.2} stroke="var(--color-added)" strokeWidth={2} />
@@ -801,19 +829,19 @@ export default function DashboardPage() {
           </Card>
           <Card
             className={cn(
-              "xl:col-span-5 rounded-xl bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm",
+              "min-w-0 rounded-xl bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:col-span-5",
               shipmentAddressBorderClass,
               !isSelectedWarehouseAssigned && selectedWarehouse && "opacity-70"
             )}
           >
-            <CardHeader className="pb-2 pt-6 px-6">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Shipment address</CardTitle>
+            <CardHeader className={cardHeaderPad}>
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <CardTitle className="text-sm font-semibold sm:text-base">Shipment address</CardTitle>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="h-7 w-7 shrink-0"
                   onClick={async () => {
                     if (!selectedWarehouse) return;
                     const stateLine = (
@@ -851,18 +879,18 @@ export default function DashboardPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {selectedWarehouse ? (
                 <>
-                  <div className="grid grid-cols-[110px_1fr] gap-y-1 text-sm">
-                    <span className="text-muted-foreground">Shipping Name:</span>
-                    <div className="flex min-w-0 items-center gap-1.5">
+                  <div className="grid grid-cols-1 gap-y-2 text-sm sm:grid-cols-[110px_1fr] sm:gap-y-1">
+                    <span className="text-xs text-muted-foreground sm:text-sm">Shipping Name</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       {isEditingShippingName ? (
                         <>
                           <Input
                             value={shippingNameDraft}
                             onChange={(e) => setShippingNameDraft(e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-8 min-w-0 flex-1 text-sm"
                             placeholder={defaultShippingName}
                             disabled={savingShippingName}
                             onKeyDown={(e) => {
@@ -900,9 +928,9 @@ export default function DashboardPage() {
                         </>
                       ) : (
                         <>
-                          <span className="font-medium text-primary">{shippingName}</span>
+                          <span className="min-w-0 break-words font-medium text-primary">{shippingName}</span>
                           {hasCustomInboundShippingName(userProfile) ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                               Custom
                             </Badge>
                           ) : null}
@@ -919,31 +947,31 @@ export default function DashboardPage() {
                         </>
                       )}
                     </div>
-                    <span className="text-muted-foreground">Street1:</span>
-                    <span>{selectedWarehouse.street1 || "-"}</span>
-                    <span className="text-muted-foreground">Street2:</span>
-                    <span>
+                    <span className="text-xs text-muted-foreground sm:text-sm">Street1</span>
+                    <span className="break-words">{selectedWarehouse.street1 || "-"}</span>
+                    <span className="text-xs text-muted-foreground sm:text-sm">Street2</span>
+                    <span className="break-words">
                       {[selectedWarehouse.street2?.trim(), userProfile?.clientId?.trim()]
                         .filter(Boolean)
                         .join(", ") || "-"}
                     </span>
-                    <span className="text-muted-foreground">City:</span>
+                    <span className="text-xs text-muted-foreground sm:text-sm">City</span>
                     <span>{selectedWarehouse.city || "-"}</span>
-                    <span className="text-muted-foreground">Zip:</span>
+                    <span className="text-xs text-muted-foreground sm:text-sm">Zip</span>
                     <span>{selectedWarehouse.zip || "-"}</span>
-                    <span className="text-muted-foreground">State:</span>
+                    <span className="text-xs text-muted-foreground sm:text-sm">State</span>
                     <span>{selectedWarehouseStateDisplay}</span>
                   </div>
-                  <p className="mt-4 text-sm text-muted-foreground">
+                  <p className="mt-3 text-xs text-muted-foreground sm:mt-4 sm:text-sm">
                     To ensure accurate processing and avoid any misplacement, all shipments to our warehouse should use
                     the shipping name above (default: Prep Services FBA). You can edit it if your supplier must use a
                     different label.
                   </p>
                   {!isSelectedWarehouseAssigned && (
-                    <div className="mt-4 rounded-md bg-white p-3 text-center shadow-sm">
+                    <div className="mt-3 rounded-md bg-white p-2.5 text-center shadow-sm sm:mt-4 sm:p-3">
                       <p className="font-semibold text-red-600">Inbound shipping disabled</p>
-                      <p className="text-sm text-foreground">Do not ship inventory to this address</p>
-                      <p className="text-sm text-foreground">If you need this location contact with admin</p>
+                      <p className="text-xs text-foreground sm:text-sm">Do not ship inventory to this address</p>
+                      <p className="text-xs text-foreground sm:text-sm">If you need this location contact with admin</p>
                     </div>
                   )}
                 </>
@@ -956,26 +984,37 @@ export default function DashboardPage() {
           </Card>
         </section>
 
-        {/* Request status + alerts in one row */}
-        <section className="grid gap-6 xl:grid-cols-2">
-          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <CardTitle className="text-base font-semibold text-neutral-900">Request Processing Status</CardTitle>
-              <CardDescription className="text-neutral-500">Shipped, pending, processing, rejected</CardDescription>
+        {/* Request status + alerts */}
+        <section className="grid gap-3 sm:gap-4 xl:grid-cols-2 xl:gap-6">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+            <CardHeader className={cardHeaderPad}>
+              <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">
+                Request Processing Status
+              </CardTitle>
+              <CardDescription className="text-xs text-neutral-500 sm:text-sm">
+                Shipped, pending, processing, rejected
+              </CardDescription>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
-              <ChartContainer config={orderStatusChartConfig} className="h-[280px] w-full">
+            <CardContent className={cn(cardPad, "pt-0")}>
+              <ChartContainer config={orderStatusChartConfig} className="h-[220px] w-full sm:h-[280px]">
                 <PieChart>
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend
                     content={
                       <ChartLegendContent
                         nameKey="name"
-                        className="grid grid-cols-2 gap-x-6 gap-y-2 justify-items-start"
+                        className="grid grid-cols-2 justify-items-start gap-x-4 gap-y-1.5 sm:gap-x-6 sm:gap-y-2"
                       />
                     }
                   />
-                  <Pie data={orderStatusData} dataKey="value" nameKey="name" innerRadius={56} outerRadius={88} paddingAngle={2}>
+                  <Pie
+                    data={orderStatusData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={48}
+                    outerRadius={76}
+                    paddingAngle={2}
+                  >
                     {orderStatusData.map((entry) => (
                       <Cell key={entry.name} fill={entry.fill} />
                     ))}
@@ -985,74 +1024,101 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <CardTitle className="text-base font-semibold text-neutral-900">Alerts</CardTitle>
-              <CardDescription className="text-neutral-500">Needs attention</CardDescription>
+          <Card className="min-w-0 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+            <CardHeader className={cardHeaderPad}>
+              <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">Alerts</CardTitle>
+              <CardDescription className="text-xs text-neutral-500 sm:text-sm">Needs attention</CardDescription>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
-              <div className="grid grid-cols-2 gap-3">
-                <Link href="/dashboard/inventory?status=low-stock" className="block min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-3 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+            <CardContent className={cn(cardPad, "pt-0")}>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+                <Link
+                  href="/dashboard/inventory?status=low-stock"
+                  className="block min-w-0 rounded-lg border border-amber-200/80 bg-amber-50/60 p-2.5 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:p-3"
+                >
                   <p className="text-sm font-medium text-amber-900">Low Stock ({lowStockItems.length})</p>
                   {lowStockItems.length === 0 ? (
                     <p className="mt-1 text-xs text-amber-700">All good</p>
                   ) : (
                     lowStockItems.slice(0, 3).map((item) => (
-                      <p key={item.id} className="mt-1 text-xs text-amber-800">{item.productName}: {item.quantity} left</p>
+                      <p key={item.id} className="mt-1 truncate text-xs text-amber-800">
+                        {item.productName}: {item.quantity} left
+                      </p>
                     ))
                   )}
                   {lowStockItems.length > 0 && (
-                    <p className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline">View filtered inventory →</p>
+                    <p className="mt-2 text-xs font-medium text-amber-700 underline-offset-2 hover:underline">
+                      View filtered inventory →
+                    </p>
                   )}
                 </Link>
-                <div className="min-w-0 rounded-lg border border-rose-200/80 bg-rose-50/60 p-3">
-                  <p className="text-sm font-medium text-rose-900">Rejected Requests ({rejectedInventoryRequests.length})</p>
+                <div className="min-w-0 rounded-lg border border-rose-200/80 bg-rose-50/60 p-2.5 sm:p-3">
+                  <p className="text-sm font-medium text-rose-900">
+                    Rejected Requests ({rejectedInventoryRequests.length})
+                  </p>
                   {rejectedInventoryRequests.length === 0 ? (
                     <p className="mt-1 text-xs text-rose-700">None</p>
                   ) : (
                     rejectedInventoryRequests.slice(0, 2).map((req, idx) => (
-                      <p key={`${req.productName}-${idx}`} className="mt-1 text-xs text-rose-800">{req.productName || "Item"}: {req.rejectionReason || "Rejected"}</p>
+                      <p key={`${req.productName}-${idx}`} className="mt-1 truncate text-xs text-rose-800">
+                        {req.productName || "Item"}: {req.rejectionReason || "Rejected"}
+                      </p>
                     ))
                   )}
                 </div>
-                <div className="min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/60 p-3">
-                  <p className="text-sm font-medium text-blue-900">Pending Fulfillment ({pendingFulfillmentCount})</p>
+                <div className="min-w-0 rounded-lg border border-blue-200/80 bg-blue-50/60 p-2.5 sm:p-3">
+                  <p className="text-sm font-medium text-blue-900">
+                    Pending Fulfillment ({pendingFulfillmentCount})
+                  </p>
                   <p className="mt-1 text-xs text-blue-700">Shipment requests waiting</p>
-                  <Link href="/dashboard/shipped-orders?status=pending" className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline">Review →</Link>
+                  <Link
+                    href="/dashboard/shipped-orders?status=pending"
+                    className="mt-2 inline-block text-xs font-medium text-blue-600 hover:underline"
+                  >
+                    Review →
+                  </Link>
                 </div>
-                <div className="min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-3">
+                <div className="min-w-0 rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2.5 sm:p-3">
                   <p className="text-sm font-medium text-emerald-900">Integrations</p>
-                  <p className="mt-1 text-xs text-emerald-800">Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}</p>
-                  <p className="text-xs text-emerald-800">eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}</p>
-                  <Link href="/dashboard/integrations" className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">Settings →</Link>
+                  <p className="mt-1 text-xs text-emerald-800">
+                    Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}
+                  </p>
+                  <p className="text-xs text-emerald-800">
+                    eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}
+                  </p>
+                  <Link
+                    href="/dashboard/integrations"
+                    className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline"
+                  >
+                    Settings →
+                  </Link>
                 </div>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        {/* Integration health — compact status bar above alerts */}
-        <div className="rounded-xl border border-neutral-200/80 bg-white/90 px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-500/10 text-teal-600">
+        {/* Integration health */}
+        <div className="min-w-0 rounded-xl border border-neutral-200/80 bg-white/90 px-3 py-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm sm:px-4 sm:py-3">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-500/10 text-teal-600 sm:h-9 sm:w-9">
                 <PlugZap className="h-4 w-4" />
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-neutral-900">Integration health</p>
-                <p className="text-xs text-neutral-500 truncate">
+                <p className="truncate text-xs text-neutral-500">
                   Shopify: {shopifyConnections.length > 0 ? "Connected" : "Not connected"}
                   <span className="mx-1.5 text-neutral-300">·</span>
                   eBay: {ebayConnections.length > 0 ? "Connected" : "Not connected"}
                 </p>
               </div>
             </div>
-            <div className="flex flex-1 items-center gap-3 sm:max-w-md sm:flex-initial">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-md sm:flex-initial sm:gap-3">
               {shopifyConnectionsLoading || ebayConnectionsLoading ? (
                 <Skeleton className="h-2 flex-1 rounded-full" />
               ) : (
                 <>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                  <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-100">
                     <div
                       className={cn(
                         "h-full rounded-full transition-all",
@@ -1081,20 +1147,22 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Source split bar chart + Top moving products */}
-        <section className="grid gap-6 xl:grid-cols-12 xl:items-stretch">
-          <Card className="xl:col-span-5 flex flex-col overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:min-h-0">
-            <CardHeader className="pb-2 pt-6 px-6 shrink-0">
-              <CardTitle className="text-base font-semibold text-neutral-900">Inventory Sources</CardTitle>
-              <CardDescription className="text-neutral-500">
+        {/* Source split + Top moving products */}
+        <section className="grid gap-3 sm:gap-4 xl:grid-cols-12 xl:items-stretch xl:gap-6">
+          <Card className="flex min-w-0 flex-col overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:col-span-5 xl:min-h-0">
+            <CardHeader className={cn(cardHeaderPad, "shrink-0")}>
+              <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">
+                Inventory Sources
+              </CardTitle>
+              <CardDescription className="text-xs text-neutral-500 sm:text-sm">
                 {hasDateRange ? "Inventory added in selected range by channel" : "Inventory by channel"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-1 flex-col min-h-0 px-6 pb-6">
-              <ChartContainer config={sourceSplitChartConfig} className="min-h-[260px] w-full flex-1">
+            <CardContent className={cn(cardPad, "flex min-h-0 flex-1 flex-col pt-0")}>
+              <ChartContainer config={sourceSplitChartConfig} className="min-h-[200px] w-full flex-1 sm:min-h-[260px]">
                 <BarChart data={sourceSplitData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(229 231 235)" />
-                  <XAxis dataKey="source" tickLine={false} axisLine={false} tickMargin={8} />
+                  <XAxis dataKey="source" tickLine={false} axisLine={false} tickMargin={8} tick={{ fontSize: 11 }} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
                   <Bar dataKey="count" radius={[6, 6, 0, 0]} />
@@ -1103,88 +1171,137 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="xl:col-span-7 flex flex-col overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:min-h-0">
-            <CardHeader className="pb-2 pt-6 px-6 shrink-0">
-              <CardTitle className="text-base font-semibold text-neutral-900">Top Moving Products</CardTitle>
-              <CardDescription className="text-neutral-500">Highest shipped volume</CardDescription>
+          <Card className="flex min-w-0 flex-col overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm xl:col-span-7 xl:min-h-0">
+            <CardHeader className={cn(cardHeaderPad, "shrink-0")}>
+              <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">
+                Top Moving Products
+              </CardTitle>
+              <CardDescription className="text-xs text-neutral-500 sm:text-sm">
+                Highest shipped volume
+              </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-1 flex-col min-h-0 px-6 pb-6">
+            <CardContent className={cn(cardPad, "flex min-h-0 flex-1 flex-col pt-0")}>
               {shippedLoading || inventoryLoading ? (
                 <Skeleton className="h-40 w-full rounded-lg" />
+              ) : topMovingProducts.length === 0 ? (
+                <p className="py-8 text-center text-sm text-neutral-500">No data yet</p>
               ) : (
-                <div className="overflow-hidden rounded-xl border border-neutral-200/80">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-neutral-200 bg-neutral-50/80 hover:bg-neutral-50/80">
-                        <TableHead className="font-medium text-neutral-600">Product</TableHead>
-                        <TableHead className="text-right font-medium text-neutral-600">Shipped</TableHead>
-                        <TableHead className="text-right font-medium text-neutral-600">Stock</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {topMovingProducts.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={3} className="py-8 text-center text-sm text-neutral-500">No data yet</TableCell>
+                <>
+                  {/* Mobile cards */}
+                  <div className="space-y-2 md:hidden">
+                    {topMovingProducts.map((item) => (
+                      <div
+                        key={item.name}
+                        className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-neutral-200/80 bg-neutral-50/50 px-3 py-2.5"
+                      >
+                        <p className="min-w-0 truncate text-sm font-medium text-neutral-900">{item.name}</p>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-xs tabular-nums text-neutral-600">{item.units} shipped</span>
+                          <Badge
+                            variant={item.stockLeft <= 10 ? "destructive" : "secondary"}
+                            className="font-medium"
+                          >
+                            {item.stockLeft}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden overflow-hidden rounded-xl border border-neutral-200/80 md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-neutral-200 bg-neutral-50/80 hover:bg-neutral-50/80">
+                          <TableHead className="font-medium text-neutral-600">Product</TableHead>
+                          <TableHead className="text-right font-medium text-neutral-600">Shipped</TableHead>
+                          <TableHead className="text-right font-medium text-neutral-600">Stock</TableHead>
                         </TableRow>
-                      ) : (
-                        topMovingProducts.map((item) => (
+                      </TableHeader>
+                      <TableBody>
+                        {topMovingProducts.map((item) => (
                           <TableRow key={item.name} className="border-neutral-100">
                             <TableCell className="font-medium text-neutral-900">{item.name}</TableCell>
                             <TableCell className="text-right text-neutral-600">{item.units}</TableCell>
                             <TableCell className="text-right">
-                              <Badge variant={item.stockLeft <= 10 ? "destructive" : "secondary"} className="font-medium">
+                              <Badge
+                                variant={item.stockLeft <= 10 ? "destructive" : "secondary"}
+                                className="font-medium"
+                              >
                                 {item.stockLeft}
                               </Badge>
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
         </section>
 
-        {/* Recent activity — same idea as admin dashboard */}
+        {/* Recent activity */}
         <section>
-          <Card className="overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
-            <CardHeader className="pb-2 pt-6 px-6">
-              <CardTitle className="text-base font-semibold text-neutral-900">Recent activity</CardTitle>
-              <CardDescription className="text-neutral-500">
+          <Card className="min-w-0 overflow-hidden rounded-xl border-neutral-200/80 bg-white/90 shadow-[0_1px_3px_rgba(0,0,0,0.08)] backdrop-blur-sm">
+            <CardHeader className={cardHeaderPad}>
+              <CardTitle className="text-sm font-semibold text-neutral-900 sm:text-base">
+                Recent activity
+              </CardTitle>
+              <CardDescription className="text-xs text-neutral-500 sm:text-sm">
                 {hasDateRange
                   ? "Latest requests in your selected date range"
                   : "Your latest requests and updates (up to 10)"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="px-6 pb-6">
+            <CardContent className={cn(cardPad, "pt-0")}>
               {activityLoading ? (
-                <Skeleton className="h-[220px] w-full rounded-lg" />
+                <Skeleton className="h-[180px] w-full rounded-lg sm:h-[220px]" />
+              ) : recentActivityRows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-neutral-500">
+                  {hasDateRange ? "No activity in this date range" : "No recent activity yet"}
+                </p>
               ) : (
-                <div className="overflow-hidden rounded-lg border border-neutral-200/80">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-neutral-200 bg-neutral-50/80 hover:bg-neutral-50/80">
-                        <TableHead className="font-medium text-neutral-600">Type</TableHead>
-                        <TableHead className="font-medium text-neutral-600">Details</TableHead>
-                        <TableHead className="font-medium text-neutral-600">Date</TableHead>
-                        <TableHead className="font-medium text-neutral-600">Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {recentActivityRows.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className="py-10 text-center text-sm text-neutral-500">
-                            {hasDateRange
-                              ? "No activity in this date range"
-                              : "No recent activity yet"}
-                          </TableCell>
+                <>
+                  <div className="space-y-2 md:hidden">
+                    {recentActivityRows.map((row) => (
+                      <Link
+                        key={row.id}
+                        href={row.href}
+                        className="block min-w-0 rounded-lg border border-neutral-200/80 bg-neutral-50/50 px-3 py-2.5 transition-colors hover:bg-neutral-50"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-neutral-900">{row.type}</p>
+                            <p className="mt-0.5 truncate text-xs text-neutral-600">{row.detail}</p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+                              activityStatusClass(row.status)
+                            )}
+                          >
+                            {row.status}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-neutral-500">{row.dateLabel}</p>
+                      </Link>
+                    ))}
+                  </div>
+                  <div className="hidden overflow-x-auto rounded-lg border border-neutral-200/80 md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-neutral-200 bg-neutral-50/80 hover:bg-neutral-50/80">
+                          <TableHead className="whitespace-nowrap font-medium text-neutral-600">Type</TableHead>
+                          <TableHead className="font-medium text-neutral-600">Details</TableHead>
+                          <TableHead className="whitespace-nowrap font-medium text-neutral-600">Date</TableHead>
+                          <TableHead className="font-medium text-neutral-600">Status</TableHead>
                         </TableRow>
-                      ) : (
-                        recentActivityRows.map((row) => (
+                      </TableHeader>
+                      <TableBody>
+                        {recentActivityRows.map((row) => (
                           <TableRow key={row.id} className="border-neutral-100">
-                            <TableCell className="font-medium text-neutral-900">
+                            <TableCell className="whitespace-nowrap font-medium text-neutral-900">
                               <Link href={row.href} className="hover:underline">
                                 {row.type}
                               </Link>
@@ -1192,7 +1309,9 @@ export default function DashboardPage() {
                             <TableCell className="max-w-[200px] truncate text-neutral-600 sm:max-w-xs">
                               {row.detail}
                             </TableCell>
-                            <TableCell className="text-neutral-600">{row.dateLabel}</TableCell>
+                            <TableCell className="whitespace-nowrap text-neutral-600">
+                              {row.dateLabel}
+                            </TableCell>
                             <TableCell>
                               <span
                                 className={cn(
@@ -1204,11 +1323,11 @@ export default function DashboardPage() {
                               </span>
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

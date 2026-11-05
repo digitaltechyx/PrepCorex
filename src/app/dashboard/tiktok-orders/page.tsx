@@ -91,8 +91,8 @@ function TikTokOrdersContent() {
   };
 
   const filteredOrders = useMemo(() => {
-    if (shopFilter === "all") return orders;
-    return orders.filter((o) => o.connectionId === shopFilter);
+    const list = shopFilter === "all" ? orders : orders.filter((o) => o.connectionId === shopFilter);
+    return [...list].sort((a, b) => Number(b.createTime ?? 0) - Number(a.createTime ?? 0));
   }, [orders, shopFilter]);
 
   return (

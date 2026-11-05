@@ -103,6 +103,12 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    orders.sort((a, b) => {
+      const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return bMs - aMs;
+    });
+
     return NextResponse.json({
       orders,
       shopId,

@@ -63,17 +63,28 @@ function formatWhen(value: QuarantineRequest["requestedAt"]): string {
   return format(new Date(ms), "MMM dd, yyyy · h:mm a");
 }
 
-function formatInventoryWhen(
+function inventoryWhenMs(
   value: InventoryItem["quarantineAt"] | InventoryItem["receivingDate"] | InventoryItem["dateAdded"]
-): string {
-  if (!value) return "—";
+): number {
+  if (!value) return 0;
   const ms =
     value instanceof Date
       ? value.getTime()
       : typeof value === "string"
         ? new Date(value).getTime()
         : (value.seconds ?? 0) * 1000;
-  if (!ms || Number.isNaN(ms)) return "—";
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function quarantinedStockSortMs(item: InventoryItem): number {
+  return inventoryWhenMs(item.quarantineAt ?? item.receivingDate ?? item.dateAdded);
+}
+
+function formatInventoryWhen(
+  value: InventoryItem["quarantineAt"] | InventoryItem["receivingDate"] | InventoryItem["dateAdded"]
+): string {
+  const ms = inventoryWhenMs(value);
+  if (!ms) return "—";
   return format(new Date(ms), "MMM dd, yyyy · h:mm a");
 }
 
@@ -140,7 +151,8 @@ export default function QuarantinePage() {
     () =>
       inventory
         .filter((item) => (Number(item.damagedQuantity) || 0) > 0)
-        .sort((a, b) => (Number(b.damagedQuantity) || 0) - (Number(a.damagedQuantity) || 0)),
+        // Newest quarantine / receive date first (matches Date & time column).
+        .sort((a, b) => quarantinedStockSortMs(b) - quarantinedStockSortMs(a)),
     [inventory]
   );
 

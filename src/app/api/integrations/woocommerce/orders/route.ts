@@ -7,11 +7,18 @@ export const dynamic = "force-dynamic";
 type WooOrderDoc = {
   id: string;
   connectionId?: string;
+  dateCreated?: string;
   dateModified?: string;
   syncedAt?: string;
   status?: string;
   [key: string]: unknown;
 };
+
+function orderSortKey(o: WooOrderDoc): number {
+  const raw = o.dateCreated || o.dateModified || o.syncedAt || "";
+  const ms = Date.parse(String(raw));
+  return Number.isNaN(ms) ? 0 : ms;
+}
 
 function isAdminOrSubAdmin(data: Record<string, unknown> | undefined): boolean {
   if (!data) return false;
@@ -70,11 +77,7 @@ export async function GET(request: NextRequest) {
       orders = orders.filter((o) => String(o.status || "") === status);
     }
 
-    orders.sort((a, b) => {
-      const aDate = String(a.dateModified || a.syncedAt || "");
-      const bDate = String(b.dateModified || b.syncedAt || "");
-      return bDate.localeCompare(aDate);
-    });
+    orders.sort((a, b) => orderSortKey(b) - orderSortKey(a));
 
     return NextResponse.json({ orders: orders.slice(0, 400) });
   } catch (error: unknown) {

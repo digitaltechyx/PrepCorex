@@ -411,7 +411,7 @@ export default function AdminNotificationsPage() {
     tabFromUrl === "pending_receive"
       ? "approved"
       : tabFromUrl && STATUS_TAB_VALUES.includes(tabFromUrl as (typeof STATUS_TAB_VALUES)[number])
-        ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
+      ? (tabFromUrl as "all" | Exclude<StatusFilter, "all">)
         : null;
   const [activeTab, setActiveTab] = useState<"all" | Exclude<StatusFilter, "all">>(
     resolvedTabFromUrl ?? "pending"
@@ -1438,7 +1438,7 @@ export default function AdminNotificationsPage() {
               <div className="min-w-0">
                 <CardTitle className="text-lg font-bold tracking-tight text-white sm:text-2xl">
                   Notifications
-                </CardTitle>
+          </CardTitle>
                 <CardDescription className="mt-0.5 line-clamp-2 text-xs text-indigo-100 sm:text-sm">
                   Process shipment, inventory, inbound batches, return, dispose & delete requests
                 </CardDescription>
@@ -1562,7 +1562,7 @@ export default function AdminNotificationsPage() {
                 <TabsTrigger value="paid" className="min-h-[40px] shrink-0 rounded-md border border-transparent px-2.5 py-2 text-xs sm:px-3 sm:text-sm data-[state=active]:border-violet-300 data-[state=active]:bg-violet-100 data-[state=active]:text-violet-900 data-[state=active]:shadow-sm dark:data-[state=active]:border-violet-700 dark:data-[state=active]:bg-violet-900/30 dark:data-[state=active]:text-violet-200">
                   Paid <Badge variant="secondary" className="ml-1.5 text-[10px] sm:text-xs">{statusCounts.paid ?? 0}</Badge>
                 </TabsTrigger>
-              </TabsList>
+            </TabsList>
             </div>
 
             <TabsContent value="all" className="mt-4 focus-visible:outline-none">

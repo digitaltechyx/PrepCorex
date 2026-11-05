@@ -1,34 +1,19 @@
-import { NextRequest, NextResponse } from "next/server";
-import { refreshOpenInboundTrackerEntries } from "@/lib/inbound-tracker-service";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
 
-function authorizeCron(request: NextRequest): boolean {
-  const secret =
-    process.env.INBOUND_TRACKER_CRON_SECRET ||
-    process.env.CRON_SECRET ||
-    process.env.EBAY_CRON_SECRET;
-  const authHeader = request.headers.get("authorization");
-  const querySecret = request.nextUrl.searchParams.get("secret");
-  return (
-    !!secret && (authHeader === `Bearer ${secret}` || querySecret === secret)
+/**
+ * Scheduled inbound-tracker refresh is disabled (2026-11-02).
+ * Refresh runs on Inbound Tracker page load via POST /api/inbound-tracker/refresh-stale.
+ */
+export async function POST() {
+  return NextResponse.json(
+    {
+      ok: true,
+      mode: "disabled",
+      message:
+        "Scheduled inbound tracker refresh is disabled. Use page-load /api/inbound-tracker/refresh-stale.",
+    },
+    { status: 410 }
   );
-}
-
-/** Poll Shippo for open inbound trackings (every 1 minute while testing). */
-export async function POST(request: NextRequest) {
-  if (!authorizeCron(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  try {
-    const refreshed = await refreshOpenInboundTrackerEntries(1000);
-    return NextResponse.json({ success: true, refreshed, intervalMinutes: 1 });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Cron refresh failed" },
-      { status: 500 }
-    );
-  }
 }

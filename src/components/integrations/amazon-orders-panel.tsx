@@ -222,22 +222,28 @@ export function AmazonOrdersPanel() {
   const applySearchAndStatus = useCallback(
     (list: AdminAmazonOrder[]) => {
       const q = search.trim().toLowerCase();
-      return list.filter((o) => {
-        if (statusFilter === "open" && !isOpenOrder(o)) return false;
-        if (statusFilter === "shipped" && isOpenOrder(o)) return false;
-        if (!q) return true;
-        const hay = [
-          o.amazonOrderId,
-          o.storeName,
-          o.ownerName,
-          o.ownerEmail,
-          ...o.lineItems.map((li) => li.sellerSku || li.title),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(q);
-      });
+      return list
+        .filter((o) => {
+          if (statusFilter === "open" && !isOpenOrder(o)) return false;
+          if (statusFilter === "shipped" && isOpenOrder(o)) return false;
+          if (!q) return true;
+          const hay = [
+            o.amazonOrderId,
+            o.storeName,
+            o.ownerName,
+            o.ownerEmail,
+            ...o.lineItems.map((li) => li.sellerSku || li.title),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return hay.includes(q);
+        })
+        .sort((a, b) => {
+          const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+          const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+          return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+        });
     },
     [search, statusFilter]
   );

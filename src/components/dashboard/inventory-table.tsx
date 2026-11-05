@@ -1288,26 +1288,45 @@ export function InventoryTable({
     };
   }, [effectiveUserId, inboundBatches]);
 
-  // Backfill receiving date + product photos (request, receive logs, warehouse cartons via API).
+  // Backfill receiving date + product photos once per user/session.
+  // Do not re-run when `data` updates — patches used to retrigger this effect in a loop
+  // (POST /api/inventory/backfill-photos every few seconds + heavy Firestore reads).
+  const receiveMetaBackfillUserRef = useRef<string | null>(null);
   useEffect(() => {
     if (!effectiveUserId || !user || data.length === 0) return;
-    let cancelled = false;
+    if (receiveMetaBackfillUserRef.current === effectiveUserId) return;
+
     const key = `inv-receive-meta-backfill-v6:${effectiveUserId}`;
     try {
-      if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") return;
+      if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) === "1") {
+        receiveMetaBackfillUserRef.current = effectiveUserId;
+        return;
+      }
     } catch {
       /* ignore */
     }
 
+    // Lock immediately so inventory snapshot updates cannot start parallel backfills.
+    receiveMetaBackfillUserRef.current = effectiveUserId;
+    try {
+      sessionStorage.setItem(key, "1");
+    } catch {
+      /* ignore */
+    }
+
+    let cancelled = false;
+    const inventorySnapshot = data;
+    const requestsSnapshot = inventoryRequests;
+
     const findRequestForItem = (item: InventoryItem): InventoryRequest | undefined => {
       const sourceId = String(item.sourceRequestId ?? "").trim();
       if (sourceId) {
-        const byId = inventoryRequests.find((r) => r.id === sourceId);
+        const byId = requestsSnapshot.find((r) => r.id === sourceId);
         if (byId) return byId;
       }
       const itemSku = String(item.sku ?? "").trim().toLowerCase();
       if (!itemSku) return undefined;
-      return inventoryRequests.find((r) => {
+      return requestsSnapshot.find((r) => {
         const reqSku = String((r as InventoryRequest & { sku?: string }).sku ?? "")
           .trim()
           .toLowerCase();
@@ -1355,7 +1374,7 @@ export function InventoryTable({
         /* optional */
       }
 
-      for (const item of data) {
+      for (const item of inventorySnapshot) {
         if (cancelled) return;
         const explicitRemarks = Array.isArray((item as any).remarksImageUrls)
           ? ((item as any).remarksImageUrls as string[]).map((u) => String(u || "").trim()).filter(Boolean)
@@ -1405,11 +1424,6 @@ export function InventoryTable({
         }
       }
       if (cancelled) return;
-      try {
-        sessionStorage.setItem(key, "1");
-      } catch {
-        /* ignore */
-      }
       if (patched > 0) {
         console.info(`[inventory] Backfilled receiving date/images on ${patched} product(s)`);
       }
@@ -1418,7 +1432,9 @@ export function InventoryTable({
     return () => {
       cancelled = true;
     };
-  }, [effectiveUserId, data, inventoryRequests, user]);
+    // Keep dependency array length stable (HMR-safe). Ref + sessionStorage still
+    // ensure this backfill runs once per user session, not on every snapshot.
+  }, [effectiveUserId, user, data.length, inventoryRequests.length]);
 
   // Refresh stale carrier statuses (> 3 hours) when inventory loads
   useEffect(() => {

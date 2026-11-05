@@ -367,7 +367,7 @@ export function ShipStationOrdersPanel({
     const from = startOfDay(dateFrom);
     const to = endOfDay(dateTo);
 
-    return orders.filter((o) => {
+    const filtered = orders.filter((o) => {
       if (labelFilter === "labeled" && !o.hasPurchasedLabel) return false;
       if (labelFilter === "open" && o.hasPurchasedLabel) return false;
       if (statusFilter !== "all" && String(o.orderStatus || "") !== statusFilter) return false;
@@ -398,6 +398,14 @@ export function ShipStationOrdersPanel({
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
+    });
+
+    return filtered.sort((a, b) => {
+      const aRaw = pickDateValue(a, dateField) || a.orderDate || a.createDate || a.modifyDate || a.syncedAt || "";
+      const bRaw = pickDateValue(b, dateField) || b.orderDate || b.createDate || b.modifyDate || b.syncedAt || "";
+      const aMs = aRaw ? Date.parse(aRaw) : 0;
+      const bMs = bRaw ? Date.parse(bRaw) : 0;
+      return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
     });
   }, [orders, search, labelFilter, statusFilter, carrierFilter, dateFrom, dateTo, dateField]);
 

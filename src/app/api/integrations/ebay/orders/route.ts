@@ -54,6 +54,13 @@ export async function GET(request: NextRequest) {
     if (connectionId) {
       orders = orders.filter((o) => (o as { connectionId?: string }).connectionId === connectionId);
     }
+    orders.sort((a, b) => {
+      const aRaw = String((a as { creationDate?: string }).creationDate || "");
+      const bRaw = String((b as { creationDate?: string }).creationDate || "");
+      const aMs = aRaw ? Date.parse(aRaw) : 0;
+      const bMs = bRaw ? Date.parse(bRaw) : 0;
+      return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+    });
     return NextResponse.json({ orders });
   } catch (err: unknown) {
     console.error("[ebay orders GET]", err);

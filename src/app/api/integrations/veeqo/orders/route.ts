@@ -8,10 +8,18 @@ type VeeqoOrderDoc = {
   id: string;
   connectionId?: string;
   hasPurchasedLabel?: boolean;
+  orderDate?: string;
+  createDate?: string;
   modifyDate?: string;
   syncedAt?: string;
   [key: string]: unknown;
 };
+
+function orderSortKey(o: VeeqoOrderDoc): number {
+  const raw = o.orderDate || o.createDate || o.modifyDate || o.syncedAt || "";
+  const ms = Date.parse(String(raw));
+  return Number.isNaN(ms) ? 0 : ms;
+}
 
 function isAdminOrSubAdmin(data: Record<string, unknown> | undefined): boolean {
   if (!data) return false;
@@ -72,11 +80,7 @@ export async function GET(request: NextRequest) {
       orders = orders.filter((o) => Boolean(o.hasPurchasedLabel));
     }
 
-    orders.sort((a, b) => {
-      const aDate = String(a.modifyDate || a.syncedAt || "");
-      const bDate = String(b.modifyDate || b.syncedAt || "");
-      return bDate.localeCompare(aDate);
-    });
+    orders.sort((a, b) => orderSortKey(b) - orderSortKey(a));
 
     return NextResponse.json({ orders: orders.slice(0, 400) });
   } catch (error: unknown) {

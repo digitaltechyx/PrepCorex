@@ -1,0 +1,21 @@
+---
+description: Warn before any change that can increase Firebase or Firestore cost
+alwaysApply: true
+---
+
+# Firebase cost warning
+
+Before implementing, deploying, or leaving in place anything that can raise Firebase, Firestore, or GCP cost, stop and tell the user in plain language. Say what will run, how often, and why the bill can grow. Do not deploy it or leave a high-frequency job running until they agree.
+
+Cost goes up when work does any of these:
+
+- Cloud Scheduler or Cloud Functions on a short interval (every minute, or every few minutes)
+- A `collectionGroup` query, especially on a schedule
+- A listener (`onSnapshot`) on a large collection, or one that stays open while a tab is in the background
+- Polling Firestore from Vercel or the browser (reads plus internet data transfer)
+- An unbounded query, a missing limit, or reading a large collection on every page load
+- A testing schedule left at `every 1 minutes` instead of the real interval (hourly, every 12 hours, or daily)
+
+Known incident: `sendCrmTaskReminders` ran every minute, queried `personalTasks`, and was deleted on 2026-10-30 after an October Firestore spike (about 160 million reads). Do not schedule that every minute again.
+
+These testing jobs may still be deployed every minute. Warn before touching them, and do not leave them on a one-minute schedule: `inboundTrackingRefreshCron`, `inboundTrackerRefreshCron`, `outboundTrackingRefreshCron`.

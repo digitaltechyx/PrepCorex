@@ -161,18 +161,19 @@ export function DashboardHeader({ onProfileClick }: DashboardHeaderProps) {
                 <span className="sr-only">Notifications</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-[340px]" align="end">
+            <DropdownMenuContent className="w-[min(340px,calc(100vw-1.5rem))]" align="end">
               <DropdownMenuLabel className="flex items-center justify-between gap-2">
                 <span>Notifications</span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-xs"
+                  className="h-7 shrink-0 px-2 text-xs"
                   onClick={markAllAsRead}
                   disabled={unreadCount === 0}
                 >
                   <CheckCheck className="mr-1 h-3.5 w-3.5" />
-                  Mark all read
+                  <span className="sm:hidden">Read all</span>
+                  <span className="hidden sm:inline">Mark all read</span>
                 </Button>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

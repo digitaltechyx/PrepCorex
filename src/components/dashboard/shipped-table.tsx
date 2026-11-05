@@ -369,7 +369,7 @@ export function ShippedTable({
 
   const handleCancelShipmentRequest = async () => {
     if (!cancellingRequest?.id || !userProfile?.uid) return;
-    if (cancellingRequest.status !== "pending") {
+    if (String(cancellingRequest.status || "").trim().toLowerCase() !== "pending") {
       toast({
         variant: "destructive",
         title: "Cannot cancel",
@@ -395,7 +395,7 @@ export function ShippedTable({
         const requestRef = doc(db, `users/${userProfile.uid}/shipmentRequests`, cancellingRequest.id);
         const snap = await transaction.get(requestRef);
         if (!snap.exists()) throw new Error("Request not found.");
-        const status = String(snap.data()?.status || "");
+        const status = String(snap.data()?.status || "").trim().toLowerCase();
         if (status !== "pending" && status !== "awaiting_label_upload") {
           throw new Error("Only pending outbound requests can be cancelled.");
         }
@@ -691,8 +691,9 @@ export function ShippedTable({
         isPrepOutbound,
         createdAt: req.requestedAt,
         additionalServices,
-        canCancelRequest: status === "Pending" && (req.status || "pending") === "pending",
-        canEditRequest: status === "Pending" && (req.status || "pending") === "pending",
+        // Client may edit/cancel only before admin approval (status pending).
+        canCancelRequest: String(req.status || "pending").trim().toLowerCase() === "pending",
+        canEditRequest: String(req.status || "pending").trim().toLowerCase() === "pending",
         warehouseLineEditNotice:
           editNotices.length === 0
             ? null
@@ -1558,23 +1559,54 @@ export function ShippedTable({
                         {isAwaitingFulfillmentRowStatus((item as any).status) ? (
                           <div className="space-y-2">
                             <OpenOutboundStatusBadge status={String((item as any).status)} />
-                            {!isAdminView &&
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {!isAdminView && (item as any).canEditRequest ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 shrink-0 gap-1 text-xs"
+                                  onClick={() =>
+                                    setEditingRequest((item as any).rawRequest as ShipmentRequest)
+                                  }
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  Edit
+                                </Button>
+                              ) : null}
+                              {!isAdminView && (item as any).canCancelRequest ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 shrink-0 gap-1 text-xs text-destructive border-destructive/40 hover:text-destructive"
+                                  onClick={() => {
+                                    setCancellingRequest((item as any).rawRequest as ShipmentRequest);
+                                    setCancellationReason("");
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Cancel
+                                </Button>
+                              ) : null}
+                              {!isAdminView &&
                               (item as any).isRequest &&
                               ((item as any).requestStatus === "awaiting_label_upload" ||
                                 ((((item as any).rawRequest?.fbaMasterCases?.length > 0 ||
                                   (item as any).rawRequest?.fbaPallets?.length > 0) &&
-                                  (item as any).rawRequest?.fbaLabelWorkflow))) && (
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => {
-                                  setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
-                                  setUploadFiles([]);
-                                }}
-                              >
-                                Upload Label
-                              </Button>
-                            )}
+                                  (item as any).rawRequest?.fbaLabelWorkflow))) ? (
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setSelectedUploadRequest((item as any).rawRequest as ShipmentRequest);
+                                    setUploadFiles([]);
+                                  }}
+                                >
+                                  Upload Label
+                                </Button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : (item as any).status === "Rejected" ? (
                           <Badge variant="destructive" className="flex items-center gap-1 w-fit">
@@ -1604,33 +1636,6 @@ export function ShippedTable({
                               />
                             );
                           })()}
-                          {!isAdminView && (item as any).canEditRequest && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 shrink-0 gap-1 text-xs"
-                              onClick={() => setEditingRequest((item as any).rawRequest as ShipmentRequest)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                              Edit
-                            </Button>
-                          )}
-                          {!isAdminView && (item as any).canCancelRequest && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 shrink-0 gap-1 text-xs text-destructive border-destructive/40 hover:text-destructive"
-                              onClick={() => {
-                                setCancellingRequest((item as any).rawRequest as ShipmentRequest);
-                                setCancellationReason("");
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Cancel
-                            </Button>
-                          )}
                           <Button
                             type="button"
                             variant="outline"

@@ -1,5 +1,13 @@
 const functions = require("firebase-functions/v1");
 
+/**
+ * outboundTrackingRefreshCron was removed (2026-11-02).
+ * Tracking refresh is page-load only (POST /api/outbound-tracking/refresh-stale).
+ * Daily digest lives in the inbound-cron codebase:
+ *   functions-inbound-cron → outboundTrackingDigestCron
+ * Do not re-add a 1-minute refresh schedule here.
+ */
+
 function readConfig() {
   let configAppUrl = "";
   let configCronSecret = "";
@@ -30,23 +38,6 @@ async function postCron(path, secret) {
     console.log(`[outboundTracker] ${path} ok`, body);
   }
 }
-
-/** Poll Shippo for open outbound trackings every 1 minute (testing). */
-exports.outboundTrackingRefreshCron = functions.pubsub
-  .schedule("every 1 minutes")
-  .onRun(async () => {
-    const { secret } = readConfig();
-    if (!secret) {
-      console.warn("[outboundTrackingRefreshCron] Missing CRON_SECRET.");
-      return null;
-    }
-    try {
-      await postCron("/api/outbound-tracking/cron", secret);
-    } catch (err) {
-      console.error("[outboundTrackingRefreshCron] error", err);
-    }
-    return null;
-  });
 
 /** Daily combined digest at 7:00 AM America/New_York (EDT/EST). */
 exports.outboundTrackingDigestCron = functions.pubsub

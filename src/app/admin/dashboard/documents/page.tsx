@@ -197,7 +197,13 @@ export default function DocumentRequestsPage() {
         return true;
       });
     }
-    return list.filter(matchesSearch);
+    return list
+      .filter(matchesSearch)
+      .sort((a, b) => {
+        const aMs = a.requestedAt?.seconds != null ? a.requestedAt.seconds * 1000 : 0;
+        const bMs = b.requestedAt?.seconds != null ? b.requestedAt.seconds * 1000 : 0;
+        return bMs - aMs;
+      });
   }, [pendingRequests, selectedCompany, selectedClient, selectedDocumentType, selectedDateRange, matchesSearch]);
 
   const filteredCompleted = useMemo(() => {
@@ -224,7 +230,23 @@ export default function DocumentRequestsPage() {
         return true;
       });
     }
-    return list.filter(matchesSearch);
+    return list
+      .filter(matchesSearch)
+      .sort((a, b) => {
+        const aMs =
+          a.completedAt?.seconds != null
+            ? a.completedAt.seconds * 1000
+            : a.requestedAt?.seconds != null
+              ? a.requestedAt.seconds * 1000
+              : 0;
+        const bMs =
+          b.completedAt?.seconds != null
+            ? b.completedAt.seconds * 1000
+            : b.requestedAt?.seconds != null
+              ? b.requestedAt.seconds * 1000
+              : 0;
+        return bMs - aMs;
+      });
   }, [completedRequests, selectedCompany, selectedClient, selectedDocumentType, selectedDateRange, matchesSearch]);
 
   const documentTypeOptions = useMemo(() => {

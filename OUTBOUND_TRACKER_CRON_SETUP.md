@@ -1,109 +1,55 @@
-# Outbound Tracker cron setup
+# Outbound Tracker setup
 
-Admin **Outbound Tracker** polls Shippo for scanned outbound labels and sends one combined daily email at **7:00 AM America/New_York** to `info@prepservicesfba.com`.
+Admin **Outbound Tracker** refreshes Shippo statuses **on page load only** (no scheduled refresh cron). A combined daily digest email still runs at **7:00 AM America/New_York** to `info@prepservicesfba.com`.
 
 ## Architecture
 
 ```
-Cloud Scheduler (every 12h)
-  → outboundTrackingRefreshCron
-    → POST https://YOUR-APP/api/outbound-tracking/cron?secret=CRON_SECRET
+Outbound Tracker page load
+  → POST /api/outbound-tracking/refresh-stale
+    → refresh open rows older than the stale interval
 
 Cloud Scheduler (daily 7am America/New_York)
   → outboundTrackingDigestCron
     → POST https://YOUR-APP/api/outbound-tracking/digest?secret=CRON_SECRET
 ```
 
-## 1. Hosting (Vercel)
+**Removed (cost):** `outboundTrackingRefreshCron`, `inboundTrackingRefreshCron`, and `inboundTrackerRefreshCron` (were left on `every 1 minutes` in testing and caused large Firestore read/egress bills). Do not re-add them.
 
-Same as inbound cron — must already be set:
+## 1. Hosting (Vercel)
 
 | Variable | Required |
 |----------|----------|
-| `CRON_SECRET` | Yes (same value as Firebase `cron.secret`) |
+| `CRON_SECRET` | Yes (digest email only) |
 | `SHIPPO_API_KEY` | Yes |
 | SMTP vars | Yes (daily email) |
 
-Redeploy the web app if you changed env vars.
+## 2. Deploy digest function only
 
-## 2. Firebase function config
-
-If **inbound cron already works**, you do **not** need to change config — outbound uses the same `app.url` and `cron.secret`.
-
-Verify:
-
-```powershell
-firebase functions:config:get
-```
-
-If missing, set (replace URL and secret):
-
-```powershell
-firebase functions:config:set app.url="https://prepcorex.com" cron.secret="YOUR_CRON_SECRET"
-```
-
-## 3. Deploy outbound cron functions
-
-Outbound crons live in the same **`functions-inbound-cron`** codebase as inbound (avoids a separate deploy timeout).
-
-From project root in PowerShell:
+Digest lives in **`functions-inbound-cron`**:
 
 ```powershell
 cd "C:\Users\zains\Desktop\Sir Arhsad Iqbal\PSF StockFlow\PSF-StockFlow-main"
 
-firebase login
 firebase use psf-stockflow
-
-# If deploy times out analyzing codebases, set a longer discovery timeout:
 $env:FUNCTIONS_DISCOVERY_TIMEOUT=60000
-firebase deploy --only "functions:inbound-cron:inboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingRefreshCron,functions:inbound-cron:outboundTrackingDigestCron,functions:inbound-cron:inboundTrackerRefreshCron"
+firebase deploy --only "functions:inbound-cron:outboundTrackingDigestCron"
 ```
 
-This deploys/updates:
-- `inboundTrackingRefreshCron` (every 12 hours)
-- `outboundTrackingRefreshCron` (every 12 hours)
-- `outboundTrackingDigestCron` (daily 7am America/New_York)
-- `inboundTrackerRefreshCron` (every 12 hours)
-
-## 4. Test
-
-**Refresh cron:**
+Delete old refresh crons if they still exist:
 
 ```powershell
-curl.exe -X POST "https://prepcorex.com/api/outbound-tracking/cron?secret=YOUR_CRON_SECRET"
+firebase functions:delete inboundTrackingRefreshCron --project psf-stockflow --force
+firebase functions:delete outboundTrackingRefreshCron --project psf-stockflow --force
+firebase functions:delete inboundTrackerRefreshCron --project psf-stockflow --force
 ```
 
-Expected: `{"success":true,"refreshed":0}` (or higher if open trackings exist).
-
-**Digest cron (manual test — sends email if there are items to report):**
+## 3. Test digest (manual)
 
 ```powershell
 curl.exe -X POST "https://prepcorex.com/api/outbound-tracking/digest?secret=YOUR_CRON_SECRET"
 ```
 
-Expected: `{"success":true,"refreshed":0,"firstChanges":0,"stale":0,"emailSent":false}`
+## 4. Logs
 
-## 5. Logs
-
-Firebase Console → Functions → `outboundTrackingRefreshCron` / `outboundTrackingDigestCron` → Logs
-
-Look for: `[outboundTracker] /api/outbound-tracking/... ok`
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| `401 Unauthorized` | `CRON_SECRET` on Vercel ≠ `cron.secret` in Firebase |
-| `404` on cron URL | Deploy PrepCorex app first; wrong `app.url` |
-| No daily email | Normal if no status changes / no 48h stale trackings that day |
-| Email fails | Check SMTP env vars on Vercel |
-
-## Optional env
-
-```env
-OUTBOUND_TRACKER_DIGEST_EMAIL=info@prepservicesfba.com
-```
-
-## Admin page
-
-`/admin/dashboard/outbound-tracker` — admin only. Scan or manual entry works even before cron deploy; cron adds auto-refresh + daily email.
+Firebase Console → Functions → `outboundTrackingDigestCron` → Logs

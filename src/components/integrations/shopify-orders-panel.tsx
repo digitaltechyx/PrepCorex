@@ -347,7 +347,7 @@ export function ShopifyOrdersPanel() {
     const from = startOfDay(dateFrom);
     const to = endOfDay(dateTo);
 
-    return orders.filter((o) => {
+    const filtered = orders.filter((o) => {
       if (shopFilter !== "all" && o.shop !== shopFilter) return false;
       if (financialFilter !== "all" && (o.financialStatus || "") !== financialFilter) return false;
 
@@ -386,6 +386,12 @@ export function ShopifyOrdersPanel() {
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
+    });
+
+    return filtered.sort((a, b) => {
+      const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
     });
   }, [orders, search, fulfillmentFilter, financialFilter, shopFilter, dateFrom, dateTo]);
 

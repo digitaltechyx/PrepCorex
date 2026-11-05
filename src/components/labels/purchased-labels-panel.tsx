@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useCollection } from "@/hooks/use-collection";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Download, Package, MapPin, Calendar, Truck, ExternalLink, Filter, RotateCcw } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Loader2, Download, Package, ExternalLink, Filter, RotateCcw } from "lucide-react";
 import type { LabelPurchase, LabelRefundRequest } from "@/types";
 import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 import {
@@ -20,6 +28,8 @@ import {
 } from "@/lib/label-refund";
 import { LabelRefundRequestDialog } from "@/components/labels/label-refund-request-dialog";
 import { format } from "date-fns";
+
+const PAGE_SIZE = 10;
 
 type PurchasedLabelsPanelProps = {
   userId: string | null | undefined;
@@ -180,6 +190,99 @@ function handleTrackShipment(trackingNumber: string, provider: string) {
   window.open(trackingUrl, "_blank");
 }
 
+function formatLabelDate(label: LabelPurchase): string {
+  if (!label.createdAt) return "—";
+  try {
+    const date =
+      typeof label.createdAt === "string"
+        ? new Date(label.createdAt)
+        : label.createdAt?.seconds
+          ? new Date(label.createdAt.seconds * 1000)
+          : null;
+    if (!date || Number.isNaN(date.getTime())) return "Invalid date";
+    return format(date, "MMM d, yyyy");
+  } catch {
+    return "Invalid date";
+  }
+}
+
+function carrierServiceLabel(label: LabelPurchase): string {
+  const display = getBuyLabelRateDisplay({
+    provider: label.selectedRate?.provider,
+    serviceLevel: label.selectedRate?.serviceLevel,
+    labelProvider: label.selectedRate?.labelProvider,
+    objectId: label.selectedRate?.objectId,
+  });
+  return `${display.provider} · ${display.service}`;
+}
+
+function LabelRefundActions({
+  label,
+  refundByPurchaseId,
+  onRequestRefund,
+}: {
+  label: LabelPurchase;
+  refundByPurchaseId: Map<string, LabelRefundRequest>;
+  onRequestRefund: (label: LabelPurchase) => void;
+}) {
+  const refundDisplay = labelRefundDisplayStatus(label.refundStatus);
+
+  if (refundDisplay === "approved") {
+    const walletRefund = isWalletLabelPayment(label);
+    const autoRefund = label.autoRefundedOnFailure === true;
+    return (
+      <p className="max-w-[220px] text-[11px] leading-snug text-emerald-700">
+        {autoRefund
+          ? "Auto-refunded to wallet after label failure."
+          : walletRefund
+            ? "Refund approved — credited to wallet."
+            : "Refund approved — sent to original payment."}
+      </p>
+    );
+  }
+
+  if (refundDisplay === "declined") {
+    const rejectionReason = getRefundRejectionReason(label, refundByPurchaseId);
+    return (
+      <p className="max-w-[220px] text-[11px] leading-snug text-red-700">
+        {rejectionReason || "Refund declined."}
+      </p>
+    );
+  }
+
+  if (refundDisplay === "pending") {
+    return (
+      <Button size="sm" variant="secondary" disabled className="h-8">
+        Refund pending
+      </Button>
+    );
+  }
+
+  const eligibility = canRequestLabelRefund(label);
+  const anchorMs = labelPurchaseAnchorMs(label);
+
+  return (
+    <div className="space-y-1">
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8"
+        disabled={!eligibility.ok}
+        title={eligibility.reason}
+        onClick={() => onRequestRefund(label)}
+      >
+        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+        {eligibility.ok ? "Refund" : "No refund"}
+      </Button>
+      <p className="max-w-[200px] text-[10px] leading-snug text-muted-foreground">
+        {eligibility.ok
+          ? `Available for ${formatLabelRefundCountdown(anchorMs)}`
+          : eligibility.reason}
+      </p>
+    </div>
+  );
+}
+
 export function PurchasedLabelsPanel({
   userId,
   emptyHint = "Purchase your first shipping label to get started",
@@ -206,6 +309,7 @@ export function PurchasedLabelsPanel({
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [refundLabel, setRefundLabel] = useState<LabelPurchase | null>(null);
   const safeLabels = labels || [];
 
@@ -274,6 +378,20 @@ export function PurchasedLabelsPanel({
 
     return [...list].sort((a, b) => getCreatedAtMs(b) - getCreatedAtMs(a));
   }, [safeLabels, startDate, endDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLabels.length / PAGE_SIZE));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [startDate, endDate, userId]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, filteredLabels.length);
+  const pageLabels = filteredLabels.slice(pageStart, pageEnd);
 
   if (!userId) {
     return (
@@ -410,200 +528,147 @@ export function PurchasedLabelsPanel({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredLabels.map((label, index) => (
-            <Card
-              key={label.id || `label-${index}`}
-              className="min-w-0 overflow-hidden rounded-xl border border-border/70 transition-shadow hover:shadow-md sm:rounded-2xl"
-            >
-              <CardHeader className={`pb-2 sm:pb-3 ${compactLayout ? "p-3 sm:p-6" : ""}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <CardTitle className="text-base font-semibold">
-                      Label #{label.id ? label.id.slice(0, 8) : "N/A"}
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {(() => {
-                        const display = getBuyLabelRateDisplay({
-                          provider: label.selectedRate?.provider,
-                          serviceLevel: label.selectedRate?.serviceLevel,
-                          labelProvider: label.selectedRate?.labelProvider,
-                          objectId: label.selectedRate?.objectId,
-                        });
-                        return `${display.provider} • ${display.service}`;
-                      })()}
-                    </CardDescription>
-                  </div>
-                  {getStatusBadge(label)}
-                </div>
-              </CardHeader>
-              <CardContent className={`space-y-3 pt-0 sm:space-y-4 ${compactLayout ? "p-3 sm:p-6" : ""}`}>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">To:</span>
-                    <span className="text-muted-foreground">
-                      {label.toAddress?.city || "N/A"}, {label.toAddress?.state || "N/A"}
-                    </span>
-                  </div>
-                  {label.trackingNumber && (
-                    <div className="flex items-center gap-2">
-                      <Truck className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">Tracking:</span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {label.trackingNumber}
-                      </span>
-                    </div>
-                  )}
-                  {label.createdAt && (
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">
-                        {(() => {
-                          try {
-                            const date =
-                              typeof label.createdAt === "string"
-                                ? new Date(label.createdAt)
-                                : label.createdAt?.seconds
-                                  ? new Date(label.createdAt.seconds * 1000)
-                                  : new Date();
-                            return format(date, "MMM d, yyyy");
-                          } catch {
-                            return "Invalid date";
-                          }
-                        })()}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between border-t pt-2 text-xs">
-                    <span className="text-muted-foreground">Amount</span>
-                    <span className="text-base font-semibold">
-                      {label.paymentCurrency?.toUpperCase() || "USD"} $
-                      {label.paymentAmount ? (label.paymentAmount / 100).toFixed(2) : "0.00"}
-                    </span>
-                  </div>
-                </div>
+        <Card
+          className={`min-w-0 overflow-hidden border border-border/70 shadow-sm ${compactLayout ? "rounded-xl sm:rounded-2xl" : "rounded-2xl"}`}
+        >
+          <CardContent className={compactLayout ? "p-0 sm:p-0" : "p-0"}>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[100px]">Label</TableHead>
+                    <TableHead className="min-w-[120px]">Status</TableHead>
+                    <TableHead className="min-w-[140px]">Carrier</TableHead>
+                    <TableHead className="min-w-[120px]">Destination</TableHead>
+                    <TableHead className="min-w-[140px]">Tracking</TableHead>
+                    <TableHead className="min-w-[100px]">Date</TableHead>
+                    <TableHead className="min-w-[90px] text-right">Amount</TableHead>
+                    <TableHead className="min-w-[220px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageLabels.map((label, index) => {
+                    const detail = getStatusDetail(label);
+                    const toneText: Record<"warning" | "error" | "info", string> = {
+                      warning: "text-amber-700",
+                      error: "text-red-700",
+                      info: "text-sky-700",
+                    };
+                    const canDownload =
+                      Boolean(label.labelUrl) &&
+                      (label.status === "label_purchased" || label.status === "completed") &&
+                      String(label.refundStatus || "").toLowerCase() !== "refunded";
 
-                <div className="flex flex-col gap-2 pt-1 sm:pt-2">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                  {label.labelUrl &&
-                    (label.status === "label_purchased" || label.status === "completed") &&
-                    String(label.refundStatus || "").toLowerCase() !== "refunded" && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleDownloadLabel(label.labelUrl!)}
-                      className="flex-1"
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Download
-                    </Button>
-                  )}
-                  {label.trackingNumber && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        handleTrackShipment(
-                          label.trackingNumber!,
-                          label.selectedRate?.provider || ""
-                        )
-                      }
-                      className="flex-1"
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Track
-                    </Button>
-                  )}
-                  </div>
-                  {(() => {
-                    const refundDisplay = labelRefundDisplayStatus(label.refundStatus);
-                    if (refundDisplay === "approved") {
-                      const walletRefund = isWalletLabelPayment(label);
-                      const autoRefund = label.autoRefundedOnFailure === true;
-                      return (
-                        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                          <p className="font-semibold uppercase tracking-wide text-[11px]">
-                            Refunded
-                          </p>
-                          <p className="mt-1 leading-snug">
-                            {autoRefund
-                              ? "Label creation failed, so this amount was automatically returned to your label wallet."
-                              : walletRefund
-                                ? "Your refund was approved and credited to your label wallet."
-                                : "Your refund was approved and sent to your original payment method."}
-                          </p>
-                        </div>
-                      );
-                    }
-                    if (refundDisplay === "declined") {
-                      const rejectionReason = getRefundRejectionReason(label, refundByPurchaseId);
-                      return (
-                        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-                          <p className="font-semibold uppercase tracking-wide text-[11px]">
-                            Refund declined
-                          </p>
-                          <p className="mt-1 leading-snug">
-                            {rejectionReason ||
-                              "The admin declined this refund request. Contact support if you have questions."}
-                          </p>
-                        </div>
-                      );
-                    }
-                    if (refundDisplay === "pending") {
-                      return (
-                        <Button size="sm" variant="secondary" disabled className="w-full">
-                          Refund request pending
-                        </Button>
-                      );
-                    }
-                    const eligibility = canRequestLabelRefund(label);
-                    const anchorMs = labelPurchaseAnchorMs(label);
                     return (
-                      <div className="space-y-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full"
-                          disabled={!eligibility.ok}
-                          title={eligibility.reason}
-                          onClick={() => setRefundLabel(label)}
-                        >
-                          <RotateCcw className="mr-2 h-4 w-4" />
-                          {eligibility.ok ? "Request refund" : "Refund unavailable"}
-                        </Button>
-                        <p className="text-[11px] text-muted-foreground text-center">
-                          {eligibility.ok
-                            ? `Available for ${formatLabelRefundCountdown(anchorMs)}`
-                            : eligibility.reason}
-                        </p>
-                      </div>
+                      <TableRow key={label.id || `label-${pageStart + index}`}>
+                        <TableCell className="align-top font-medium">
+                          #{label.id ? label.id.slice(0, 8) : "N/A"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="space-y-1">
+                            {getStatusBadge(label)}
+                            {detail ? (
+                              <p className={`max-w-[180px] text-[11px] leading-snug ${toneText[detail.tone]}`}>
+                                <span className="font-semibold">{detail.title}: </span>
+                                {detail.message}
+                              </p>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="align-top text-sm text-muted-foreground">
+                          {carrierServiceLabel(label)}
+                        </TableCell>
+                        <TableCell className="align-top text-sm">
+                          {label.toAddress?.city || "N/A"}, {label.toAddress?.state || "N/A"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {label.trackingNumber ? (
+                            <span className="font-mono text-xs">{label.trackingNumber}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top whitespace-nowrap text-sm text-muted-foreground">
+                          {formatLabelDate(label)}
+                        </TableCell>
+                        <TableCell className="align-top whitespace-nowrap text-right font-semibold">
+                          {label.paymentCurrency?.toUpperCase() || "USD"} $
+                          {label.paymentAmount ? (label.paymentAmount / 100).toFixed(2) : "0.00"}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {canDownload ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => handleDownloadLabel(label.labelUrl!)}
+                                >
+                                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                                  Download
+                                </Button>
+                              ) : null}
+                              {label.trackingNumber ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8"
+                                  onClick={() =>
+                                    handleTrackShipment(
+                                      label.trackingNumber!,
+                                      label.selectedRate?.provider || ""
+                                    )
+                                  }
+                                >
+                                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                  Track
+                                </Button>
+                              ) : null}
+                            </div>
+                            <LabelRefundActions
+                              label={label}
+                              refundByPurchaseId={refundByPurchaseId}
+                              onRequestRefund={setRefundLabel}
+                            />
+                          </div>
+                        </TableCell>
+                      </TableRow>
                     );
-                  })()}
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <p className="text-sm text-muted-foreground">
+                Showing {pageStart + 1} to {pageEnd} of {filteredLabels.length} labels
+              </p>
+              {filteredLabels.length > PAGE_SIZE ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm tabular-nums">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
                 </div>
-
-                {(() => {
-                  const detail = getStatusDetail(label);
-                  if (!detail) return null;
-
-                  const toneStyles: Record<typeof detail.tone, string> = {
-                    warning: "border border-amber-200 bg-amber-50 text-amber-700",
-                    error: "border border-red-200 bg-red-50 text-red-700",
-                    info: "border border-sky-200 bg-sky-50 text-sky-700",
-                  };
-
-                  return (
-                    <div className={`space-y-1 rounded p-3 text-xs ${toneStyles[detail.tone]}`}>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
-                        {detail.title}
-                      </p>
-                      <p className="text-[13px] leading-snug">{detail.message}</p>
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <LabelRefundRequestDialog

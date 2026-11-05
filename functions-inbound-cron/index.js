@@ -42,23 +42,19 @@ async function postCronPath(path, logPrefix) {
   return null;
 }
 
-/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
-exports.inboundTrackingRefreshCron = functions.pubsub
-  .schedule("every 1 minutes")
-  .onRun(async () => postCronPath("/api/inbound-tracking/cron", "inboundTrackingRefreshCron"));
-
-/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
-exports.outboundTrackingRefreshCron = functions.pubsub
-  .schedule("every 1 minutes")
-  .onRun(async () => postCronPath("/api/outbound-tracking/cron", "outboundTrackingRefreshCron"));
+/**
+ * Tracking refresh crons were removed (2026-11-02).
+ * inboundTrackingRefreshCron / outboundTrackingRefreshCron / inboundTrackerRefreshCron
+ * ran every 1 minute in testing and drove massive Firestore read + egress cost.
+ * Carrier status now refreshes only on page load via:
+ *   POST /api/inbound-tracking/refresh-stale
+ *   POST /api/outbound-tracking/refresh-stale
+ *   POST /api/inbound-tracker/refresh-stale
+ * Do not re-add scheduled refresh scanners.
+ */
 
 /** Daily outbound digest at 7:00 AM America/New_York (EDT/EST). */
 exports.outboundTrackingDigestCron = functions.pubsub
   .schedule("0 7 * * *")
   .timeZone("America/New_York")
   .onRun(async () => postCronPath("/api/outbound-tracking/digest", "outboundTrackingDigestCron"));
-
-/** TESTING: every 1 minute — restore to every 12 hours after verifying. */
-exports.inboundTrackerRefreshCron = functions.pubsub
-  .schedule("every 1 minutes")
-  .onRun(async () => postCronPath("/api/inbound-tracker/cron", "inboundTrackerRefreshCron"));

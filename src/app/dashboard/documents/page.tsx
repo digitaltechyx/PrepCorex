@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -100,6 +100,15 @@ const DOCUMENT_TYPES = [
 type SelectedDocType = (typeof DOCUMENT_TYPES)[number]["id"];
 
 type RequestListFilter = "all" | "pending" | "complete";
+
+function requestedAtMs(request: DocumentRequest): number {
+  return request.requestedAt?.seconds != null ? request.requestedAt.seconds * 1000 : 0;
+}
+
+function completedAtMs(request: DocumentRequest): number {
+  if (request.completedAt?.seconds != null) return request.completedAt.seconds * 1000;
+  return requestedAtMs(request);
+}
 
 function DocumentsPageContent() {
   const searchParams = useSearchParams();
@@ -380,8 +389,20 @@ function DocumentsPageContent() {
     }
   };
 
-  const pendingRequests = documentRequests.filter((req) => req.status === "pending");
-  const completedRequests = documentRequests.filter((req) => req.status === "complete");
+  const pendingRequests = useMemo(
+    () =>
+      [...documentRequests]
+        .filter((req) => req.status === "pending")
+        .sort((a, b) => requestedAtMs(b) - requestedAtMs(a)),
+    [documentRequests]
+  );
+  const completedRequests = useMemo(
+    () =>
+      [...documentRequests]
+        .filter((req) => req.status === "complete")
+        .sort((a, b) => completedAtMs(b) - completedAtMs(a)),
+    [documentRequests]
+  );
 
   useEffect(() => {
     setPendingPage(1);
