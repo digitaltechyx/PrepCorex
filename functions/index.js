@@ -321,6 +321,10 @@ exports.sendInvoiceReminders = functions.pubsub
   .schedule("every 1 hours")
   .timeZone(TZ_NEW_JERSEY)
   .onRun(async () => {
+  // Disabled: PrepCorex / CRM invoice reminder + late-fee emails paused.
+  console.log("[Invoice automation] sendInvoiceReminders disabled — skipping.");
+  return null;
+
   const db = admin.firestore();
   const now = Date.now();
   const runMetrics = {
@@ -555,30 +559,12 @@ exports.onClientInvoiceCreated = functions.firestore
       console.error("CRM invoice sync mirror failed:", userId, invoiceId, err);
     }
 
-    if (invoice.status !== "pending") return null;
-    if (invoice.invoiceCreatedEmailSentAt) return null;
-
-    const smtp = createSmtpTransporter(nodemailer);
-    if (!smtp) {
-      console.warn("Client invoice created: SMTP not configured, skipping email.");
-      return null;
-    }
-
-    try {
-      await smtp.transporter.verify();
-      const result = await sendClientInvoiceCreatedEmail(
-        admin.firestore(),
-        smtp.transporter,
-        smtp.config,
-        userId,
-        invoiceId
-      );
-      if (result.sent) {
-        console.log("Client invoice created email sent:", userId, invoiceId);
-      }
-    } catch (err) {
-      console.error("Client invoice created email failed:", userId, invoiceId, err);
-    }
+    // Disabled: client invoice created emails paused (CRM sync still runs above).
+    console.log(
+      "[Invoice automation] onClientInvoiceCreated email disabled — sync only:",
+      userId,
+      invoiceId
+    );
     return null;
   });
 
@@ -600,19 +586,8 @@ exports.sendClientInvoiceReminders = functions.pubsub
   .schedule("every 1 hours")
   .timeZone(TZ_NEW_JERSEY)
   .onRun(async () => {
-    const smtp = createSmtpTransporter(nodemailer);
-    if (!smtp) {
-      console.warn("Client invoice reminders: SMTP not configured, skipping.");
-      return null;
-    }
-
-    try {
-      await smtp.transporter.verify();
-      const metrics = await runClientInvoiceReminders(admin.firestore(), smtp.transporter, smtp.config);
-      console.log("[Client invoice automation metrics]", JSON.stringify(metrics));
-    } catch (err) {
-      console.error("Client invoice reminders failed:", err);
-    }
+    // Disabled: PrepCorex client invoice reminder / late-fee emails paused.
+    console.log("[Invoice automation] sendClientInvoiceReminders disabled — skipping.");
     return null;
   });
 

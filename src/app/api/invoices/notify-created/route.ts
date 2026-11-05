@@ -4,7 +4,6 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/lib/firebase-admin";
-import { notifyClientInvoiceCreated } from "@/lib/client-invoice-email-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -51,21 +50,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const body = await request.json();
-    const userId = String(body.userId || "").trim();
-    const invoiceId = String(body.invoiceId || "").trim();
-    if (!userId || !invoiceId) {
-      return NextResponse.json({ error: "userId and invoiceId are required." }, { status: 400 });
-    }
-
-    const result = await notifyClientInvoiceCreated({ userId, invoiceId });
-    return NextResponse.json({ success: true, ...result });
-  } catch (error) {
-    console.error("notify-created failed:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to notify invoice created." },
-      { status: 500 }
-    );
-  }
+  // Disabled: PrepCorex client invoice created emails paused.
+  return NextResponse.json({
+    success: true,
+    sent: false,
+    reason: "invoice_emails_disabled",
+  });
 }

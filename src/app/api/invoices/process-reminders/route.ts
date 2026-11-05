@@ -32,6 +32,14 @@ async function handleRequest(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Disabled: PrepCorex client invoice reminder / late-fee emails paused.
+  return NextResponse.json({
+    success: true,
+    actions: 0,
+    results: [],
+    reason: "invoice_emails_disabled",
+  });
+
   try {
     const db = adminDb();
     const usersSnapshot = await db.collection("users").get();

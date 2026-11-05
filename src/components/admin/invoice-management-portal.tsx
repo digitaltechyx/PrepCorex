@@ -340,7 +340,9 @@ export function InvoiceManagementPortal() {
   const emailLogBackfillRunningRef = useRef<boolean>(false);
   const emailLogBackfilledKeysRef = useRef<Set<string>>(new Set());
   const OVERDUE_WORKFLOW_THROTTLE_MS = 15 * 60 * 1000; // 15 minutes – prevent duplicate emails
-  const enableClientInvoiceAutomation = process.env.NEXT_PUBLIC_ENABLE_CLIENT_INVOICE_AUTOMATION === "true";
+  // Automated invoice emails (reminders / late fee / updates) paused.
+  const enableClientInvoiceAutomation = false;
+  const invoiceAutomatedEmailsDisabled = true;
 
   const toBase64 = (buffer: ArrayBuffer) => {
     const bytes = new Uint8Array(buffer);
@@ -1258,6 +1260,10 @@ Prep Services FBA Team`;
       logType: "discount_update" | "resend";
     }
   ) => {
+    if (invoiceAutomatedEmailsDisabled) {
+      console.log("[Invoice automation] update/late-fee email disabled:", options.reason);
+      return;
+    }
     if (!user || !invoice.clientEmail) {
       throw new Error("Missing user or client email.");
     }

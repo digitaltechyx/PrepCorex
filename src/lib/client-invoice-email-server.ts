@@ -31,6 +31,9 @@ export async function sendClientInvoiceEmail(input: {
   kind: ClientInvoiceEmailKind;
   grandTotalOverride?: number;
 }): Promise<{ sent: boolean; reason?: string }> {
+  // Disabled: PrepCorex client invoice emails (created / reminders / late fee) paused.
+  return { sent: false, reason: "invoice_emails_disabled" };
+
   const db = adminDb();
   const ref = db.collection("users").doc(input.userId).collection("invoices").doc(input.invoiceId);
   const snap = await ref.get();
