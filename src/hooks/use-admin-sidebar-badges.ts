@@ -158,6 +158,16 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   });
   const recomputePendingRequestsCountRef = useRef<() => void>(() => {});
 
+  /** Tear down expensive collectionGroup listeners while the admin tab is in the background. */
+  const [tabVisible, setTabVisible] = useState(() =>
+    typeof document === "undefined" ? true : document.visibilityState !== "hidden"
+  );
+  useEffect(() => {
+    const onVis = () => setTabVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
   const pendingUsersCount = useMemo(
     () => managedUsers.filter((user) => user.status === "pending").length,
     [managedUsers]
@@ -193,7 +203,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
   );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !tabVisible) return;
 
     let cancelled = false;
 
@@ -549,16 +559,14 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       onListenerError("ebayOrders")
     );
 
-    const onVis = () => {
-      if (document.visibilityState === "visible") void refreshCounts();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    const interval = setInterval(() => void refreshCounts(), 60000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void refreshCounts();
+    }, 60000);
 
     return () => {
       cancelled = true;
       unsubAuth();
-      document.removeEventListener("visibilitychange", onVis);
       clearInterval(interval);
       unsub1();
       unsub2();
@@ -579,7 +587,7 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       unsub8();
       unsub9();
     };
-  }, [enabled]);
+  }, [enabled, tabVisible]);
 
   useEffect(() => {
     recomputeMarketplaceCountsRef.current();

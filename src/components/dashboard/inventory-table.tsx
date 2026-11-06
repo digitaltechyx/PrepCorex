@@ -1099,23 +1099,37 @@ export function InventoryTable({
     effectiveUserId ? inboundBatchesPath(effectiveUserId) : ""
   );
 
-  // Collect every known lot date (receive / restock / inbound) so depleted lots still show as 0 units.
+  // Receive/restock expiry lots: load Firestore once per user. Do NOT re-getDocs on every
+  // inventoryRequests snapshot — that was Query Insights #22 (~44M reads on inboundReceiveLogs).
+  const receiveExpiryLotsCacheRef = useRef<{
+    userId: string;
+    map: Map<string, Set<string>>;
+  } | null>(null);
+
   useEffect(() => {
     if (!effectiveUserId) {
+      receiveExpiryLotsCacheRef.current = null;
       setKnownExpiriesByKey(new Map());
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      const map = new Map<string, Set<string>>();
-      const add = (key: string | undefined | null, expiryRaw: unknown) => {
-        const k = String(key || "").trim();
-        const expiry = expiryBatchIso(expiryRaw);
-        if (!k || !expiry) return;
-        if (!map.has(k)) map.set(k, new Set());
-        map.get(k)!.add(expiry);
-      };
 
+    const add = (
+      map: Map<string, Set<string>>,
+      key: string | undefined | null,
+      expiryRaw: unknown
+    ) => {
+      const k = String(key || "").trim();
+      const expiry = expiryBatchIso(expiryRaw);
+      if (!k || !expiry) return;
+      if (!map.has(k)) map.set(k, new Set());
+      map.get(k)!.add(expiry);
+    };
+
+    const publish = (base: Map<string, Set<string>>) => {
+      const map = new Map<string, Set<string>>();
+      for (const [key, set] of base) {
+        map.set(key, new Set(set));
+      }
       for (const req of inventoryRequests) {
         const sku = String((req as InventoryRequest & { sku?: string }).sku || "")
           .trim()
@@ -1124,11 +1138,26 @@ export function InventoryTable({
         const productId = String(
           (req as InventoryRequest & { productId?: string }).productId || ""
         ).trim();
-        add(productId, req.expiryDate);
-        if (sku) add(`sku:${sku}`, req.expiryDate);
-        if (name) add(`name:${name}`, req.expiryDate);
+        add(map, productId, req.expiryDate);
+        if (sku) add(map, `sku:${sku}`, req.expiryDate);
+        if (name) add(map, `name:${name}`, req.expiryDate);
       }
+      const next = new Map<string, string[]>();
+      for (const [key, set] of map) {
+        next.set(key, Array.from(set).sort());
+      }
+      setKnownExpiriesByKey(next);
+    };
 
+    const cached = receiveExpiryLotsCacheRef.current;
+    if (cached?.userId === effectiveUserId) {
+      publish(cached.map);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const base = new Map<string, Set<string>>();
       try {
         const { getDocs, collection: fsCollection } = await import("firebase/firestore");
         const [logsSnap, restockSnap] = await Promise.all([
@@ -1144,9 +1173,9 @@ export function InventoryTable({
           };
           const sku = String(row.sku || "").trim().toLowerCase();
           const name = String(row.productName || "").trim().toLowerCase();
-          add(row.inventoryId, row.expiry);
-          if (sku) add(`sku:${sku}`, row.expiry);
-          if (name) add(`name:${name}`, row.expiry);
+          add(base, row.inventoryId, row.expiry);
+          if (sku) add(base, `sku:${sku}`, row.expiry);
+          if (name) add(base, `name:${name}`, row.expiry);
         }
         for (const d of restockSnap.docs) {
           const row = d.data() as {
@@ -1157,21 +1186,19 @@ export function InventoryTable({
           };
           const sku = String(row.sku || "").trim().toLowerCase();
           const name = String(row.productName || "").trim().toLowerCase();
-          add(row.productId, row.expiryDate);
-          if (sku) add(`sku:${sku}`, row.expiryDate);
-          if (name) add(`name:${name}`, row.expiryDate);
+          add(base, row.productId, row.expiryDate);
+          if (sku) add(base, `sku:${sku}`, row.expiryDate);
+          if (name) add(base, `name:${name}`, row.expiryDate);
         }
       } catch (err) {
         console.warn("[inventory] known expiry lot load failed", err);
       }
 
       if (cancelled) return;
-      const next = new Map<string, string[]>();
-      for (const [key, set] of map) {
-        next.set(key, Array.from(set).sort());
-      }
-      setKnownExpiriesByKey(next);
+      receiveExpiryLotsCacheRef.current = { userId: effectiveUserId, map: base };
+      publish(base);
     })();
+
     return () => {
       cancelled = true;
     };

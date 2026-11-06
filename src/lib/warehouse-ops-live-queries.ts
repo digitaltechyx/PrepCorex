@@ -39,6 +39,8 @@ type UseWarehouseClientDocsLiveInput = {
    * Set false for inbound inventory so receiving matches admin Notifications (all clients).
    */
   matchWarehouseClients?: boolean;
+  /** When false, unsubscribe all listeners (e.g. background tab). */
+  enabled?: boolean;
 };
 
 /**
@@ -53,6 +55,7 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
     clients,
     clientsLoading,
     matchWarehouseClients = true,
+    enabled = true,
   } = input;
   const [docs, setDocs] = useState<LiveFirestoreDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +92,7 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
 
   // Collection-group listener (fast path when indexes + rules allow).
   useEffect(() => {
-    if (!warehouse || clientsLoading || usePerUser) return;
+    if (!enabled || !warehouse || clientsLoading || usePerUser) return;
 
     setLoading(true);
     setSyncError(null);
@@ -114,11 +117,11 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
     );
 
     return () => unsub();
-  }, [groupQuery, warehouse, clientsLoading, usePerUser, subcollection]);
+  }, [enabled, groupQuery, warehouse, clientsLoading, usePerUser, subcollection]);
 
   // Per-user fallback listeners (works without collection-group indexes).
   useEffect(() => {
-    if (!warehouse || clientsLoading || !usePerUser) return;
+    if (!enabled || !warehouse || clientsLoading || !usePerUser) return;
 
     if (eligibleClientIds.length === 0) {
       setDocs([]);
@@ -159,6 +162,7 @@ export function useWarehouseClientDocsLive(input: UseWarehouseClientDocsLiveInpu
 
     return () => unsubs.forEach((u) => u());
   }, [
+    enabled,
     warehouse,
     clientsLoading,
     usePerUser,

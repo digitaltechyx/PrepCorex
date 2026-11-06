@@ -83,14 +83,17 @@ function inventoryDocToProductMap(
   return map;
 }
 
-function useWarehouseCartonsLive(warehouseId: string | undefined) {
+function useWarehouseCartonsLive(warehouseId: string | undefined, enabled = true) {
   const [cartons, setCartons] = useState<WarehouseCartonDoc[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!warehouseId) {
-      setCartons([]);
-      setLoading(false);
+    if (!enabled || !warehouseId) {
+      if (!enabled) setLoading(false);
+      else {
+        setCartons([]);
+        setLoading(false);
+      }
       return;
     }
     setLoading(true);
@@ -108,19 +111,22 @@ function useWarehouseCartonsLive(warehouseId: string | undefined) {
       }
     );
     return () => unsub();
-  }, [warehouseId]);
+  }, [warehouseId, enabled]);
 
   return { cartons, loading, syncError: null as string | null };
 }
 
-function useWarehousePalletsLive(warehouseId: string | undefined) {
+function useWarehousePalletsLive(warehouseId: string | undefined, enabled = true) {
   const [pallets, setPallets] = useState<WarehousePalletDoc[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!warehouseId) {
-      setPallets([]);
-      setLoading(false);
+    if (!enabled || !warehouseId) {
+      if (!enabled) setLoading(false);
+      else {
+        setPallets([]);
+        setLoading(false);
+      }
       return;
     }
     setLoading(true);
@@ -138,12 +144,12 @@ function useWarehousePalletsLive(warehouseId: string | undefined) {
       }
     );
     return () => unsub();
-  }, [warehouseId]);
+  }, [warehouseId, enabled]);
 
   return { pallets, loading };
 }
 
-function useClientInventoryLive(clientUserIds: string[]) {
+function useClientInventoryLive(clientUserIds: string[], enabled = true) {
   const [productMaps, setProductMaps] = useState<Map<string, ClientProductMap>>(new Map());
   const [inventoryByUser, setInventoryByUser] = useState<
     Map<string, Array<Record<string, unknown>>>
@@ -151,7 +157,8 @@ function useClientInventoryLive(clientUserIds: string[]) {
   const key = clientUserIds.slice().sort().join(",");
 
   useEffect(() => {
-    if (clientUserIds.length === 0) {
+    if (!enabled || clientUserIds.length === 0) {
+      if (!enabled) return;
       setProductMaps(new Map());
       setInventoryByUser(new Map());
       return;
@@ -177,7 +184,7 @@ function useClientInventoryLive(clientUserIds: string[]) {
       })
     );
     return () => unsubs.forEach((u) => u());
-  }, [key, clientUserIds]);
+  }, [key, clientUserIds, enabled]);
 
   return { productMaps, inventoryByUser };
 }
@@ -211,6 +218,14 @@ const WarehouseOpsLiveContext = createContext<WarehouseOpsLiveContextValue | und
 export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNode }) {
   const { selectedWarehouse } = useWarehouseOps();
   const { user } = useAuth();
+  const [tabVisible, setTabVisible] = useState(() =>
+    typeof document === "undefined" ? true : document.visibilityState !== "hidden"
+  );
+  useEffect(() => {
+    const onVis = () => setTabVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
   const { clients, loading: clientsLoading } = useWarehouseOpsClients({
     includeUnapproved: true,
   });
@@ -244,8 +259,8 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   );
 
   const { cartons, loading: cartonsLoading, syncError: cartonsSyncError } =
-    useWarehouseCartonsLive(warehouseId);
-  const { pallets, loading: palletsLoading } = useWarehousePalletsLive(warehouseId);
+    useWarehouseCartonsLive(warehouseId, tabVisible);
+  const { pallets, loading: palletsLoading } = useWarehousePalletsLive(warehouseId, tabVisible);
 
   // Older inbound batches only stored lines under inboundBatches — mirror them so receiving sees them.
   // Client SDK create was self-only; API uses admin SDK. Also retry client mirror after rules allow ops create.
@@ -319,6 +334,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     warehouse: selectedWarehouse ?? undefined,
     clients,
     clientsLoading,
+    enabled: tabVisible,
   });
   const {
     docs: inventoryDocs,
@@ -332,6 +348,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     clientsLoading: inboundUsersLoading,
     // Match admin Notifications: all accounts' inbound, not only warehouse-assigned clients.
     matchWarehouseClients: false,
+    enabled: tabVisible,
   });
   const {
     docs: returnDocs,
@@ -343,15 +360,19 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     warehouse: selectedWarehouse ?? undefined,
     clients,
     clientsLoading,
+    enabled: tabVisible,
   });
 
   const [cycleCountOpen, setCycleCountOpen] = useState(0);
   const [cycleLoading, setCycleLoading] = useState(true);
 
   useEffect(() => {
-    if (!cycleQuery) {
-      setCycleCountOpen(0);
-      setCycleLoading(false);
+    if (!tabVisible || !cycleQuery) {
+      if (!tabVisible) setCycleLoading(false);
+      else {
+        setCycleCountOpen(0);
+        setCycleLoading(false);
+      }
       return;
     }
     setCycleLoading(true);
@@ -371,7 +392,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
       }
     );
     return () => unsub();
-  }, [cycleQuery]);
+  }, [cycleQuery, tabVisible]);
 
   const productMapClientIds = useMemo(() => {
     if (!selectedWarehouse) return [];
@@ -397,7 +418,7 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
   }, [productMapClientIds, legacyClientIds]);
 
   const { productMaps, inventoryByUser: legacyInventoryByUser } =
-    useClientInventoryLive(inventoryListenerClientIds);
+    useClientInventoryLive(inventoryListenerClientIds, tabVisible);
 
   const liveLoading =
     clientsLoading ||

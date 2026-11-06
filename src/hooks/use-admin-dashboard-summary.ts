@@ -98,7 +98,11 @@ export function useAdminDashboardSummary(input: {
   useEffect(() => {
     if (!input.enabled || !input.adminUid) return;
 
-    const interval = setInterval(() => void refresh(), 45000);
+    // 2 min when visible only — was every 45s including background tabs (heavy CG scans).
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void refresh();
+    }, 120000);
     const onVis = () => {
       if (document.visibilityState === "visible") void refresh();
     };
