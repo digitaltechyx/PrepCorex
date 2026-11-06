@@ -780,7 +780,9 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
               </div>
             </div>
             {r.details ? (
-              <p className="break-words text-xs text-muted-foreground">{r.details}</p>
+              <p className="whitespace-pre-line break-words text-xs text-muted-foreground" title={r.details}>
+                {r.details}
+              </p>
             ) : null}
             <p className="truncate text-[11px] text-muted-foreground">By {r.user}</p>
           </div>
@@ -840,7 +842,7 @@ function HistoryTable({ rows }: { rows: InventoryHistoryRow[] }) {
                       {formatQtyCell(r.qtyAfter)}
                     </TableCell>
                     <TableCell
-                      className="max-w-[280px] break-words py-2 text-xs text-muted-foreground"
+                      className="max-w-[360px] whitespace-pre-line break-words py-2 text-xs text-muted-foreground"
                       title={r.details || undefined}
                     >
                       {r.details || "—"}
