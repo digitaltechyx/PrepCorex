@@ -600,12 +600,14 @@ function changeLogQtyDelta(log: InventoryChangeLog): number {
 }
 
 /**
- * One history row per outbound (like production) — edit/restore stay in Details.
- * Details use numbered bullets:
+ * One history row per outbound (like production) — edit/ship/cancel stay in Details.
+ * Details use numbered bullets (one per line):
  *   1. Nov 4 outbound scheduled 98 units
  *   2. Nov 5 outbound edited 98 units → 20 units · 78 units restored
  *   3. Nov 5 outbound shipped 20 units
- * Cancel is special: keep schedule row + one "Outbound cancelled — restored" row.
+ * Cancel:
+ *   1. Nov 4 outbound scheduled 98 units
+ *   2. Nov 5 outbound cancelled 98 units restored
  */
 const OUTBOUND_LIFECYCLE_EVENT_TYPES = new Set([
   "outbound_awaiting_ship",
@@ -613,6 +615,7 @@ const OUTBOUND_LIFECYCLE_EVENT_TYPES = new Set([
   "outbound_shipped",
   "outbound_line_reserved",
   "outbound_line_restored",
+  "outbound_restored",
 ]);
 
 function outboundLifecycleGroupKey(log: InventoryChangeLog): string | null {
@@ -626,7 +629,7 @@ function outboundLifecycleGroupKey(log: InventoryChangeLog): string | null {
 }
 
 type OutboundLifecycleStep = {
-  kind: "scheduled" | "edited" | "shipped";
+  kind: "scheduled" | "edited" | "shipped" | "cancelled";
   at: number;
   units?: number;
   fromUnits?: number;
@@ -636,7 +639,7 @@ type OutboundLifecycleStep = {
 };
 
 type OutboundLifecycleFold = {
-  /** Net stock delta for the single history row (usually −finalUnits). */
+  /** Net stock delta for the single history row (usually −finalUnits; 0 if cancelled). */
   netQty: number;
   originalUnits: number;
   finalUnits: number;
@@ -645,6 +648,7 @@ type OutboundLifecycleFold = {
   lotBreakdown: string | null;
   /** Row Date/Time — last timeline step (never before a later edit). */
   displayTimestamp: number;
+  cancelled?: boolean;
 };
 
 type OutboundLifecyclePlan = {
@@ -710,9 +714,13 @@ function buildOutboundLifecyclePlan(
     if (!primary?.id) continue;
 
     const reqId = String(primary.shipmentRequestId ?? "").trim();
-    const isCancelled = Boolean(reqId && options?.cancelledRequestIds?.has(reqId));
-    // Cancelled requests: do not fold — schedule + restore stay as separate rows.
-    if (isCancelled) continue;
+    const cancelRestores = group
+      .filter((l) => l.eventType === "outbound_restored" && changeLogQtyDelta(l) !== 0)
+      .slice()
+      .sort((a, b) => toTimestamp(a.at) - toTimestamp(b.at));
+    const isCancelled =
+      cancelRestores.length > 0 ||
+      Boolean(reqId && options?.cancelledRequestIds?.has(reqId));
 
     const edits = group
       .filter(
@@ -724,9 +732,9 @@ function buildOutboundLifecyclePlan(
       .slice()
       .sort((a, b) => toTimestamp(a.at) - toTimestamp(b.at));
 
-    // Fold when there are line edits OR the request was dispatched (single Shipped row).
+    // Fold when edited, shipped, or cancelled (single row; story lives in Details).
     const isDispatched = Boolean(reqId && options?.dispatchedRequestIds?.has(reqId));
-    if (edits.length === 0 && !isDispatched) continue;
+    if (edits.length === 0 && !isDispatched && !isCancelled) continue;
 
     let units = Math.abs(changeLogQtyDelta(primary));
     if (units <= 0) {
@@ -769,7 +777,26 @@ function buildOutboundLifecyclePlan(
 
     const finalUnits = units;
     let displayTimestamp = Math.max(0, ...steps.map((s) => s.at || 0), toTimestamp(primary.at));
-    if (isDispatched) {
+    let cancelled = false;
+
+    if (isCancelled && cancelRestores.length > 0) {
+      cancelled = true;
+      const restore = cancelRestores[cancelRestores.length - 1]!;
+      const restoreUnits = Math.abs(changeLogQtyDelta(restore)) || originalUnits;
+      const cancelAt = Math.max(toTimestamp(restore.at), toTimestamp(primary.at));
+      steps.push({
+        kind: "cancelled",
+        at: cancelAt,
+        units: restoreUnits,
+      });
+      // Row Date/Time stays on the original schedule day; cancel day lives in Details only.
+      displayTimestamp = toTimestamp(primary.at) || displayTimestamp;
+      for (const r of cancelRestores) {
+        if (r.id) skipIds.add(String(r.id));
+        const reason = cancelReasonFromChangeLogDetails(r.details);
+        if (reason && !reasons.includes(reason)) reasons.push(reason);
+      }
+    } else if (isDispatched) {
       // Admin ship date can be earlier than a later edit write-time — never show
       // "shipped" before the last schedule/edit step in the bullet timeline.
       const adminShipAt = options?.shipTimestampForRequest?.(reqId) ?? 0;
@@ -792,6 +819,10 @@ function buildOutboundLifecyclePlan(
     let netQty = 0;
     for (const l of group) {
       if (l.eventType === "outbound_line_pack_updated") continue;
+      if (cancelled && l.eventType === "outbound_restored") {
+        netQty += changeLogQtyDelta(l);
+        continue;
+      }
       // Skip extra zero/non-primary ship logs; include primary + edits.
       if (
         (l.eventType === "outbound_dispatch" || l.eventType === "outbound_shipped") &&
@@ -811,11 +842,13 @@ function buildOutboundLifecyclePlan(
         // Awaiting already reserved; ignore duplicate debit on dispatch.
         continue;
       }
+      if (l.eventType === "outbound_restored") continue;
       netQty += changeLogQtyDelta(l);
     }
-    // If primary was the only debit and edits restored, net is correct.
-    // Prefer −finalUnits when dispatched and net looks like full original debit without edits applied.
-    if (isDispatched && edits.length > 0) {
+    if (cancelled) {
+      // Schedule −N + restore +N → no lasting stock move on the single row.
+      netQty = 0;
+    } else if (isDispatched && edits.length > 0) {
       netQty = -finalUnits;
     } else if (isDispatched && edits.length === 0 && netQty === 0) {
       netQty = -finalUnits;
@@ -824,7 +857,11 @@ function buildOutboundLifecyclePlan(
     // Hide non-primary stock debits that would double-count (e.g. ship log when awaiting exists).
     for (const l of group) {
       if (!l.id || String(l.id) === String(primary.id)) continue;
-      if (l.eventType === "outbound_line_reserved" || l.eventType === "outbound_line_restored") {
+      if (
+        l.eventType === "outbound_line_reserved" ||
+        l.eventType === "outbound_line_restored" ||
+        l.eventType === "outbound_restored"
+      ) {
         continue; // already in skipIds when nonzero
       }
       if (
@@ -839,11 +876,12 @@ function buildOutboundLifecyclePlan(
     byPrimaryId.set(String(primary.id), {
       netQty,
       originalUnits,
-      finalUnits,
+      finalUnits: cancelled ? 0 : finalUnits,
       steps,
       reasons,
       lotBreakdown: lotBreakdownFromChangeLog(primary),
       displayTimestamp,
+      cancelled,
     });
   }
 
@@ -874,6 +912,8 @@ function formatOutboundLifecycleDetails(input: {
       lines.push(line);
     } else if (step.kind === "shipped") {
       lines.push(`${prefix} outbound shipped ${step.units ?? 0} units`);
+    } else if (step.kind === "cancelled") {
+      lines.push(`${prefix} outbound cancelled ${step.units ?? 0} units restored`);
     }
     stepNo += 1;
   }
@@ -946,7 +986,7 @@ function outboundEventSortKey(e: RawEvent): number {
   // Same request: schedule → edit → cancel restore → ship
   if (e.event === "Outbound Scheduled") return 10;
   if (e.event === "Outbound edited") return 20;
-  if (e.event === "Outbound cancelled — restored") return 30;
+  if (e.event === "Outbound cancelled" || e.event === "Outbound cancelled — restored") return 30;
   if (e.event === "Outbound shipped" || e.event === "Shipped") return 40;
   if (e.outboundLinkKind === "reserve") return 10;
   if (e.outboundLinkKind === "dispatch") return 40;
@@ -1423,9 +1463,11 @@ export function buildInventoryHistory(
     const eventLabel = packDetailsChange
       ? "Pack details change"
       : lifecycleFold
-        ? lifecycleDispatched
-          ? "Shipped"
-          : "Outbound Scheduled"
+        ? lifecycleFold.cancelled
+          ? "Outbound cancelled"
+          : lifecycleDispatched
+            ? "Shipped"
+            : "Outbound Scheduled"
         : log.eventType === "outbound_awaiting_ship"
           ? "Outbound Scheduled"
           : log.eventType === "outbound_restored"
@@ -1512,18 +1554,12 @@ export function buildInventoryHistory(
           shipmentRequestId: log.shipmentRequestId,
         });
       }
-      // Cancel: schedule + one restore row (not folded). Clear bullet wording.
-      if (log.eventType === "outbound_awaiting_ship" && requestCancelled) {
-        const units = Math.abs(Number(log.qtyChange) || 0);
-        const date = shortHistoryDate(toTimestamp(log.at));
-        return `${date ? `1. ${date}` : "1."} outbound scheduled ${units} units`;
-      }
       if (log.eventType === "outbound_restored") {
         const units = Math.abs(Number(log.qtyChange) || 0);
         const date = shortHistoryDate(toTimestamp(log.at));
         const reason = cancelReasonFromChangeLogDetails(log.details);
         const lines = [
-          `${date ? `2. ${date}` : "2."} outbound cancelled ${units} units restored`,
+          `${date ? `1. ${date}` : "1."} outbound cancelled ${units} units restored`,
         ];
         if (reason) {
           lines.push(
@@ -1550,9 +1586,11 @@ export function buildInventoryHistory(
     const isPackLayoutOnly = packDetailsChange;
 
     const historyEventType = lifecycleFold
-      ? lifecycleDispatched
-        ? ("shipped" as const)
-        : ("edited" as const)
+      ? lifecycleFold.cancelled
+        ? ("restock" as const)
+        : lifecycleDispatched
+          ? ("shipped" as const)
+          : ("edited" as const)
       : log.eventType === "outbound_line_restored" || log.eventType === "outbound_line_reserved"
         ? ("edited" as const)
         : log.eventType === "outbound_restored" ||
