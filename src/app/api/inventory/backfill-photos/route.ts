@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
@@ -28,6 +32,17 @@ function collectRawImageUrls(data: {
  * Also migrates legacy receive photos that were stored on product imageUrls.
  */
 export async function POST(request: NextRequest) {
+  // Emergency cost containment: this historical repair performed full scans of
+  // inventory, inventoryRequests, inboundReceiveLogs, and every warehouse's
+  // cartons. Keep it disabled by default so stale browser bundles cannot restart
+  // the runaway loop. A future controlled migration must opt in explicitly.
+  if (process.env.ENABLE_INVENTORY_PHOTO_BACKFILL !== "true") {
+    return NextResponse.json(
+      { error: "Inventory photo backfill is disabled." },
+      { status: 410 }
+    );
+  }
+
   try {
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -57,7 +72,12 @@ export async function POST(request: NextRequest) {
     const db = adminDb();
     const invSnap = await db.collection("users").doc(userId).collection("inventory").get();
     const reqSnap = await db.collection("users").doc(userId).collection("inventoryRequests").get();
-    const reqById = new Map(reqSnap.docs.map((d) => [d.id, d.data()]));
+    const reqById = new Map<string, Record<string, unknown>>(
+      reqSnap.docs.map((d: QueryDocumentSnapshot<DocumentData>) => [
+        d.id,
+        d.data() as Record<string, unknown>,
+      ])
+    );
     const reqBySku = new Map<string, Record<string, unknown>>();
     for (const d of reqSnap.docs) {
       const data = d.data();
