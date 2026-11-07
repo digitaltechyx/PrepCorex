@@ -5,7 +5,7 @@ import { Radio, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { InboundReceiveVideoDialog } from "@/components/inventory/inbound-receive-video-dialog";
-import { useWarehouseCameraSessions } from "@/hooks/use-warehouse-camera-sessions";
+import { useWarehouseCameraLiveSessions } from "@/hooks/use-warehouse-camera-sessions";
 import {
   isWarehouseCameraSessionActive,
   warehouseCameraSessionProductLabel,
@@ -17,7 +17,7 @@ export function ActiveReceiveLiveBanner({
 }: {
   clientUserId?: string;
 }) {
-  const { sessions } = useWarehouseCameraSessions(clientUserId);
+  const { sessions } = useWarehouseCameraLiveSessions(clientUserId);
   const [ended, setEnded] = useState<WarehouseCameraSession | null>(null);
   const previousActiveRef = useRef<WarehouseCameraSession | null>(null);
   const receiveSessions = sessions.filter((row) => row.jobType === "receive");

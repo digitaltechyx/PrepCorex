@@ -15,18 +15,29 @@ import {
 const POLL_LIVE_MS = 5_000;
 /** No active live session — still detect new lives, but stop spamming the server. */
 const POLL_IDLE_MS = 30_000;
+/** Reuse on-demand history across tables/dialogs mounted for the same client. */
+const HISTORY_CACHE_MS = 60_000;
 
 type Listener = (sessions: WarehouseCameraSession[]) => void;
 
-type Pool = {
+type LivePool = {
   sessions: WarehouseCameraSession[];
   listeners: Set<Listener>;
   timer: number | null;
-  pollMs: number;
+  inFlight: boolean;
   onVisibility: () => void;
+  user: User;
+  clientUserId?: string;
 };
 
-const pools = new Map<string, Pool>();
+type HistoryEntry = {
+  sessions: WarehouseCameraSession[];
+  loadedAt: number;
+};
+
+const livePools = new Map<string, LivePool>();
+const historyCache = new Map<string, HistoryEntry>();
+const historyLoads = new Map<string, Promise<WarehouseCameraSession[]>>();
 
 function poolKey(userId: string, clientUserId?: string): string {
   return `${userId}:${clientUserId || ""}`;
@@ -40,65 +51,116 @@ function desiredPollMs(sessions: WarehouseCameraSession[]): number {
   return hasActiveLiveSession(sessions) ? POLL_LIVE_MS : POLL_IDLE_MS;
 }
 
-function reschedulePool(pool: Pool, nextMs: number): void {
-  if (pool.pollMs === nextMs && pool.timer != null) return;
-  if (pool.timer != null) window.clearInterval(pool.timer);
-  pool.pollMs = nextMs;
-  pool.timer = window.setInterval(pool.onVisibility, nextMs);
+function scheduleLivePool(key: string, nextMs: number): void {
+  const pool = livePools.get(key);
+  if (!pool) return;
+  if (pool.timer != null) window.clearTimeout(pool.timer);
+  pool.timer = window.setTimeout(() => {
+    const current = livePools.get(key);
+    if (current) current.timer = null;
+    void refreshLivePool(key);
+  }, nextMs);
 }
 
-async function refreshPool(key: string, user: User, clientUserId?: string): Promise<void> {
-  const pool = pools.get(key);
-  if (!pool || document.visibilityState !== "visible") return;
+async function refreshLivePool(key: string): Promise<void> {
+  const pool = livePools.get(key);
+  if (!pool || pool.inFlight) return;
+  if (document.visibilityState !== "visible") {
+    scheduleLivePool(key, POLL_IDLE_MS);
+    return;
+  }
+
+  pool.inFlight = true;
   try {
-    const sessions = await listWarehouseCameraSessions(user, { clientUserId });
-    const current = pools.get(key);
+    const sessions = await listWarehouseCameraSessions(pool.user, {
+      clientUserId: pool.clientUserId,
+      activeOnly: true,
+    });
+    const current = livePools.get(key);
     if (!current) return;
     current.sessions = sessions;
     current.listeners.forEach((listener) => listener(sessions));
-    reschedulePool(current, desiredPollMs(sessions));
   } catch {
-    // Keep the last successful list so a blip does not hide recorded videos.
+    // Keep the last successful live state so a temporary failure does not flicker the banner.
+  } finally {
+    const current = livePools.get(key);
+    if (current) {
+      current.inFlight = false;
+      scheduleLivePool(key, desiredPollMs(current.sessions));
+    }
   }
 }
 
-function subscribePool(
+function subscribeLivePool(
   key: string,
   user: User,
   clientUserId: string | undefined,
   listener: Listener
 ): () => void {
-  let pool = pools.get(key);
+  let pool = livePools.get(key);
   if (!pool) {
     pool = {
       sessions: [],
       listeners: new Set(),
       timer: null,
-      pollMs: POLL_IDLE_MS,
+      inFlight: false,
+      user,
+      clientUserId,
       onVisibility: () => {
-        void refreshPool(key, user, clientUserId);
+        const current = livePools.get(key);
+        if (!current) return;
+        if (document.visibilityState === "visible") {
+          if (current.timer != null) window.clearTimeout(current.timer);
+          current.timer = null;
+          void refreshLivePool(key);
+        }
       },
     };
-    pools.set(key, pool);
-    reschedulePool(pool, POLL_IDLE_MS);
+    livePools.set(key, pool);
     document.addEventListener("visibilitychange", pool.onVisibility);
-    void refreshPool(key, user, clientUserId);
+    void refreshLivePool(key);
   }
 
   pool.listeners.add(listener);
   listener(pool.sessions);
 
   return () => {
-    const current = pools.get(key);
+    const current = livePools.get(key);
     if (!current) return;
     current.listeners.delete(listener);
     if (current.listeners.size > 0) return;
-    if (current.timer != null) window.clearInterval(current.timer);
+    if (current.timer != null) window.clearTimeout(current.timer);
     document.removeEventListener("visibilitychange", current.onVisibility);
-    pools.delete(key);
+    livePools.delete(key);
   };
 }
 
+async function loadHistory(
+  key: string,
+  user: User,
+  clientUserId?: string,
+  force = false
+): Promise<WarehouseCameraSession[]> {
+  const cached = historyCache.get(key);
+  if (!force && cached && Date.now() - cached.loadedAt < HISTORY_CACHE_MS) {
+    return cached.sessions;
+  }
+  const existing = historyLoads.get(key);
+  if (existing) return existing;
+
+  const load = listWarehouseCameraSessions(user, { clientUserId })
+    .then((sessions) => {
+      historyCache.set(key, { sessions, loadedAt: Date.now() });
+      return sessions;
+    })
+    .finally(() => {
+      historyLoads.delete(key);
+    });
+  historyLoads.set(key, load);
+  return load;
+}
+
+/** Recording history is loaded once on demand and shared briefly across consumers. */
 export function useWarehouseCameraSessions(clientUserId?: string, enabled = true) {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<WarehouseCameraSession[]>([]);
@@ -108,7 +170,45 @@ export function useWarehouseCameraSessions(clientUserId?: string, enabled = true
       setSessions([]);
       return;
     }
-    return subscribePool(poolKey(user.uid, clientUserId), user, clientUserId, setSessions);
+    const key = poolKey(user.uid, clientUserId);
+    let cancelled = false;
+    let historyRows: WarehouseCameraSession[] = [];
+    let liveRows: WarehouseCameraSession[] = [];
+    let hadActive = false;
+
+    const publish = () => {
+      if (cancelled) return;
+      const liveIds = new Set(liveRows.map((row) => row.id));
+      setSessions([...liveRows, ...historyRows.filter((row) => !liveIds.has(row.id))]);
+    };
+
+    const unsubscribeLive = subscribeLivePool(
+      key,
+      user,
+      clientUserId,
+      (rows) => {
+        const hasActive = hasActiveLiveSession(rows);
+        liveRows = rows;
+        publish();
+        if (hadActive && !hasActive) {
+          void loadHistory(key, user, clientUserId, true).then((nextHistory) => {
+            historyRows = nextHistory;
+            publish();
+          });
+        }
+        hadActive = hasActive;
+      }
+    );
+
+    void loadHistory(key, user, clientUserId).then((rows) => {
+      historyRows = rows;
+      publish();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeLive();
+    };
   }, [clientUserId, enabled, user]);
 
   const recordedRequestIds = useMemo(
@@ -122,4 +222,25 @@ export function useWarehouseCameraSessions(clientUserId?: string, enabled = true
   );
 
   return { sessions, recordedRequestIds, recordedShipmentIds };
+}
+
+/** Only active live/paused sessions are polled; requests never overlap. */
+export function useWarehouseCameraLiveSessions(clientUserId?: string, enabled = true) {
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<WarehouseCameraSession[]>([]);
+
+  useEffect(() => {
+    if (!user || !enabled) {
+      setSessions([]);
+      return;
+    }
+    return subscribeLivePool(
+      poolKey(user.uid, clientUserId),
+      user,
+      clientUserId,
+      setSessions
+    );
+  }, [clientUserId, enabled, user]);
+
+  return { sessions };
 }

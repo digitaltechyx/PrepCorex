@@ -70,6 +70,7 @@ export async function listWarehouseCameraSessions(
     productReturnId?: string;
     clientUserId?: string;
     jobType?: string;
+    activeOnly?: boolean;
   }
 ): Promise<WarehouseCameraSession[]> {
   const params = new URLSearchParams();
@@ -78,6 +79,7 @@ export async function listWarehouseCameraSessions(
   if (input.productReturnId) params.set("productReturnId", input.productReturnId);
   if (input.clientUserId) params.set("clientUserId", input.clientUserId);
   if (input.jobType) params.set("jobType", input.jobType);
+  if (input.activeOnly) params.set("mode", "active");
   const data = await cameraFetch<{ sessions: WarehouseCameraSession[] }>(
     user,
     `/api/warehouse-camera/sessions?${params.toString()}`

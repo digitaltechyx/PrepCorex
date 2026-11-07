@@ -3,7 +3,7 @@
 Status: **Mobile-camera pilot implementation**  
 Owner: Operations + Engineering  
 Product: PrepCorex / PSF StockFlow  
-Last updated: 2026-08-25
+Last updated: 2026-11-08
 
 ---
 
@@ -28,7 +28,7 @@ This section supersedes older pilot statements below that assume an RTSP camera,
 - For inbound, the client sees **Receiving live now** with the product, SKU, and request ID, and can watch only sessions linked to their account.
 - When receive live stops, Inventory shows **Live session ended for {product/SKU}** until dismissed.
 - After Drive upload, the client can **Watch receiving video** from Inventory / history, and **Watch outbound video** from Shipped orders for pick/pack/dispatch clips.
-- Active recorders send an eight-second heartbeat. Client views refresh every five seconds and hide a live notice after stop or after 30 seconds without a heartbeat.
+- Active recorders send an eight-second heartbeat. Client views poll only `live` / `paused` session metadata every five seconds while active and every 30 seconds while idle; requests never overlap and stop while the tab is hidden. Recording history is loaded separately on demand and briefly cached. Live notices hide after stop or after 30 seconds without a heartbeat.
 - On stop, the complete clip is stored in **IndexedDB on that phone/browser**.
 - PrepCorex asks whether to upload immediately; **Later** leaves the phone copy available on that stage screen and in **Warehouse Ops → Camera gallery**.
 - Confirmed upload uses a resumable browser-to-**admin Google Drive** transfer, avoiding Vercel body/disk limits.

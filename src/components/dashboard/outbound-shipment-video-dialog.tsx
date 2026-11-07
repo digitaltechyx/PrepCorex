@@ -62,6 +62,7 @@ export function OutboundShipmentVideoDialog({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const roomRef = useRef<Room | null>(null);
   const connectedSessionRef = useRef("");
+  const refreshInFlightRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState<WarehouseCameraSession[]>([]);
@@ -107,15 +108,29 @@ export function OutboundShipmentVideoDialog({
     [disconnect, toast, user]
   );
 
-  const refresh = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
+  const refresh = useCallback(async (activeOnly = false) => {
+    if (!user || refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    if (!activeOnly) setLoading(true);
     try {
       const rows = await listWarehouseCameraSessions(user, {
         shipmentRequestId,
         clientUserId,
+        activeOnly,
       });
-      setSessions(rows);
+      setSessions((current) =>
+        activeOnly
+          ? [
+              ...rows,
+              ...current.filter(
+                (row) =>
+                  row.status !== "live" &&
+                  row.status !== "paused" &&
+                  !rows.some((activeRow) => activeRow.id === row.id)
+              ),
+            ]
+          : rows
+      );
       const active = rows.find((row) => isWarehouseCameraSessionActive(row));
       if (active) {
         setWatchingId(null);
@@ -124,13 +139,16 @@ export function OutboundShipmentVideoDialog({
         disconnect();
       }
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Could not load shipment videos",
-        description: error instanceof Error ? error.message : "Try again.",
-      });
+      if (!activeOnly) {
+        toast({
+          variant: "destructive",
+          title: "Could not load shipment videos",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+      }
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (!activeOnly) setLoading(false);
     }
   }, [clientUserId, connectLive, disconnect, shipmentRequestId, toast, user]);
 
@@ -141,9 +159,9 @@ export function OutboundShipmentVideoDialog({
       setPlaybackUrl("");
       return;
     }
-    void refresh();
+    void refresh(false);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible" && !watchingId) void refresh();
+      if (document.visibilityState === "visible" && !watchingId) void refresh(true);
     }, 5000);
     return () => {
       window.clearInterval(timer);

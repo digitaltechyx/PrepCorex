@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("productReturnId")?.trim() || "";
   const requestedClientId =
     request.nextUrl.searchParams.get("clientUserId")?.trim() || "";
+  const activeOnly = request.nextUrl.searchParams.get("mode") === "active";
   const clientUserId = auth.canOperate ? requestedClientId : auth.uid;
 
   if (!clientUserId) {
@@ -57,14 +58,20 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const snap = await adminDb()
-    .collection(WAREHOUSE_CAMERA_SESSIONS_COLLECTION)
-    .where("clientUserId", "==", clientUserId)
-    .limit(100)
-    .get();
+  const sessionsRef = adminDb().collection(WAREHOUSE_CAMERA_SESSIONS_COLLECTION);
+  // Frequent live-state polls only read the small global set of live/paused
+  // sessions. History remains client-scoped and is loaded separately on demand.
+  // Keeping active mode to one indexed field avoids requiring a new composite
+  // index; client access is enforced again below before serialization.
+  const snap = activeOnly
+    ? await sessionsRef.where("status", "in", ["live", "paused"]).limit(100).get()
+    : await sessionsRef.where("clientUserId", "==", clientUserId).limit(100).get();
   const sessions: WarehouseCameraSession[] = snap.docs
     .map((doc: FirebaseFirestore.QueryDocumentSnapshot): WarehouseCameraSession =>
       serializeCameraSession(doc.id, doc.data())
+    )
+    .filter(
+      (session: WarehouseCameraSession) => session.clientUserId === clientUserId
     )
     .filter((session: WarehouseCameraSession) => canAccessCameraSession(auth, session))
     .filter((session: WarehouseCameraSession) => {
