@@ -207,12 +207,13 @@ export async function refreshInboundTrackingsForRequest(
 
 export async function refreshStaleInboundTrackingsForUser(userId: string): Promise<number> {
   const db = getAdminDb();
-  const requestsSnap = await db.collection(`users/${userId}/inventoryRequests`).get();
+  const requestsSnap = await db
+    .collection(`users/${userId}/inventoryRequests`)
+    .where("status", "in", ["pending", "approved"])
+    .get();
   let refreshed = 0;
 
   for (const doc of requestsSnap.docs) {
-    const status = doc.data().status;
-    if (status !== "pending" && status !== "approved") continue;
     const trackings = parseTrackingsField(doc.data().inboundTrackings);
     if (trackings.length === 0) continue;
     const needs = trackings.some((e) => isInboundTrackingStale(e));

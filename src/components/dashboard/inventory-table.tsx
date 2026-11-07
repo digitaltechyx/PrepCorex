@@ -919,6 +919,24 @@ export function InventoryTable({
       .map((s) => `${s}:${byShop[s].slice().sort().join(",")}`)
       .join("|")}`;
     if (shopifyQtyPullRef.current === signature) return;
+    const autoPullKey = `shopify-inventory-auto-pull-v1:${effectiveUserId}`;
+    try {
+      const previous = JSON.parse(sessionStorage.getItem(autoPullKey) || "{}") as {
+        signature?: string;
+        at?: number;
+      };
+      if (
+        previous.signature === signature &&
+        Date.now() - Number(previous.at || 0) < 10 * 60 * 1000
+      ) {
+        shopifyQtyPullRef.current = signature;
+        return;
+      }
+      // Lock before the request so component remounts cannot start another pull.
+      sessionStorage.setItem(autoPullKey, JSON.stringify({ signature, at: Date.now() }));
+    } catch {
+      /* server-side in-flight protection still applies */
+    }
     shopifyQtyPullRef.current = signature;
 
     let cancelled = false;
@@ -936,9 +954,22 @@ export function InventoryTable({
             byShop,
           }),
         });
-        if (!res.ok || cancelled) return;
+        if (!res.ok) {
+          try {
+            sessionStorage.removeItem(autoPullKey);
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        if (cancelled) return;
         // Firestore live listeners will refresh the table after docs update.
       } catch {
+        try {
+          sessionStorage.removeItem(autoPullKey);
+        } catch {
+          /* ignore */
+        }
         // non-fatal — webhook / Manage products refresh remain available
       }
     })();
@@ -1318,6 +1349,16 @@ export function InventoryTable({
   // Refresh stale carrier statuses (> 3 hours) when inventory loads
   useEffect(() => {
     if (!user || !effectiveUserId) return;
+    const refreshKey = `inbound-tracking-refresh-v1:${effectiveUserId}`;
+    try {
+      const last = Number(sessionStorage.getItem(refreshKey) || 0);
+      if (Date.now() - last < 15 * 60 * 1000) return;
+      // Lock before starting so remounts/Strict Mode cannot overlap this request.
+      sessionStorage.setItem(refreshKey, String(Date.now()));
+    } catch {
+      /* server-side cooldown still protects the endpoint */
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -1338,9 +1379,19 @@ export function InventoryTable({
               description: data.message,
             });
           }
+        } else if (!res.ok) {
+          try {
+            sessionStorage.removeItem(refreshKey);
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
-        /* non-blocking */
+        try {
+          sessionStorage.removeItem(refreshKey);
+        } catch {
+          /* non-blocking */
+        }
       }
     })();
     return () => {

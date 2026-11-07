@@ -86,53 +86,20 @@ async function pendingDocs(
     try {
       const snap = await db.collection(collectionId).where("status", "in", ["pending", "Pending"]).get();
       return mapPendingDocs(snap.docs, allowedUserIds, opts);
-    } catch (e1) {
-      console.warn(`[dashboard-summary] pending in-query failed for ${collectionId}, trying full scan:`, e1);
-      try {
-        const snap = await db.collection(collectionId).get();
-        return mapPendingDocs(snap.docs, allowedUserIds, opts);
-      } catch (e2) {
-        console.warn(`[dashboard-summary] pending full scan failed for ${collectionId}:`, e2);
-        return [];
-      }
+    } catch (e) {
+      console.warn(`[dashboard-summary] bounded pending query failed for ${collectionId}:`, e);
+      return [];
     }
   }
 
   try {
     const snap = await db.collectionGroup(collectionId).where("status", "in", ["pending", "Pending"]).get();
     return mapPendingDocs(snap.docs, allowedUserIds);
-  } catch (e1) {
-    console.warn(`[dashboard-summary] pending CG in-query failed for ${collectionId}, trying full CG:`, e1);
+  } catch (e) {
+    // Fail closed rather than turning an index/rules problem into an unbounded scan.
+    console.warn(`[dashboard-summary] bounded pending query failed for ${collectionId}:`, e);
+    return [];
   }
-
-  try {
-    const snap = await db.collectionGroup(collectionId).get();
-    return mapPendingDocs(snap.docs, allowedUserIds);
-  } catch (e2) {
-    console.warn(`[dashboard-summary] pending CG full scan failed for ${collectionId}, trying per-user:`, e2);
-  }
-
-  // Per-user fallback (same resilience as Notifications for dispose/delete).
-  const out: QueryDoc[] = [];
-  const uids = [...allowedUserIds];
-  const chunkSize = 25;
-  for (let i = 0; i < uids.length; i += chunkSize) {
-    const chunk = uids.slice(i, i + chunkSize);
-    const snaps = await Promise.all(
-      chunk.map(async (uid) => {
-        try {
-          return await db.collection(`users/${uid}/${collectionId}`).get();
-        } catch {
-          return null;
-        }
-      })
-    );
-    for (const snap of snaps) {
-      if (!snap) continue;
-      out.push(...mapPendingDocs(snap.docs, allowedUserIds));
-    }
-  }
-  return out;
 }
 
 function mapScopedDocs(
@@ -155,8 +122,8 @@ function mapScopedDocs(
 }
 
 /**
- * Load all docs in a collectionGroup (or top-level) scoped to allowed users.
- * Used for inbound/dispose batches so we can hide lines for partial multi-line batches.
+ * Load actionable batch parents only. Pending-count callers never need historical
+ * completed/cancelled batches, so a failed bounded query must not fall back to a scan.
  */
 async function scopedDocs(
   collectionId: string,
@@ -167,41 +134,27 @@ async function scopedDocs(
 
   if (opts?.topLevelUserIdField) {
     try {
-      const snap = await db.collection(collectionId).get();
+      const snap = await db
+        .collection(collectionId)
+        .where("status", "in", ["pending", "Pending", "partial", "Partial"])
+        .get();
       return mapScopedDocs(snap.docs, allowedUserIds, opts);
     } catch (e) {
-      console.warn(`[dashboard-summary] scoped load failed for ${collectionId}:`, e);
+      console.warn(`[dashboard-summary] bounded actionable query failed for ${collectionId}:`, e);
       return [];
     }
   }
 
   try {
-    const snap = await db.collectionGroup(collectionId).get();
+    const snap = await db
+      .collectionGroup(collectionId)
+      .where("status", "in", ["pending", "Pending", "partial", "Partial"])
+      .get();
     return mapScopedDocs(snap.docs, allowedUserIds);
-  } catch (e1) {
-    console.warn(`[dashboard-summary] scoped CG failed for ${collectionId}, trying per-user:`, e1);
+  } catch (e) {
+    console.warn(`[dashboard-summary] bounded actionable query failed for ${collectionId}:`, e);
+    return [];
   }
-
-  const out: QueryDoc[] = [];
-  const uids = [...allowedUserIds];
-  const chunkSize = 25;
-  for (let i = 0; i < uids.length; i += chunkSize) {
-    const chunk = uids.slice(i, i + chunkSize);
-    const snaps = await Promise.all(
-      chunk.map(async (uid) => {
-        try {
-          return await db.collection(`users/${uid}/${collectionId}`).get();
-        } catch {
-          return null;
-        }
-      })
-    );
-    for (const snap of snaps) {
-      if (!snap) continue;
-      out.push(...mapScopedDocs(snap.docs, allowedUserIds));
-    }
-  }
-  return out;
 }
 
 /**

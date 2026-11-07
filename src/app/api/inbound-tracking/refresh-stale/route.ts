@@ -4,6 +4,35 @@ import { refreshStaleInboundTrackingsForUser } from "@/lib/inbound-tracking-serv
 
 export const dynamic = "force-dynamic";
 
+const REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+const refreshJobs = new Map<string, Promise<number>>();
+const lastRefreshAt = new Map<string, number>();
+
+async function refreshUserOnce(userId: string): Promise<{
+  refreshedRequests: number;
+  cached: boolean;
+}> {
+  const last = lastRefreshAt.get(userId) ?? 0;
+  if (Date.now() - last < REFRESH_COOLDOWN_MS) {
+    return { refreshedRequests: 0, cached: true };
+  }
+
+  const existing = refreshJobs.get(userId);
+  if (existing) {
+    return { refreshedRequests: await existing, cached: true };
+  }
+
+  const job = refreshStaleInboundTrackingsForUser(userId);
+  refreshJobs.set(userId, job);
+  try {
+    const refreshedRequests = await job;
+    lastRefreshAt.set(userId, Date.now());
+    return { refreshedRequests, cached: false };
+  } finally {
+    refreshJobs.delete(userId);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization");
@@ -29,10 +58,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const refreshedRequests = await refreshStaleInboundTrackingsForUser(userId);
+    const { refreshedRequests, cached } = await refreshUserOnce(userId);
     return NextResponse.json({
       success: true,
       refreshedRequests,
+      cached,
       message:
         refreshedRequests > 0
           ? `Refreshed tracking for ${refreshedRequests} request(s).`

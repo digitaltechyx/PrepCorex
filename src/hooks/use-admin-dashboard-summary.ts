@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import type { AdminDashboardFinanceMetrics } from "@/lib/admin-dashboard-finance-server";
 import type { AdminDashboardSummary } from "@/lib/admin-dashboard-summary-server";
@@ -35,6 +35,9 @@ export function useAdminDashboardSummary(input: {
 }) {
   const [summary, setSummary] = useState<AdminDashboardSummary>(EMPTY_SUMMARY);
   const [loading, setLoading] = useState(true);
+  const inFlightKeysRef = useRef(new Set<string>());
+  const lastCompletedAtRef = useRef(0);
+  const lastCompletedKeyRef = useRef("");
 
   const refresh = useCallback(async () => {
     if (!input.enabled || !input.adminUid) {
@@ -42,7 +45,21 @@ export function useAdminDashboardSummary(input: {
       setLoading(false);
       return;
     }
+    const requestKey = [
+      input.adminUid,
+      input.hasDateRange ? input.dateRangeFrom?.toISOString() : "all",
+      input.hasDateRange ? input.dateRangeTo?.toISOString() : "all",
+      input.topClientsDays,
+    ].join(":");
+    if (inFlightKeysRef.current.has(requestKey)) return;
+    if (
+      lastCompletedKeyRef.current === requestKey &&
+      Date.now() - lastCompletedAtRef.current < 60_000
+    ) {
+      return;
+    }
 
+    inFlightKeysRef.current.add(requestKey);
     setLoading(true);
     try {
       let token = await auth.currentUser?.getIdToken();
@@ -76,11 +93,14 @@ export function useAdminDashboardSummary(input: {
       }
       const data = (await res.json()) as AdminDashboardSummary;
       setSummary(data);
+      lastCompletedKeyRef.current = requestKey;
+      lastCompletedAtRef.current = Date.now();
     } catch (error) {
       console.error("[useAdminDashboardSummary]", error);
       // Keep last good summary instead of wiping KPIs to zero on transient auth/network errors.
     } finally {
-      setLoading(false);
+      inFlightKeysRef.current.delete(requestKey);
+      if (inFlightKeysRef.current.size === 0) setLoading(false);
     }
   }, [
     input.enabled,

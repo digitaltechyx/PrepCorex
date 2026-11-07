@@ -4,20 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   collectionGroup,
-  getCountFromServer,
   onSnapshot,
   query,
   where,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import {
   LABEL_API_FEE_PAYMENT_COLLECTION,
   LABEL_WALLET_TOPUP_COLLECTION,
 } from "@/lib/label-billing";
 import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
-import { onAuthStateChanged } from "firebase/auth";
 import { countPendingNotificationItems } from "@/lib/pending-notification-count";
 
 /** Matches ShopifyOrdersPanel unfulfilled filter (not partial/cancelled). */
@@ -217,88 +215,6 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
     };
     recomputePendingRequestsCountRef.current = recomputePendingRequestsCount;
 
-    const refreshPendingRequestsCountFromApi = async () => {
-      try {
-        let token = await auth.currentUser?.getIdToken();
-        if (!token) return;
-        let res = await fetch("/api/admin/pending-requests-count", {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
-        if (res.status === 401) {
-          token = await auth.currentUser?.getIdToken(true);
-          if (!token) return;
-          res = await fetch("/api/admin/pending-requests-count", {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          });
-        }
-        if (!res.ok) return;
-        const data = (await res.json()) as { pendingRequestsCount?: number };
-        if (cancelled) return;
-        const next = Number(data.pendingRequestsCount);
-        if (Number.isFinite(next)) setPendingRequestsCount(next);
-      } catch (err) {
-        console.warn("[AdminSidebarBadges] Pending requests API refresh failed.", err);
-      }
-    };
-
-    const countStatuses = async (collectionName: string, statuses: string[]) => {
-      const counts = await Promise.all(
-        statuses.map(async (status) => {
-          const q = query(collectionGroup(db, collectionName), where("status", "==", status));
-          const snap = await getCountFromServer(q);
-          return snap.data().count || 0;
-        })
-      );
-      return counts.reduce((a, b) => a + b, 0);
-    };
-
-    const refreshCounts = async () => {
-      try {
-        const [
-          shipmentPending,
-          inventoryPending,
-          productReturnPending,
-          disposePending,
-          deletePending,
-          quarantinePending,
-          labelRefundPending,
-          documentPending,
-          invoicePending,
-        ] = await Promise.all([
-          countStatuses("shipmentRequests", ["pending", "Pending"]),
-          countStatuses("inventoryRequests", ["pending", "Pending"]),
-          countStatuses("productReturns", ["pending", "Pending"]),
-          countStatuses("disposeRequests", ["pending", "Pending"]),
-          countStatuses("deleteRequests", ["pending", "Pending"]),
-          countStatuses("quarantineRequests", ["pending", "Pending"]),
-          countStatuses("labelRefundRequests", ["pending", "Pending"]),
-          countStatuses("documentRequests", ["pending", "Pending"]),
-          countStatuses("invoices", ["pending", "Pending"]),
-        ]);
-        void refreshPendingRequestsCountFromApi();
-
-        if (cancelled) return;
-        setShipmentPendingCount(shipmentPending);
-        setInventoryPendingCount(inventoryPending);
-        setProductReturnsPendingCount(productReturnPending);
-        setDisposePendingCount(disposePending);
-        setDeletePendingCount(deletePending);
-        setQuarantinePendingCount(quarantinePending);
-        setLabelRefundPendingCount(labelRefundPending);
-        setPendingDocumentRequestsCount(documentPending);
-        setPendingInvoicesCount(invoicePending);
-      } catch (err) {
-        console.warn("[AdminSidebarBadges] Badge count refresh failed; keeping last counts.", err);
-      }
-    };
-
-    void refreshCounts();
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      if (user) void refreshPendingRequestsCountFromApi();
-    });
-
     const shipmentQ = query(
       collectionGroup(db, "shipmentRequests"),
       where("status", "in", ["pending", "Pending"])
@@ -323,8 +239,15 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       collectionGroup(db, "labelRefundRequests"),
       where("status", "in", ["pending", "Pending"])
     );
-    const inboundBatchesQ = query(collectionGroup(db, "inboundBatches"));
-    const disposeBatchesQ = query(collectionGroup(db, "disposeBatches"));
+    const actionableBatchStatuses = ["pending", "Pending", "partial", "Partial"];
+    const inboundBatchesQ = query(
+      collectionGroup(db, "inboundBatches"),
+      where("status", "in", actionableBatchStatuses)
+    );
+    const disposeBatchesQ = query(
+      collectionGroup(db, "disposeBatches"),
+      where("status", "in", actionableBatchStatuses)
+    );
     const walletTopupQ = query(
       collectionGroup(db, LABEL_WALLET_TOPUP_COLLECTION),
       where("status", "in", ["pending", "Pending"])
@@ -559,15 +482,8 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
       onListenerError("ebayOrders")
     );
 
-    const interval = setInterval(() => {
-      if (document.visibilityState === "hidden") return;
-      void refreshCounts();
-    }, 60000);
-
     return () => {
       cancelled = true;
-      unsubAuth();
-      clearInterval(interval);
       unsub1();
       unsub2();
       unsub3();

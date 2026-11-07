@@ -9,6 +9,10 @@ import { isShopifyStaffCaller } from "@/lib/shopify-inventory-sync";
 
 export const dynamic = "force-dynamic";
 
+const AUTO_PULL_COOLDOWN_MS = 10 * 60 * 1000;
+const activePulls = new Set<string>();
+const lastAutoPullAt = new Map<string, number>();
+
 /**
  * POST: Pull live Shopify quantities into PrepCorex for linked variants.
  * Body: {
@@ -54,7 +58,20 @@ export async function POST(request: NextRequest) {
     body.byShop && typeof body.byShop === "object" && !Array.isArray(body.byShop)
       ? (body.byShop as Record<string, unknown>)
       : null;
+  const pullKey = targetUserId;
+  const automaticPull = Boolean(byShopRaw);
 
+  if (activePulls.has(pullKey)) {
+    return NextResponse.json({ success: true, skipped: true, reason: "already_running" });
+  }
+  if (
+    automaticPull &&
+    Date.now() - (lastAutoPullAt.get(pullKey) ?? 0) < AUTO_PULL_COOLDOWN_MS
+  ) {
+    return NextResponse.json({ success: true, skipped: true, reason: "recently_completed" });
+  }
+
+  activePulls.add(pullKey);
   try {
     const db = adminDb();
     const jobs: Array<{ shop: string; variantIds: string[] }> = [];
@@ -148,10 +165,13 @@ export async function POST(request: NextRequest) {
       updated += result.updated;
     }
 
+    if (automaticPull) lastAutoPullAt.set(pullKey, Date.now());
     return NextResponse.json({ success: true, updated, count, shops: jobs.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[shopify/pull-inventory]", err);
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    activePulls.delete(pullKey);
   }
 }
