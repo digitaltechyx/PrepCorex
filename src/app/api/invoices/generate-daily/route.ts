@@ -58,6 +58,20 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleRequest(request: NextRequest) {
+  // Kill switch: daily 1 PM auto-invoice is stopped. Re-enable only with explicit env + approval.
+  if (process.env.ENABLE_DAILY_AUTO_INVOICE !== "true") {
+    return NextResponse.json(
+      {
+        ok: false,
+        disabled: true,
+        error: "daily_auto_invoice_disabled",
+        message:
+          "Daily auto invoice generation is stopped. Set ENABLE_DAILY_AUTO_INVOICE=true only after explicit approval.",
+      },
+      { status: 410 }
+    );
+  }
+
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

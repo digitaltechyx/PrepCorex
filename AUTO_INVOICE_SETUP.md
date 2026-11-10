@@ -1,5 +1,12 @@
 # Auto Invoice Generation Setup Guide
 
+> **STATUS (2026-11-11): AUTO INVOICE IS STOPPED.**  
+> - `/api/invoices/generate-daily` → `410` unless `ENABLE_DAILY_AUTO_INVOICE=true`  
+> - `/api/invoices/generate-monthly-storage` → `410` unless `ENABLE_MONTHLY_STORAGE_AUTO_INVOICE=true`  
+> Do not re-enable crons without explicit approval.  
+> `vercel.json` in this repo does **not** schedule invoice routes (only eBay auto-sync).  
+> Admin “Generate Storage Invoice (Test)” uses a separate admin-only route and is unchanged.
+
 ## Overview
 
 The auto invoicing feature generates invoices daily at **1:00 PM New Jersey Time** for all users who have shipments on the current day.

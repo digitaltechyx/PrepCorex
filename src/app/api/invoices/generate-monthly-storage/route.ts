@@ -81,6 +81,20 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleRequest(request: NextRequest) {
+  // Kill switch: monthly storage auto-invoice is stopped. Re-enable only with explicit env + approval.
+  if (process.env.ENABLE_MONTHLY_STORAGE_AUTO_INVOICE !== "true") {
+    return NextResponse.json(
+      {
+        ok: false,
+        disabled: true,
+        error: "monthly_storage_auto_invoice_disabled",
+        message:
+          "Monthly storage auto invoice generation is stopped. Set ENABLE_MONTHLY_STORAGE_AUTO_INVOICE=true only after explicit approval.",
+      },
+      { status: 410 }
+    );
+  }
+
   if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
