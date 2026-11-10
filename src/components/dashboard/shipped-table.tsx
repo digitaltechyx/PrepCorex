@@ -2,7 +2,14 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import type { InventoryItem, ShippedItem, ShipmentRequest, RestockHistory } from "@/types";
+import type {
+  InventoryItem,
+  ShippedItem,
+  ShipmentRequest,
+  RestockHistory,
+  UserProfile,
+} from "@/types";
+import { shippedNeedsOutboundInvoice } from "@/lib/invoice-line-catalog";
 import { formatServiceLabel } from "@/types";
 import {
   formatFbaPackDimsForClient,
@@ -261,6 +268,12 @@ export type ShippedTableAdminOptions = {
   getAuthToken: () => Promise<string>;
   onDeleteShippedOrder?: (item: ShippedItem) => Promise<void> | void;
   onCorrected?: () => void;
+  /** After full dispatch — create invoice until one exists. */
+  onCreateInvoice?: (item: ShippedItem) => void;
+  /** Optional client profile fields for invoice header. */
+  clientUser?: Pick<UserProfile, "uid" | "name" | "email" | "phone" | "outboundBilling">;
+  /** When false, show Add services → CRM instead of Create Invoice. */
+  allowPrepcorexCreateInvoice?: boolean;
 };
 
 export function ShippedTable({
@@ -983,6 +996,50 @@ export function ShippedTable({
     setCurrentPage(1);
   }, [searchTerm, dateFilter, statusFilter]);
 
+  const createInvoiceButton = (item: any) => {
+    if (!admin?.onCreateInvoice || item.isRequest || item.status !== "Shipped") return null;
+    const shippedDoc = resolveShippedDoc(item);
+    if (!shippedDoc) return null;
+    const allowCreate = admin.allowPrepcorexCreateInvoice !== false;
+    if (shippedNeedsOutboundInvoice(shippedDoc, { allowPrepcorexCreateInvoice: allowCreate })) {
+      return (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 shrink-0 gap-1 text-xs"
+          title="Create invoice for this shipped order"
+          onClick={() => admin.onCreateInvoice?.(shippedDoc)}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Create Invoice
+        </Button>
+      );
+    }
+    // Lazy import of CRM helper gate via same pending check when Create Invoice is off.
+    if (
+      !allowCreate &&
+      !shippedDoc.invoiceId &&
+      !shippedDoc.crmExternalInvoiceId &&
+      String(shippedDoc.invoiceStatus || "").trim().toLowerCase() === "pending"
+    ) {
+      return (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 shrink-0 gap-1 text-xs"
+          title="Add services and append to CRM draft invoice"
+          onClick={() => admin.onCreateInvoice?.(shippedDoc)}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Add services → CRM
+        </Button>
+      );
+    }
+    return null;
+  };
+
   const deleteShippedButton = (item: any) => {
     if (!admin?.onDeleteShippedOrder || item.isRequest || item.status !== "Shipped") return null;
     const shippedDoc = resolveShippedDoc(item);
@@ -1318,6 +1375,7 @@ export function ShippedTable({
                       <FileText className="h-3 w-3" />
                       Details
                     </Button>
+                    {createInvoiceButton(item)}
                     {(() => {
                       const shipmentId = outboundVideoShipmentId(item as any);
                       if (!shipmentId || !recordedShipmentIds.has(shipmentId)) return null;
@@ -1357,7 +1415,7 @@ export function ShippedTable({
                   <TableHead className="text-xs sm:text-sm hidden md:table-cell">Last restocked</TableHead>
                   <TableHead className="text-xs sm:text-sm">Status</TableHead>
                   <TableHead className="text-xs sm:text-sm text-right">Details</TableHead>
-                  {admin?.onDeleteShippedOrder ? (
+                  {admin?.onDeleteShippedOrder || admin?.onCreateInvoice ? (
                     <TableHead className="text-xs sm:text-sm text-right w-12">Actions</TableHead>
                   ) : null}
             </TableRow>
@@ -1648,14 +1706,19 @@ export function ShippedTable({
                           </Button>
                         </div>
                       </TableCell>
-                      {admin?.onDeleteShippedOrder ? (
-                        <TableCell className="text-right">{deleteShippedButton(item)}</TableCell>
+                      {admin?.onDeleteShippedOrder || admin?.onCreateInvoice ? (
+                        <TableCell className="text-right">
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            {createInvoiceButton(item)}
+                            {deleteShippedButton(item)}
+                          </div>
+                        </TableCell>
                       ) : null}
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                    <TableCell colSpan={admin?.onDeleteShippedOrder ? 13 : 12} className="text-center py-8">
+                    <TableCell colSpan={admin?.onDeleteShippedOrder || admin?.onCreateInvoice ? 13 : 12} className="text-center py-8">
                       <div className="text-xs sm:text-sm text-gray-500">
                         {combinedData.length === 0 ? "No shipped orders or pending requests found." : "No orders match your search criteria."}
                       </div>

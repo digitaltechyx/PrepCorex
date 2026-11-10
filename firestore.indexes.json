@@ -24,6 +24,14 @@
         { "fieldPath": "agentId", "order": "ASCENDING" },
         { "fieldPath": "occurredAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "external_invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "consolidationKey", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

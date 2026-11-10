@@ -1262,6 +1262,10 @@ export async function completeDispatchHandoff(input: {
     warehouseQcPassedAt: serverTimestamp(),
     warehouseQcPassedBy: input.operatorId ?? null,
     warehousePackStockSnapshot: deleteField(),
+    // Create Invoice remains available until admin generates one.
+    invoiceStatus: "pending",
+    invoiceId: null,
+    invoiceNumber: null,
     ...(stored &&
     (input.setTrackingAtDispatch || input.allowDispatchWithoutTracking)
       ? {

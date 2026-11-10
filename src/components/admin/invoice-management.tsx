@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -157,10 +157,16 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
           role="button"
           tabIndex={0}
           className={`cursor-pointer select-none border bg-background text-foreground hover:bg-muted ${className || ""}`}
-          onClick={onClick}
+          onClick={(e) => {
+            // Nested dialog actions must not bubble into the parent invoices dialog.
+            e.preventDefault();
+            e.stopPropagation();
+            onClick();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
+              e.stopPropagation();
               onClick();
             }
           }}
@@ -174,6 +180,22 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       </TooltipContent>
     </Tooltip>
   );
+
+  // Synchronous lock so parent onOpenChange(false) cannot race ahead of child open state.
+  const childInvoiceDialogLockRef = useRef(false);
+  const childInvoiceDialogOpen =
+    isAdditionalChargesDialogOpen ||
+    isDiscountDialogOpen ||
+    isLateFeeDialogOpen ||
+    isViewDialogOpen;
+
+  const lockChildInvoiceDialog = () => {
+    childInvoiceDialogLockRef.current = true;
+  };
+
+  const unlockChildInvoiceDialog = () => {
+    childInvoiceDialogLockRef.current = false;
+  };
   
   // Load all invoices from all users
   const loadInvoices = async () => {
@@ -561,6 +583,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   }, [startDate, endDate]);
 
   const handleViewInvoice = (invoice: Invoice) => {
+    lockChildInvoiceDialog();
     setSelectedInvoice(invoice);
     setDueDateEdit(String(invoice.dueDate || "").trim());
     setIsViewDialogOpen(true);
@@ -637,6 +660,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   };
 
   const openDiscountEditor = (invoice: Invoice) => {
+    lockChildInvoiceDialog();
     setDiscountInvoice(invoice);
     const existingType = ((invoice as any).discountType as "amount" | "percent" | undefined) || "amount";
     const existingValue = (invoice as any).discountValue;
@@ -736,7 +760,17 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   };
 
   const openAdditionalChargesEditor = (invoice: Invoice) => {
-    setAdditionalChargesInvoice(invoice);
+    const userId = String(invoice.userId || selectedUser?.uid || "").trim();
+    if (!userId || !invoice.id) {
+      toast({
+        variant: "destructive",
+        title: "Cannot add charges",
+        description: "Invoice owner is missing. Refresh and try again.",
+      });
+      return;
+    }
+    lockChildInvoiceDialog();
+    setAdditionalChargesInvoice({ ...invoice, userId });
     setChargesDraft(getAdminAdditionalCharges(invoice));
     setNewChargeName("");
     setNewChargeAmount("");
@@ -776,6 +810,15 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
   const handleSaveAdditionalCharges = async () => {
     if (!additionalChargesInvoice?.id) return;
+    const userId = String(additionalChargesInvoice.userId || selectedUser?.uid || "").trim();
+    if (!userId) {
+      toast({
+        variant: "destructive",
+        title: "Cannot save charges",
+        description: "Invoice owner is missing. Refresh and try again.",
+      });
+      return;
+    }
     setIsSavingAdditionalCharges(true);
     try {
       const totals = computeInvoiceTotals(additionalChargesInvoice, {
@@ -784,7 +827,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       await updateDoc(
         doc(
           db,
-          `users/${additionalChargesInvoice.userId}/invoices/${additionalChargesInvoice.id}`
+          `users/${userId}/invoices/${additionalChargesInvoice.id}`
         ),
         {
           adminAdditionalCharges: chargesDraft,
@@ -816,6 +859,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   };
 
   const openLateFeeEditor = (invoice: Invoice) => {
+    lockChildInvoiceDialog();
     setLateFeeInvoice(invoice);
     setLateFeeAmount("");
     setLateFeeReason("");
@@ -1374,8 +1418,26 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       </Card>
 
       {/* User Invoices Detail Dialog */}
-      <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] sm:max-h-[90vh] h-[100dvh] sm:h-auto overflow-y-auto p-4 sm:p-6">
+      <Dialog
+        open={isDetailDialogOpen}
+        onOpenChange={(open) => {
+          // Keep the parent open while Add Charges / Discount / Late Fee / View is open.
+          if (!open && (childInvoiceDialogOpen || childInvoiceDialogLockRef.current)) return;
+          setIsDetailDialogOpen(open);
+        }}
+      >
+        <DialogContent
+          className="max-w-4xl max-h-[90vh] sm:max-h-[90vh] h-[100dvh] sm:h-auto overflow-y-auto p-4 sm:p-6"
+          onPointerDownOutside={(e) => {
+            if (childInvoiceDialogOpen || childInvoiceDialogLockRef.current) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            if (childInvoiceDialogOpen || childInvoiceDialogLockRef.current) e.preventDefault();
+          }}
+          onFocusOutside={(e) => {
+            if (childInvoiceDialogOpen || childInvoiceDialogLockRef.current) e.preventDefault();
+          }}
+        >
           <DialogHeader className="pb-2 sm:pb-4">
             <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
               <Receipt className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -1666,7 +1728,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       </Dialog>
 
       {/* View Invoice Detail Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+      <Dialog
+        open={isViewDialogOpen}
+        onOpenChange={(open) => {
+          setIsViewDialogOpen(open);
+          if (!open) unlockChildInvoiceDialog();
+        }}
+      >
         <DialogContent className="max-w-full sm:max-w-4xl h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader className="pb-2 sm:pb-4">
             <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -2024,12 +2092,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       <Dialog open={isDiscountDialogOpen} onOpenChange={(open) => {
         setIsDiscountDialogOpen(open);
         if (!open) {
+          unlockChildInvoiceDialog();
           setDiscountInvoice(null);
           setDiscountValue("");
           setDiscountType("amount");
         }
       }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg z-[100]" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Apply Discount</DialogTitle>
             <DialogDescription>
@@ -2120,6 +2189,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         onOpenChange={(open) => {
           setIsAdditionalChargesDialogOpen(open);
           if (!open) {
+            unlockChildInvoiceDialog();
             setAdditionalChargesInvoice(null);
             setChargesDraft([]);
             setNewChargeName("");
@@ -2127,7 +2197,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
           }
         }}
       >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-lg max-h-[90vh] overflow-y-auto z-[100]"
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Additional Charges</DialogTitle>
             <DialogDescription>
@@ -2227,12 +2301,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       <Dialog open={isLateFeeDialogOpen} onOpenChange={(open) => {
         setIsLateFeeDialogOpen(open);
         if (!open) {
+          unlockChildInvoiceDialog();
           setLateFeeInvoice(null);
           setLateFeeAmount("");
           setLateFeeReason("");
         }
       }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg z-[100]" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Add Late Fee</DialogTitle>
             <DialogDescription>

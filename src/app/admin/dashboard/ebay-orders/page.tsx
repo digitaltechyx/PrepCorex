@@ -513,13 +513,15 @@ function EbayOrdersContent() {
         }}
         order={quickFulfillOrder}
         ownerUserId={selectedUser?.uid || ""}
+        ownerName={selectedUser ? formatUserDisplayName(selectedUser) : ""}
+        ownerEmail={selectedUser?.email || ""}
         getAuthToken={async () => {
           if (!authUser) throw new Error("Not signed in");
           return authUser.getIdToken();
         }}
         labelHandoff={labelHandoff}
         onCompleted={() => {
-          setQuickFulfillOrder(null);
+          // Keep dialog open for Create Invoice offer; clear order only when dialog closes.
           setLabelHandoff(null);
           void fetchOrders();
         }}

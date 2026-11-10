@@ -63,6 +63,16 @@ import { readProductUnitMeasurements } from "@/lib/box-suggestion";
 import { formatWarehouseDisplayName, isDefaultNj2Warehouse } from "@/lib/warehouse-display";
 import { AdminWarehouseActionsPanel } from "@/components/admin/admin-warehouse-actions-panel";
 import { lotRowsFromShipment } from "@/lib/warehouse-outbound-lines";
+import {
+  CreateOutboundInvoiceDialog,
+  loadShippedForRequest,
+} from "@/components/admin/create-outbound-invoice-dialog";
+import {
+  shipmentRequestNeedsCrmDraftServices,
+  shipmentRequestNeedsOutboundInvoice,
+} from "@/lib/invoice-line-catalog";
+import { allowsPrepcorexCreateInvoice } from "@/lib/outbound-billing";
+import type { ShippedItem } from "@/types";
 
 type LocationDoc = { id: string; name?: string; active?: boolean };
 
@@ -131,6 +141,9 @@ export function ShipmentRequestsManagement({
   const [selectedRemarks, setSelectedRemarks] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isBackfillingReserve, setIsBackfillingReserve] = useState(false);
+  const [invoiceRequest, setInvoiceRequest] = useState<ShipmentRequest | null>(null);
+  const [invoiceShipments, setInvoiceShipments] = useState<ShippedItem[]>([]);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   // Normalize user ID (handle both id and uid fields) - ensure it's a valid string
   const userId = selectedUser?.uid || selectedUser?.id;
@@ -169,6 +182,32 @@ export function ShipmentRequestsManagement({
 
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
+
+  const openCreateInvoice = async (request: ShipmentRequest) => {
+    if (!userId) return;
+    setInvoiceLoading(true);
+    try {
+      const shippedRows = await loadShippedForRequest(userId, request.id);
+      if (shippedRows.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "No shipped record yet",
+          description: "Wait until dispatch finishes creating the shipped order, then try again.",
+        });
+        return;
+      }
+      setInvoiceShipments(shippedRows);
+      setInvoiceRequest(request);
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not load shipment for invoice",
+        description: err instanceof Error ? err.message : "Try again",
+      });
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
   useEffect(() => {
     if (didAutoOpen) return;
     if (!initialRequestId) return;
@@ -194,6 +233,9 @@ export function ShipmentRequestsManagement({
       "warehouseCourierTracking",
       "fbaPackPhase",
       "fbaLabelWorkflow",
+      "invoiceStatus",
+      "invoiceId",
+      "invoiceNumber",
     ];
     if (syncFields.some((key) => fresh[key] !== selectedRequest[key])) {
       setSelectedRequest(fresh);
@@ -788,6 +830,8 @@ export function ShipmentRequestsManagement({
         onApproveForLabelUpload={handleApproveForLabelUpload}
         onClose={closeSelectedRequest}
         onRequestCorrected={() => void refreshSelectedRequest()}
+        onCreateInvoice={(req) => void openCreateInvoice(req)}
+        allowPrepcorexCreateInvoice={allowsPrepcorexCreateInvoice(selectedUser)}
         onFulfillmentComplete={
           standaloneMode
             ? () => {
@@ -1057,6 +1101,34 @@ export function ShipmentRequestsManagement({
                           Correct
                         </Button>
                       )}
+                      {shipmentRequestNeedsOutboundInvoice(request, {
+                        allowPrepcorexCreateInvoice: allowsPrepcorexCreateInvoice(selectedUser),
+                      }) ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-9 w-full"
+                          disabled={invoiceLoading}
+                          onClick={() => void openCreateInvoice(request)}
+                        >
+                          <FileText className="mr-1 h-3.5 w-3.5" />
+                          Create Invoice
+                        </Button>
+                      ) : null}
+                      {shipmentRequestNeedsCrmDraftServices(request, {
+                        allowPrepcorexCreateInvoice: allowsPrepcorexCreateInvoice(selectedUser),
+                      }) ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-9 w-full"
+                          disabled={invoiceLoading}
+                          onClick={() => void openCreateInvoice(request)}
+                        >
+                          <FileText className="mr-1 h-3.5 w-3.5" />
+                          Add services → CRM
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -1181,6 +1253,36 @@ export function ShipmentRequestsManagement({
                                 Correct
                               </Button>
                             )}
+                            {shipmentRequestNeedsOutboundInvoice(request, {
+                              allowPrepcorexCreateInvoice:
+                                allowsPrepcorexCreateInvoice(selectedUser),
+                            }) ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-8"
+                                disabled={invoiceLoading}
+                                onClick={() => void openCreateInvoice(request)}
+                              >
+                                <FileText className="mr-1 h-3.5 w-3.5" />
+                                Create Invoice
+                              </Button>
+                            ) : null}
+                            {shipmentRequestNeedsCrmDraftServices(request, {
+                              allowPrepcorexCreateInvoice:
+                                allowsPrepcorexCreateInvoice(selectedUser),
+                            }) ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-8"
+                                disabled={invoiceLoading}
+                                onClick={() => void openCreateInvoice(request)}
+                              >
+                                <FileText className="mr-1 h-3.5 w-3.5" />
+                                Add services → CRM
+                              </Button>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1192,6 +1294,28 @@ export function ShipmentRequestsManagement({
           )}
         </CardContent>
       </Card>
+
+      {selectedUser && invoiceRequest ? (
+        <CreateOutboundInvoiceDialog
+          open={Boolean(invoiceRequest)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setInvoiceRequest(null);
+              setInvoiceShipments([]);
+            }
+          }}
+          clientUser={selectedUser}
+          shipments={invoiceShipments}
+          shipmentRequestId={invoiceRequest.id}
+          mode={
+            allowsPrepcorexCreateInvoice(selectedUser) ? "prepcorex" : "crm_draft"
+          }
+          onCreated={() => {
+            setInvoiceRequest(null);
+            setInvoiceShipments([]);
+          }}
+        />
+      ) : null}
 
       {reviewDialog}
 
@@ -1224,6 +1348,8 @@ function ReviewShipmentDialog({
   onClose,
   onFulfillmentComplete,
   onRequestCorrected,
+  onCreateInvoice,
+  allowPrepcorexCreateInvoice = true,
   isProcessing,
   additionalServicesPricing,
   pricingRules,
@@ -1237,6 +1363,10 @@ function ReviewShipmentDialog({
   onFulfillmentComplete?: () => void;
   /** After admin corrects lines (qty / remove) — refresh request snapshot. */
   onRequestCorrected?: () => void;
+  /** Open Create Invoice after dispatch (or later from the list). */
+  onCreateInvoice?: (request: ShipmentRequest) => void;
+  /** When false, post-dispatch offers Add services → CRM draft instead. */
+  allowPrepcorexCreateInvoice?: boolean;
   onConfirm: (
     request: ShipmentRequest,
     adminRemarks?: string,
@@ -3365,6 +3495,8 @@ function ReviewShipmentDialog({
                   onFulfillmentComplete?.();
                   onClose();
                 }}
+                onCreateInvoice={(req) => onCreateInvoice?.(req)}
+                allowPrepcorexCreateInvoice={allowPrepcorexCreateInvoice}
               />
               <div className="flex justify-end">
                 <Button type="button" variant="outline" onClick={onClose}>

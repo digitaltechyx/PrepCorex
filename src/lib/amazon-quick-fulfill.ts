@@ -300,6 +300,8 @@ export async function executeAmazonQuickFulfill(input: {
       totalSkus: fresh.length,
       fulfilledBy: input.fulfilledBy,
       quickFulfill: true,
+      // Create Invoice available until admin generates one (same as outbound).
+      invoiceStatus: "pending",
     });
 
     tx.set(logRef, {

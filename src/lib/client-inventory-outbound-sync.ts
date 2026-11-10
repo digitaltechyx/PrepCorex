@@ -2069,6 +2069,10 @@ export async function applyClientInventoryOnDispatch(input: {
       confirmedBy: data.confirmedBy,
       confirmedAt,
       shipmentRequestId: input.shipmentRequestId,
+      // Admin Create Invoice stays available until an invoice is generated.
+      invoiceStatus: "pending",
+      invoiceId: null,
+      invoiceNumber: null,
     };
 
     if (data.palletSubType) {
@@ -2085,6 +2089,9 @@ export async function applyClientInventoryOnDispatch(input: {
           }
         : {}),
       warehouseDispatchedClientSyncAt: dispatchedAt,
+      invoiceStatus: "pending",
+      invoiceId: null,
+      invoiceNumber: null,
     });
 
     transaction.set(logRef, {

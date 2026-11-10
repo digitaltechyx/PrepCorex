@@ -80,6 +80,7 @@ import {
 } from "@/components/inventory/product-unit-measurements-fields";
 import { measurementFieldsForWrite } from "@/lib/box-suggestion";
 import { ShippedTable } from "@/components/dashboard/shipped-table";
+import { CreateOutboundInvoiceDialog } from "@/components/admin/create-outbound-invoice-dialog";
 import {
   expandShippedItemsForDisplay,
   normalizeShipmentItems,
@@ -589,6 +590,8 @@ export function AdminInventoryManagement({
   // Invoice range selection for generating invoice over specific dates
   const [invoiceFromDate, setInvoiceFromDate] = useState<Date | undefined>();
   const [invoiceToDate, setInvoiceToDate] = useState<Date | undefined>();
+  const [outboundInvoiceShipments, setOutboundInvoiceShipments] = useState<ShippedItem[]>([]);
+  const [outboundInvoiceOpen, setOutboundInvoiceOpen] = useState(false);
 
   // Fetch restock history
   const { data: restockHistory, loading: restockHistoryLoading } = useCollection<RestockHistory>(
@@ -3187,11 +3190,39 @@ export function AdminInventoryManagement({
                         clientUserId: selectedUser.uid,
                         getAuthToken: () => authUser.getIdToken(),
                         onDeleteShippedOrder: handleDeleteShippedOrder,
+                        onCreateInvoice: (item) => {
+                          setOutboundInvoiceShipments([item]);
+                          setOutboundInvoiceOpen(true);
+                        },
+                        clientUser: selectedUser,
+                        allowPrepcorexCreateInvoice:
+                          selectedUser.outboundBilling?.prepcorexCreateInvoice !== false,
                       }
                     : undefined
                 }
               />
             </Suspense>
+            {outboundInvoiceOpen && outboundInvoiceShipments.length > 0 ? (
+              <CreateOutboundInvoiceDialog
+                open={outboundInvoiceOpen}
+                onOpenChange={(open) => {
+                  setOutboundInvoiceOpen(open);
+                  if (!open) setOutboundInvoiceShipments([]);
+                }}
+                clientUser={selectedUser}
+                shipments={outboundInvoiceShipments}
+                shipmentRequestId={outboundInvoiceShipments[0]?.shipmentRequestId}
+                mode={
+                  selectedUser.outboundBilling?.prepcorexCreateInvoice === false
+                    ? "crm_draft"
+                    : "prepcorex"
+                }
+                onCreated={() => {
+                  setOutboundInvoiceOpen(false);
+                  setOutboundInvoiceShipments([]);
+                }}
+              />
+            ) : null}
           </CardContent>
         </Card>
       )}

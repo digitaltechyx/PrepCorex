@@ -23,6 +23,9 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, Package, Truck, ChevronsUpDown, Check, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { QuickFulfillInvoiceOffer } from "@/components/admin/quick-fulfill-invoice-offer";
+import { CreateOutboundInvoiceDialog } from "@/components/admin/create-outbound-invoice-dialog";
+import type { ShippedItem } from "@/types";
 
 type LineDraft = {
   shopifyLineItemId: string;
@@ -78,11 +81,21 @@ export function ShopifyQuickFulfillDialog({
   const [submitting, setSubmitting] = useState(false);
   const [productPickerLineIndex, setProductPickerLineIndex] = useState<number | null>(null);
   const [productPickerSearch, setProductPickerSearch] = useState("");
+  const [postFulfillShippedId, setPostFulfillShippedId] = useState<string | null>(null);
+  const [invoiceShipment, setInvoiceShipment] = useState<ShippedItem | null>(null);
+  const [invoiceMode, setInvoiceMode] = useState<"prepcorex" | "crm_draft">("prepcorex");
+  const [invoiceClient, setInvoiceClient] = useState<{
+    uid: string;
+    name: string;
+    email: string;
+    phone: string;
+  } | null>(null);
   const [labelPrice, setLabelPrice] = useState("");
 
   useEffect(() => {
     if (!open || !order) return;
 
+    setPostFulfillShippedId(null);
     setTrackingNumber(
       (labelHandoff?.trackingNumber || "").trim() || order.trackingNumbers[0] || ""
     );
@@ -309,6 +322,12 @@ export function ShopifyQuickFulfillDialog({
           description: `Could not deduct ${data.warehouseShortfall} unit(s) from Warehouse Ops bins (SKU/bin mismatch). Check inventory search and adjust the carton qty.`,
         });
       }
+      const shippedId = String(data.shippedId || "").trim();
+      if (shippedId && !data.alreadyProcessed) {
+        setPostFulfillShippedId(shippedId);
+        onCompleted();
+        return;
+      }
       onOpenChange(false);
       onCompleted();
     } catch (error) {
@@ -322,21 +341,50 @@ export function ShopifyQuickFulfillDialog({
     }
   };
 
+  const clientUser = order
+    ? {
+        uid: order.ownerUserId,
+        name: order.ownerName,
+        email: order.ownerEmail || "",
+        phone: "",
+      }
+    : null;
+
+  const finishFulfillDialog = () => {
+    setPostFulfillShippedId(null);
+    onOpenChange(false);
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
       <DialogContent className="flex max-h-[90vh] flex-col gap-4 overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5 text-emerald-600" />
-            Quick Fulfill &amp; Dispatch
+            {postFulfillShippedId ? "Fulfilled — create invoice?" : "Quick Fulfill & Dispatch"}
           </DialogTitle>
           <DialogDescription>
-            Select warehouse products, enter quantities and tracking, then fulfill directly — no
-            pick, pack, or dispatch workflow.
+            {postFulfillShippedId
+              ? "Invoice now or skip and create it later from Shipped Orders."
+              : "Select warehouse products, enter quantities and tracking, then fulfill directly — no pick, pack, or dispatch workflow."}
           </DialogDescription>
         </DialogHeader>
 
-        {order ? (
+        {order && postFulfillShippedId && clientUser ? (
+          <QuickFulfillInvoiceOffer
+            channelLabel="Shopify"
+            shippedId={postFulfillShippedId}
+            clientUser={clientUser}
+            onCloseForNow={finishFulfillDialog}
+            onOpenInvoice={(shipment, mode) => {
+              setInvoiceClient(clientUser);
+              setInvoiceMode(mode);
+              setInvoiceShipment(shipment);
+              finishFulfillDialog();
+            }}
+          />
+        ) : order ? (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -583,19 +631,41 @@ export function ShopifyQuickFulfillDialog({
           </div>
         ) : null}
 
-        <DialogFooter>
-          <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            disabled={submitting || loadingInventory || !order || lines.length === 0}
-            onClick={() => void submit()}
-          >
-            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Fulfill &amp; Dispatch
-          </Button>
-        </DialogFooter>
+        {!postFulfillShippedId ? (
+          <DialogFooter>
+            <Button variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={submitting || loadingInventory || !order || lines.length === 0}
+              onClick={() => void submit()}
+            >
+              {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Fulfill &amp; Dispatch
+            </Button>
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
+
+    {invoiceShipment && invoiceClient ? (
+      <CreateOutboundInvoiceDialog
+        open={Boolean(invoiceShipment)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInvoiceShipment(null);
+            setInvoiceClient(null);
+          }
+        }}
+        clientUser={invoiceClient}
+        shipments={[invoiceShipment]}
+        mode={invoiceMode}
+        onCreated={() => {
+          setInvoiceShipment(null);
+          setInvoiceClient(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

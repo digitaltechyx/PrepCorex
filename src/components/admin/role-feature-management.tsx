@@ -175,6 +175,14 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
   // Get current roles (support both legacy and new format)
   const currentRoles = getUserRoles(user);
   const [selectedRoles, setSelectedRoles] = useState<UserRole[]>(currentRoles);
+  /** Default on. Off = CRM consolidated draft (no PrepCorex Create Invoice). */
+  const [prepcorexCreateInvoice, setPrepcorexCreateInvoice] = useState(
+    user.outboundBilling?.prepcorexCreateInvoice !== false
+  );
+
+  useEffect(() => {
+    setPrepcorexCreateInvoice(user.outboundBilling?.prepcorexCreateInvoice !== false);
+  }, [user.uid, user.outboundBilling?.prepcorexCreateInvoice]);
 
   // Effective features: if user has no/empty features, use role default (user = 8 client features, sub_admin = default admin modules)
   const effectiveFeatures =
@@ -399,6 +407,10 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
         if (!user.clientId?.trim()) {
           updateData.clientId = await generateClientId();
         }
+        updateData.outboundBilling = {
+          ...(user.outboundBilling || {}),
+          prepcorexCreateInvoice,
+        };
       }
 
       await updateDoc(doc(db, "users", user.uid), updateData);
@@ -597,6 +609,42 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
           )}
         </CardContent>
       </Card>
+
+      {/* Client: outbound invoice channel */}
+      {selectedRoles.includes("user") && (
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="p-3 sm:p-6">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary sm:h-5 sm:w-5" />
+              <CardTitle className="text-base sm:text-lg">Outbound invoice billing</CardTitle>
+            </div>
+            <CardDescription className="text-xs sm:text-sm">
+              Choose whether this client gets PrepCorex Create Invoice after dispatch, or rolls
+              into one CRM draft invoice (with optional Add Services after dispatch).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 p-3 pt-0 sm:p-6 sm:pt-0">
+            <div className="flex items-start gap-2.5 rounded-lg border p-2.5 sm:p-4">
+              <Checkbox
+                id="prepcorex-create-invoice"
+                checked={prepcorexCreateInvoice}
+                onCheckedChange={(checked) => setPrepcorexCreateInvoice(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="prepcorex-create-invoice" className="cursor-pointer text-sm font-medium">
+                  Allow PrepCorex Create Invoice
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {prepcorexCreateInvoice
+                    ? "On: Create Invoice after outbound / marketplace fulfill (current flow)."
+                    : "Off: no Create Invoice. After dispatch admin can add services, then lines append to a CRM draft. Send from CRM; optionally mirror into PrepCorex invoices."}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Client: warehouse locations (assign / unassign) */}
       {selectedRoles.includes("user") && (

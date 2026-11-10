@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Download,
+  FileText,
   ImagePlus,
   Loader2,
   PackageCheck,
@@ -14,6 +15,10 @@ import {
   Warehouse,
   X,
 } from "lucide-react";
+import {
+  shipmentRequestNeedsCrmDraftServices,
+  shipmentRequestNeedsOutboundInvoice,
+} from "@/lib/invoice-line-catalog";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,6 +150,10 @@ type OutboundProps = {
   onProgress?: () => void;
   /** Fully dispatched (or admin closed) — close dialog. */
   onComplete?: () => void;
+  /** After dispatch — open Create Invoice / CRM draft services while option remains if skipped. */
+  onCreateInvoice?: (request: ShipmentRequest & { id: string }) => void;
+  /** When false, show Add services → CRM instead of Create Invoice. */
+  allowPrepcorexCreateInvoice?: boolean;
 };
 
 type AdminWarehouseActionsPanelProps = InboundProps | OutboundProps;
@@ -196,6 +205,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Optimistic: show Create Invoice immediately after this session's dispatch. */
+  const [justDispatchedForInvoice, setJustDispatchedForInvoice] = useState(false);
   /** When false and a prior putaway exists, later partials land in the same bin. */
   const [changeGoodPutaway, setChangeGoodPutaway] = useState(false);
   const [changeDamagedPutaway, setChangeDamagedPutaway] = useState(false);
@@ -1381,7 +1392,14 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     );
   }
 
-  const { request, clientUserId, onProgress, onComplete } = props;
+  const {
+    request,
+    clientUserId,
+    onProgress,
+    onComplete,
+    onCreateInvoice,
+    allowPrepcorexCreateInvoice = true,
+  } = props;
   const reqData = request as unknown as Record<string, unknown>;
   const packStatus = String(reqData.warehousePackStatus ?? "").trim().toLowerCase();
   const dispatchStatus = String(reqData.warehouseDispatchStatus ?? "").trim().toLowerCase();
@@ -1390,6 +1408,22 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
   const status = String(request.status ?? "").trim().toLowerCase();
   const readyToDispatch = packStatus === "ready_to_dispatch" && dispatchStatus !== "dispatched";
   const isDispatched = dispatchStatus === "dispatched";
+  const alreadyInvoiced =
+    Boolean(request.invoiceId) ||
+    Boolean(request.crmExternalInvoiceId) ||
+    ["invoiced", "crm_draft"].includes(
+      String(request.invoiceStatus || "").trim().toLowerCase()
+    );
+  const needsInvoice =
+    !alreadyInvoiced &&
+    allowPrepcorexCreateInvoice &&
+    (shipmentRequestNeedsOutboundInvoice(request, { allowPrepcorexCreateInvoice }) ||
+      (isDispatched && justDispatchedForInvoice));
+  const needsCrmDraftServices =
+    !alreadyInvoiced &&
+    !allowPrepcorexCreateInvoice &&
+    (shipmentRequestNeedsCrmDraftServices(request, { allowPrepcorexCreateInvoice }) ||
+      (isDispatched && justDispatchedForInvoice));
   const isPicked = pickStatus === "picked";
   const pickWasSkipped = pickStatus === "skipped";
   const inventoryOnly = Boolean(reqData.warehouseAdminInventoryOnlyFulfillment);
@@ -1698,11 +1732,13 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                   toast({
                     title: "Order dispatched",
                     description: trackingScan.trim()
-                      ? "Client inventory updated with tracking."
-                      : "Dispatched without tracking.",
+                      ? "Client inventory updated with tracking. You can create the invoice now or later."
+                      : "Dispatched without tracking. You can create the invoice now or later.",
                   });
                   setTrackingScan("");
-                  onComplete?.();
+                  setJustDispatchedForInvoice(true);
+                  // Keep dialog open so admin can create invoice immediately.
+                  onProgress?.();
                 } catch (error: unknown) {
                   toast({
                     variant: "destructive",
@@ -1718,6 +1754,61 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               {trackingScan.trim() || savedTracking ? "Confirm dispatch" : "Dispatch without tracking"}
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {isDispatched && needsInvoice ? (
+        <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
+          <p className="text-sm font-medium">Dispatch complete — create invoice?</p>
+          <p className="text-xs text-muted-foreground">
+            Create it now, or skip and use Create Invoice later on Shipment Requests / Shipped Orders.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() => onCreateInvoice?.(request)}
+            >
+              <FileText className="mr-1.5 h-3.5 w-3.5" />
+              Create Invoice
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
+              Close for now
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {isDispatched && needsCrmDraftServices ? (
+        <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50/80 p-3 dark:bg-amber-950/30">
+          <p className="text-sm font-medium">Dispatch complete — add services for CRM draft?</p>
+          <p className="text-xs text-muted-foreground">
+            This client uses CRM consolidated billing. Add additional services now (or skip), then
+            lines append to their CRM draft invoice.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() => onCreateInvoice?.(request)}
+            >
+              <FileText className="mr-1.5 h-3.5 w-3.5" />
+              Add services → CRM
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
+              Close for now
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {isDispatched && !needsInvoice && !needsCrmDraftServices ? (
+        <div className="flex flex-wrap gap-2 border-t pt-3">
+          <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
+            Close
+          </Button>
         </div>
       ) : null}
 

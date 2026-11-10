@@ -21,6 +21,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Loader2, Package, Truck, ChevronsUpDown, Check, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pushEbayInventoryHints } from "@/lib/ebay-inventory-sync";
+import { QuickFulfillInvoiceOffer } from "@/components/admin/quick-fulfill-invoice-offer";
+import { CreateOutboundInvoiceDialog } from "@/components/admin/create-outbound-invoice-dialog";
+import type { ShippedItem } from "@/types";
 
 type EbayOrderLine = {
   lineItemId?: string;
@@ -51,6 +54,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   order: EbayQuickFulfillOrder | null;
   ownerUserId: string;
+  ownerName?: string;
+  ownerEmail?: string;
   getAuthToken: () => Promise<string>;
   onCompleted: () => void;
   labelHandoff?: {
@@ -78,6 +83,8 @@ export function EbayQuickFulfillDialog({
   onOpenChange,
   order,
   ownerUserId,
+  ownerName = "",
+  ownerEmail = "",
   getAuthToken,
   onCompleted,
   labelHandoff = null,
@@ -92,9 +99,19 @@ export function EbayQuickFulfillDialog({
   const [productPickerLineIndex, setProductPickerLineIndex] = useState<number | null>(null);
   const [productPickerSearch, setProductPickerSearch] = useState("");
   const [labelPrice, setLabelPrice] = useState("");
+  const [postFulfillShippedId, setPostFulfillShippedId] = useState<string | null>(null);
+  const [invoiceShipment, setInvoiceShipment] = useState<ShippedItem | null>(null);
+  const [invoiceMode, setInvoiceMode] = useState<"prepcorex" | "crm_draft">("prepcorex");
+  const [invoiceClient, setInvoiceClient] = useState<{
+    uid: string;
+    name: string;
+    email: string;
+    phone: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!open || !ownerUserId) return;
+    setPostFulfillShippedId(null);
     let cancelled = false;
     (async () => {
       setLoadingInventory(true);
@@ -226,6 +243,12 @@ export function EbayQuickFulfillDialog({
           ? "This eBay order was already quick-fulfilled."
           : `Shipped entry created${data.warehouseShortfall ? ` (warehouse shortfall ${data.warehouseShortfall})` : ""}.`,
       });
+      const shippedId = String(data.shippedId || "").trim();
+      if (shippedId && !data.alreadyProcessed) {
+        setPostFulfillShippedId(shippedId);
+        onCompleted();
+        return;
+      }
       onCompleted();
       onOpenChange(false);
     } catch (e) {
@@ -239,21 +262,53 @@ export function EbayQuickFulfillDialog({
     }
   }
 
+  const finishFulfillDialog = () => {
+    setPostFulfillShippedId(null);
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5" />
-            Quick Fulfill &amp; Dispatch
+            {postFulfillShippedId ? "Fulfilled — create invoice?" : "Quick Fulfill & Dispatch"}
           </DialogTitle>
           <DialogDescription>
-            Deduct warehouse stock, create a shipped entry, and mark the eBay order shipped
-            {order ? ` · #${order.orderId || order.id}` : ""}.
+            {postFulfillShippedId
+              ? "Invoice now or skip and create it later from Shipped Orders."
+              : `Deduct warehouse stock, create a shipped entry, and mark the eBay order shipped${
+                  order ? ` · #${order.orderId || order.id}` : ""
+                }.`}
           </DialogDescription>
         </DialogHeader>
 
-        {loadingInventory ? (
+        {postFulfillShippedId && ownerUserId ? (
+          <QuickFulfillInvoiceOffer
+            channelLabel="eBay"
+            shippedId={postFulfillShippedId}
+            clientUser={{
+              uid: ownerUserId,
+              name: ownerName || "Client",
+              email: ownerEmail || "",
+              phone: "",
+            }}
+            onCloseForNow={finishFulfillDialog}
+            onOpenInvoice={(shipment, mode) => {
+              setInvoiceClient({
+                uid: ownerUserId,
+                name: ownerName || "Client",
+                email: ownerEmail || "",
+                phone: "",
+              });
+              setInvoiceMode(mode);
+              setInvoiceShipment(shipment);
+              finishFulfillDialog();
+            }}
+          />
+        ) : loadingInventory ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading inventory…
           </div>
@@ -392,20 +447,42 @@ export function EbayQuickFulfillDialog({
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button onClick={() => void handleSubmit()} disabled={!canSubmit || submitting}>
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <Package className="h-4 w-4 mr-2" />
-            )}
-            Quick fulfill
-          </Button>
-        </DialogFooter>
+        {!postFulfillShippedId ? (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSubmit()} disabled={!canSubmit || submitting}>
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Package className="h-4 w-4 mr-2" />
+              )}
+              Quick fulfill
+            </Button>
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
+
+    {invoiceShipment && invoiceClient ? (
+      <CreateOutboundInvoiceDialog
+        open={Boolean(invoiceShipment)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInvoiceShipment(null);
+            setInvoiceClient(null);
+          }
+        }}
+        clientUser={invoiceClient}
+        shipments={[invoiceShipment]}
+        mode={invoiceMode}
+        onCreated={() => {
+          setInvoiceShipment(null);
+          setInvoiceClient(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

@@ -20,6 +20,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Truck } from "lucide-react";
 import { amazonAddressSummary } from "@/lib/amazon-order-normalize";
+import { QuickFulfillInvoiceOffer } from "@/components/admin/quick-fulfill-invoice-offer";
+import { CreateOutboundInvoiceDialog } from "@/components/admin/create-outbound-invoice-dialog";
+import type { ShippedItem } from "@/types";
 
 type LineDraft = {
   orderItemId: string;
@@ -63,9 +66,19 @@ export function AmazonQuickFulfillDialog({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [trackingCompany, setTrackingCompany] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [postFulfillShippedId, setPostFulfillShippedId] = useState<string | null>(null);
+  const [invoiceShipment, setInvoiceShipment] = useState<ShippedItem | null>(null);
+  const [invoiceMode, setInvoiceMode] = useState<"prepcorex" | "crm_draft">("prepcorex");
+  const [invoiceClient, setInvoiceClient] = useState<{
+    uid: string;
+    name: string;
+    email: string;
+    phone: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!open || !order) return;
+    setPostFulfillShippedId(null);
     setLines(
       order.lineItems.map((li) => ({
         orderItemId: li.orderItemId,
@@ -180,6 +193,12 @@ export function AmazonQuickFulfillDialog({
           ? "This order was already quick-fulfilled."
           : `Shipped entry created · tracking sent to Amazon.`,
       });
+      const shippedId = String(data.shippedId || "").trim();
+      if (shippedId && !data.alreadyProcessed) {
+        setPostFulfillShippedId(shippedId);
+        onCompleted();
+        return;
+      }
       onOpenChange(false);
       onCompleted();
     } catch (e) {
@@ -193,21 +212,58 @@ export function AmazonQuickFulfillDialog({
     }
   };
 
-  if (!order) return null;
+  if (!order && !invoiceShipment) return null;
+
+  const finishFulfillDialog = () => {
+    setPostFulfillShippedId(null);
+    onOpenChange(false);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && Boolean(order)} onOpenChange={(next) => !submitting && onOpenChange(next)}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        {order ? (
+          <>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5" />
-            Quick Fulfill — {order.amazonOrderId}
+            {postFulfillShippedId
+              ? "Fulfilled — create invoice?"
+              : `Quick Fulfill — ${order.amazonOrderId}`}
           </DialogTitle>
           <DialogDescription>
-            Deduct warehouse stock and confirm shipment on Amazon with tracking.
+            {postFulfillShippedId
+              ? "Invoice now or skip and create it later from Shipped Orders."
+              : "Deduct warehouse stock and confirm shipment on Amazon with tracking."}
           </DialogDescription>
         </DialogHeader>
 
+        {postFulfillShippedId ? (
+          <QuickFulfillInvoiceOffer
+            channelLabel="Amazon"
+            shippedId={postFulfillShippedId}
+            clientUser={{
+              uid: order.ownerUserId,
+              name: order.ownerName,
+              email: order.ownerEmail || "",
+              phone: "",
+            }}
+            onCloseForNow={finishFulfillDialog}
+            onOpenInvoice={(shipment, mode) => {
+              setInvoiceClient({
+                uid: order.ownerUserId,
+                name: order.ownerName,
+                email: order.ownerEmail || "",
+                phone: "",
+              });
+              setInvoiceMode(mode);
+              setInvoiceShipment(shipment);
+              finishFulfillDialog();
+            }}
+          />
+        ) : (
+          <>
         {addressRestricted ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             Ship-to address is partial until <strong>Direct to Consumer Shipping</strong> role is
@@ -314,7 +370,31 @@ export function AmazonQuickFulfillDialog({
             Fulfill &amp; confirm on Amazon
           </Button>
         </DialogFooter>
+          </>
+        )}
+          </>
+        ) : null}
       </DialogContent>
     </Dialog>
+
+    {invoiceShipment && invoiceClient ? (
+      <CreateOutboundInvoiceDialog
+        open={Boolean(invoiceShipment)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInvoiceShipment(null);
+            setInvoiceClient(null);
+          }
+        }}
+        clientUser={invoiceClient}
+        shipments={[invoiceShipment]}
+        mode={invoiceMode}
+        onCreated={() => {
+          setInvoiceShipment(null);
+          setInvoiceClient(null);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

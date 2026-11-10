@@ -567,6 +567,21 @@ export interface UserProfile {
   pendingStorageCartons?: number | null;
   /** Buy Labels: purchase limit (default) or prepaid wallet + period spend cap. */
   labelBilling?: LabelBillingSettings | null;
+  /**
+   * Outbound / marketplace invoice channel.
+   * When `prepcorexCreateInvoice` is false, PrepCorex hides Create Invoice and
+   * lines roll into a CRM `external_invoices` draft instead.
+   */
+  outboundBilling?: OutboundBillingSettings | null;
+}
+
+/** Per-client outbound invoice routing (stored on `users/{uid}.outboundBilling`). */
+export interface OutboundBillingSettings {
+  /**
+   * Default true. When false: no PrepCorex Create Invoice; admin adds services
+   * after dispatch and lines append to one open CRM draft invoice.
+   */
+  prepcorexCreateInvoice?: boolean;
 }
 
 /** `limit` = card only; `wallet` = prepaid wallet only; `both` = user chooses card or wallet. */
@@ -1381,6 +1396,18 @@ export interface ShipmentRequest {
   /** Set when dispatch creates the client `shipped` record and inventory sync. */
   warehouseDispatchedClientSyncAt?: { seconds: number; nanoseconds: number } | string;
   /**
+   * Outbound invoice workflow after full dispatch.
+   * `pending` = Create Invoice / CRM services available;
+   * `invoiced` = PrepCorex invoice created;
+   * `crm_draft` = lines appended to CRM consolidated draft.
+   */
+  invoiceStatus?: "pending" | "invoiced" | "crm_draft";
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoicedAt?: { seconds: number; nanoseconds: number } | string;
+  /** Linked CRM `external_invoices` draft when using consolidated CRM billing. */
+  crmExternalInvoiceId?: string | null;
+  /**
    * When client sellable inventory was decremented.
    * - create: reserved when the outbound request was submitted (default for new requests)
    * - dispatch: legacy — deducted only when warehouse dispatches
@@ -1557,6 +1584,20 @@ export interface ShippedItem {
   /** PrepCorex Buy Labels charge (USD) recorded on Shopify quick fulfill. */
   labelPrice?: number | null;
   labelPurchaseId?: string | null;
+  /** Linked outbound request when created from warehouse dispatch. */
+  shipmentRequestId?: string;
+  /**
+   * Invoice workflow after outbound dispatch or marketplace quick fulfill.
+   * `pending` = Create Invoice / CRM services available;
+   * `invoiced` = PrepCorex invoice created;
+   * `crm_draft` = lines appended to CRM consolidated draft.
+   */
+  invoiceStatus?: "pending" | "invoiced" | "crm_draft";
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoicedAt?: { seconds: number; nanoseconds: number } | string;
+  /** Linked CRM `external_invoices` draft when using consolidated CRM billing. */
+  crmExternalInvoiceId?: string | null;
 }
 
 export interface RestockHistory {
