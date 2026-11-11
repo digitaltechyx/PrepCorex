@@ -183,8 +183,8 @@ export function ShipmentRequestsManagement({
   // Auto-open a request when coming from Notifications
   const [didAutoOpen, setDidAutoOpen] = useState(false);
 
-  const openCreateInvoice = async (request: ShipmentRequest) => {
-    if (!userId) return;
+  const openCreateInvoice = async (request: ShipmentRequest): Promise<boolean> => {
+    if (!userId) return false;
     setInvoiceLoading(true);
     try {
       const shippedRows = await loadShippedForRequest(userId, request.id);
@@ -203,12 +203,14 @@ export function ShipmentRequestsManagement({
         ]);
       }
       setInvoiceRequest(request);
+      return true;
     } catch (err) {
       toast({
         variant: "destructive",
         title: "Could not load shipment for invoice",
         description: err instanceof Error ? err.message : "Try again",
       });
+      return false;
     } finally {
       setInvoiceLoading(false);
     }
@@ -247,7 +249,16 @@ export function ShipmentRequestsManagement({
     }
   }, [requests, selectedRequest]);
 
-  const pricingUser = isValidUserId ? selectedUser : null;
+  const pricingUser = useMemo(
+    () =>
+      isValidUserId && selectedUser
+        ? {
+            uid: userId as string,
+            pricingProfileId: selectedUser.pricingProfileId,
+          }
+        : null,
+    [isValidUserId, userId, selectedUser?.pricingProfileId]
+  );
   const {
     pricingRules: effectivePricingRules,
     additionalServicesPricing: effectiveAdditionalServicesPricing,
@@ -836,10 +847,10 @@ export function ShipmentRequestsManagement({
         onClose={closeSelectedRequest}
         onRequestCorrected={() => void refreshSelectedRequest()}
         onCreateInvoice={(req) => {
-          // Close fulfillment first so invoice/catalog/select aren't trapped under a parent Dialog.
+          // Hide fulfillment sheet only — do not call onStandaloneClose or the invoice host unmounts.
           void (async () => {
-            await openCreateInvoice(req);
-            closeSelectedRequest();
+            const opened = await openCreateInvoice(req);
+            if (opened) setSelectedRequest(null);
           })();
         }}
         invoiceOpening={invoiceLoading}
@@ -859,16 +870,22 @@ export function ShipmentRequestsManagement({
       />
     ) : null;
 
-  // Render after reviewDialog so the portal stacks above the fulfillment dialog (same z-50).
+  const clearInvoiceDialog = () => {
+    setInvoiceRequest(null);
+    setInvoiceShipments([]);
+    // Standalone host stays mounted while invoicing; close it once the invoice UI is done.
+    if (standaloneMode) {
+      onStandaloneClose?.();
+    }
+  };
+
+  // Render after reviewDialog so the portal stacks above the fulfillment dialog.
   const invoiceDialog =
     selectedUser && invoiceRequest ? (
       <CreateOutboundInvoiceDialog
         open={Boolean(invoiceRequest)}
         onOpenChange={(open) => {
-          if (!open) {
-            setInvoiceRequest(null);
-            setInvoiceShipments([]);
-          }
+          if (!open) clearInvoiceDialog();
         }}
         clientUser={selectedUser}
         shipments={invoiceShipments}
@@ -876,10 +893,7 @@ export function ShipmentRequestsManagement({
         mode={
           allowsPrepcorexCreateInvoice(selectedUser) ? "prepcorex" : "crm_draft"
         }
-        onCreated={() => {
-          setInvoiceRequest(null);
-          setInvoiceShipments([]);
-        }}
+        onCreated={clearInvoiceDialog}
       />
     ) : null;
 
@@ -891,7 +905,7 @@ export function ShipmentRequestsManagement({
         </div>
       );
     }
-    if (didAutoOpen && !selectedRequest) {
+    if (didAutoOpen && !selectedRequest && !invoiceRequest) {
       return (
         <div className="py-8 text-center text-sm text-muted-foreground">
           Request not found or no longer available.

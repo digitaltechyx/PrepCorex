@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import type { UserProfile } from "@/types";
 import type {
@@ -34,6 +34,35 @@ type ProfileApiResponse = {
   error?: string;
 };
 
+/** Coalesce concurrent identical profile loads (Strict Mode / remount / slow API). */
+const inflightProfileLoads = new Map<string, Promise<ProfileApiResponse & { ok: boolean; status: number }>>();
+
+async function fetchPricingProfile(
+  targetUid: string,
+  getToken: () => Promise<string>
+): Promise<ProfileApiResponse & { ok: boolean; status: number }> {
+  const existing = inflightProfileLoads.get(targetUid);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const token = await getToken();
+    const res = await fetch(
+      `/api/pricing/profile?userId=${encodeURIComponent(targetUid)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }
+    );
+    const data = (await res.json().catch(() => ({}))) as ProfileApiResponse;
+    return { ...data, ok: res.ok, status: res.status };
+  })().finally(() => {
+    inflightProfileLoads.delete(targetUid);
+  });
+
+  inflightProfileLoads.set(targetUid, promise);
+  return promise;
+}
+
 function toMs(v: unknown): number {
   if (!v) return 0;
   if (typeof v === "string") {
@@ -59,8 +88,19 @@ export function useUserPricingCollections(
   user: Pick<UserProfile, "pricingProfileId" | "uid"> | null | undefined
 ) {
   const { user: authUser } = useAuth();
+  const authUid = authUser?.uid || "";
+  const authUserRef = useRef(authUser);
+  authUserRef.current = authUser;
+
+  const targetUid = user?.uid?.trim() || "";
+  const pricingProfileId = user?.pricingProfileId;
   const profileId = resolveUserPricingProfileId(user);
-  const paths = useMemo(() => getUserPricingProfilePaths(user), [user, profileId]);
+  const paths = useMemo(
+    () => getUserPricingProfilePaths(user),
+    // Primitive deps — avoid refetch loops when parent passes a new user object each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed by uid/profile
+    [targetUid, pricingProfileId, profileId]
+  );
 
   const [pricingRules, setPricingRules] = useState<UserPricing[]>([]);
   const [storagePricingList, setStoragePricingList] = useState<UserStoragePricing[]>([]);
@@ -78,7 +118,7 @@ export function useUserPricingCollections(
   >([]);
   const [productPrepRates, setProductPrepRates] = useState<UserProductPrepRate[]>([]);
   const [resolvedProfileId, setResolvedProfileId] = useState(profileId);
-  const [loading, setLoading] = useState(Boolean(user?.uid));
+  const [loading, setLoading] = useState(Boolean(targetUid));
   const [prepSource, setPrepSource] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,8 +126,7 @@ export function useUserPricingCollections(
   }, [profileId]);
 
   useEffect(() => {
-    const targetUid = user?.uid?.trim();
-    if (!targetUid || !authUser) {
+    if (!targetUid || !authUid) {
       setPricingRules([]);
       setStoragePricingList([]);
       setBoxForwardingPricing([]);
@@ -103,18 +142,17 @@ export function useUserPricingCollections(
     const load = async () => {
       setLoading(true);
       try {
-        const token = await authUser.getIdToken();
-        const res = await fetch(
-          `/api/pricing/profile?userId=${encodeURIComponent(targetUid)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          }
-        );
-        const data = (await res.json().catch(() => ({}))) as ProfileApiResponse;
+        const data = await fetchPricingProfile(targetUid, async () => {
+          const current = authUserRef.current;
+          if (!current) throw new Error("Not signed in");
+          return current.getIdToken();
+        });
         if (cancelled) return;
-        if (!res.ok) {
-          console.warn("[useUserPricingCollections] API error:", data.error || res.status);
+        if (!data.ok) {
+          console.warn(
+            "[useUserPricingCollections] API error:",
+            data.error || data.status
+          );
           setPricingRules([]);
           setStoragePricingList([]);
           setBoxForwardingPricing([]);
@@ -176,7 +214,7 @@ export function useUserPricingCollections(
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, user?.pricingProfileId, authUser, profileId]);
+  }, [targetUid, pricingProfileId, authUid, profileId]);
 
   return {
     profileId: resolvedProfileId,

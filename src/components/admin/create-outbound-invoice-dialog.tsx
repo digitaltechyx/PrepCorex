@@ -539,7 +539,10 @@ export function CreateOutboundInvoiceDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[min(92dvh,920px)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogContent
+          overlayClassName="z-[60]"
+          className="z-[60] flex max-h-[min(92dvh,920px)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+        >
           <DialogHeader className="border-b px-4 py-3 text-left sm:px-6">
             <DialogTitle>
               {isCrmDraftMode
@@ -817,7 +820,10 @@ export function CreateOutboundInvoiceDialog({
       </Dialog>
 
       <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
-        <DialogContent className="z-[100] max-h-[min(85dvh,720px)] overflow-y-auto sm:max-w-lg">
+        <DialogContent
+          overlayClassName="z-[80]"
+          className="z-[80] max-h-[min(85dvh,720px)] overflow-y-auto sm:max-w-lg"
+        >
           <DialogHeader>
             <DialogTitle>My invoice catalog</DialogTitle>
             <DialogDescription>
