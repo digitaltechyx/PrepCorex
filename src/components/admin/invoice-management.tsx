@@ -291,8 +291,10 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       }
 
       toast({
-        title: "Storage Invoice Generated",
-        description: payload?.invoiceNumber ? `Created ${payload.invoiceNumber}` : "Invoice generation completed.",
+        title: "CRM Storage draft created",
+        description: payload?.invoiceNumber
+          ? `${payload.invoiceNumber} — open CRM → Invoice Management → Storage draft to review.`
+          : "Open CRM → Storage draft to review.",
       });
 
       setIsStorageTestDialogOpen(false);
@@ -2639,7 +2641,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
           <DialogHeader>
             <DialogTitle>Generate Storage Invoice (Test)</DialogTitle>
             <DialogDescription>
-              Creates a test storage invoice for review (does not overwrite existing invoices).
+              Creates a CRM Storage draft for review (does not write PrepCorex client invoices until
+              admin syncs from CRM).
             </DialogDescription>
           </DialogHeader>
 

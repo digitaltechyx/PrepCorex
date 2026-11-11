@@ -323,12 +323,13 @@ export function CreateOutboundInvoiceDialog({
           markShipmentsLinkedToCrmDraft,
         } = await import("@/lib/crm-outbound-draft-invoice");
 
-        // Persist additional services onto shipped docs for audit / re-open.
+        // Persist additional services onto real shipped docs for audit / re-open.
+        // Skip synthetic pre-dispatch rows (id request-…).
         if (usableServices.length > 0) {
           const batch = writeBatch(db);
           let writes = 0;
           for (const shipped of shipments) {
-            if (!shipped.id) continue;
+            if (!shipped.id || String(shipped.id).startsWith("request-")) continue;
             batch.update(doc(db, `users/${clientUser.uid}/shipped`, shipped.id), {
               adminInvoiceServices: usableServices.map((s) => ({
                 description: s.description.trim(),
@@ -346,6 +347,19 @@ export function CreateOutboundInvoiceDialog({
         const primaryShipDate =
           productLines.map((l) => l.shipDate).find((d) => Boolean(String(d || "").trim())) ||
           format(new Date(), "dd/MM/yyyy");
+        const shippedIds = [
+          ...new Set(
+            shipments
+              .map((s) => s.id)
+              .filter((id): id is string => Boolean(id) && !String(id).startsWith("request-"))
+          ),
+        ];
+        const requestId =
+          shipmentRequestId ||
+          shipments.map((s) => s.shipmentRequestId).find((id) => Boolean(id)) ||
+          null;
+        // Prefer request id so pre-dispatch + post-dispatch lines share keys (no dupes / no dropped services).
+        const scopeId = String(requestId || shippedIds[0] || "noscope").trim();
         const lines = [
           ...productLines
             .filter((l) => l.productName.trim() && l.quantity > 0)
@@ -358,7 +372,7 @@ export function CreateOutboundInvoiceDialog({
                 quantity: l.quantity,
                 unitPrice: l.unitPrice,
                 amount: Math.round(l.quantity * l.unitPrice * 100) / 100,
-                sourceKey: `shipped:${l.shipmentId || "x"}:item:${name}:${l.quantity}`,
+                sourceKey: `request:${scopeId}:item:${name}:${l.quantity}`,
               };
             }),
           ...usableServices.map((s) => {
@@ -371,15 +385,11 @@ export function CreateOutboundInvoiceDialog({
               quantity: s.quantity,
               unitPrice: s.unitPrice,
               amount: Math.round(s.quantity * s.unitPrice * 100) / 100,
-              sourceKey: `svc:${name}:${s.quantity}:${s.unitPrice}`,
+              // Include outbound scope so the same service on another order still appends.
+              sourceKey: `request:${scopeId}:svc:${name}:${s.quantity}:${s.unitPrice}`,
             };
           }),
         ];
-        const shippedIds = [...new Set(shipments.map((s) => s.id).filter(Boolean))] as string[];
-        const requestId =
-          shipmentRequestId ||
-          shipments.map((s) => s.shipmentRequestId).find((id) => Boolean(id)) ||
-          null;
 
         const result = await appendLinesToCrmOutboundDraft({
           clientUser,
@@ -450,7 +460,13 @@ export function CreateOutboundInvoiceDialog({
           ? "admin_create_marketplace_invoice"
           : "admin_create_outbound_invoice",
         shipmentRequestId: shipmentRequestId || null,
-        shippedIds: [...new Set(shipments.map((s) => s.id).filter(Boolean))],
+        shippedIds: [
+          ...new Set(
+            shipments
+              .map((s) => s.id)
+              .filter((id): id is string => Boolean(id) && !String(id).startsWith("request-"))
+          ),
+        ],
       });
 
       const invoiceRef = await addDoc(
@@ -460,7 +476,7 @@ export function CreateOutboundInvoiceDialog({
 
       const batch = writeBatch(db);
       for (const shipped of shipments) {
-        if (!shipped.id) continue;
+        if (!shipped.id || String(shipped.id).startsWith("request-")) continue;
         batch.update(doc(db, `users/${clientUser.uid}/shipped`, shipped.id), {
           invoiceStatus: "invoiced",
           invoiceId: invoiceRef.id,

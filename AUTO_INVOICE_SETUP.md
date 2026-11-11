@@ -2,8 +2,8 @@
 
 > **STATUS (2026-11-11): AUTO INVOICE IS STOPPED.**  
 > - `/api/invoices/generate-daily` → `410` unless `ENABLE_DAILY_AUTO_INVOICE=true`  
-> - `/api/invoices/generate-monthly-storage` → `410` unless `ENABLE_MONTHLY_STORAGE_AUTO_INVOICE=true`  
-> Do not re-enable crons without explicit approval.  
+> - `/api/invoices/generate-monthly-storage` → writes **CRM Storage drafts** (not PrepCorex client invoices). Opt out with `DISABLE_MONTHLY_STORAGE_CRM_DRAFT=true`.  
+> Admin reviews drafts in CRM → Storage draft, then Send / Mark as sent (+ optional PrepCorex sync).  
 > `vercel.json` in this repo does **not** schedule invoice routes (only eBay auto-sync).  
 > Admin “Generate Storage Invoice (Test)” uses a separate admin-only route and is unchanged.
 

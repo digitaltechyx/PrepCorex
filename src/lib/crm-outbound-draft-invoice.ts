@@ -91,6 +91,10 @@ export function buildCrmLinesFromShipments(
     const shipDate = formatShipDateForCrmDescription(shipped.date, todayLabel);
     if (!primaryShipDate && shipDate) primaryShipDate = shipDate;
     const shipTo = String(shipped.shipTo || "").trim();
+    const lineScope =
+      String(
+        (shipped as { shipmentRequestId?: string }).shipmentRequestId || shipped.id || ""
+      ).trim() || "noscope";
 
     for (const line of normalizeShipmentItems(shipped)) {
       const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
@@ -101,7 +105,7 @@ export function buildCrmLinesFromShipments(
         quantity: qty,
         unitPrice,
         amount: money(qty * unitPrice),
-        sourceKey: `shipped:${shipped.id}:item:${line.productName || productName}:${qty}`,
+        sourceKey: `request:${lineScope}:item:${line.productName || productName}:${qty}`,
       });
     }
     const labelPrice = money((shipped as { labelPrice?: number }).labelPrice);
@@ -120,10 +124,16 @@ export function buildCrmLinesFromShipments(
         quantity: 1,
         unitPrice: labelPrice,
         amount: labelPrice,
-        sourceKey: `shipped:${shipped.id}:label`,
+        sourceKey: `request:${lineScope}:label`,
       });
     }
   }
+  const scopeId =
+    String(
+      (shipments[0] as { shipmentRequestId?: string } | undefined)?.shipmentRequestId ||
+        shipments[0]?.id ||
+        ""
+    ).trim() || "noscope";
   for (const svc of serviceLines) {
     const name = String(svc.description || "").trim();
     if (!name) continue;
@@ -140,7 +150,8 @@ export function buildCrmLinesFromShipments(
       quantity,
       unitPrice,
       amount: money(quantity * unitPrice),
-      sourceKey: `svc:${name}:${quantity}:${unitPrice}`,
+      // Scope by outbound so the same service on a later order still appends.
+      sourceKey: `request:${scopeId}:svc:${name}:${quantity}:${unitPrice}`,
     });
   }
   return lines;

@@ -1419,19 +1419,17 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     ["invoiced", "crm_draft"].includes(
       String(request.invoiceStatus || "").trim().toLowerCase()
     );
-  // Billing CTAs only after warehouseDispatchStatus === "dispatched" (never on confirm alone).
+  // Billing CTAs from Continue fulfillment (confirmed) through post-dispatch.
   const needsInvoice =
-    isDispatched &&
     !alreadyInvoiced &&
     allowPrepcorexCreateInvoice &&
     (shipmentRequestNeedsOutboundInvoice(request, { allowPrepcorexCreateInvoice }) ||
-      justDispatchedForInvoice);
+      (isDispatched && justDispatchedForInvoice));
   const needsCrmDraftServices =
-    isDispatched &&
     !alreadyInvoiced &&
     !allowPrepcorexCreateInvoice &&
     (shipmentRequestNeedsCrmDraftServices(request, { allowPrepcorexCreateInvoice }) ||
-      justDispatchedForInvoice);
+      (isDispatched && justDispatchedForInvoice));
   const isPicked = pickStatus === "picked";
   const pickWasSkipped = pickStatus === "skipped";
   const inventoryOnly = Boolean(reqData.warehouseAdminInventoryOnlyFulfillment);
@@ -1489,8 +1487,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         Fast-path: auto pick &amp; pack in one step, optionally save courier tracking, then dispatch
         {isFbaOrder ? " (FBA — no master-case dimensions required)" : ""}. Or ship from client
         inventory when bins are empty but inventory table shows stock.
-        {!allowPrepcorexCreateInvoice && !isDispatched
-          ? " Billing: Add services → CRM only appears after Confirm dispatch (not after confirm alone)."
+        {!allowPrepcorexCreateInvoice && !alreadyInvoiced
+          ? " Billing: Add services → CRM is available on this screen before or after dispatch."
           : ""}
       </p>
       <div className="flex flex-wrap gap-2 text-xs">
@@ -1772,11 +1770,15 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         </div>
       ) : null}
 
-      {isDispatched && needsInvoice ? (
+      {needsInvoice ? (
         <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm font-medium">Dispatch complete — create invoice?</p>
+          <p className="text-sm font-medium">
+            {isDispatched ? "Dispatch complete — create invoice?" : "Create invoice (before or after dispatch)"}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Create it now, or skip and use Create Invoice later on Shipment Requests / Shipped Orders.
+            {isDispatched
+              ? "Create it now, or skip and use Create Invoice later on Shipment Requests / Shipped Orders."
+              : "You can create the invoice from this fulfillment screen before dispatch, or wait until after dispatch."}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -1788,16 +1790,22 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               <FileText className="mr-1.5 h-3.5 w-3.5" />
               Create Invoice
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
-              Close for now
-            </Button>
+            {isDispatched ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
+                Close for now
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
 
-      {isDispatched && needsCrmDraftServices ? (
+      {needsCrmDraftServices ? (
         <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50/80 p-3 dark:bg-amber-950/30">
-          <p className="text-sm font-medium">Dispatch complete — add services for CRM draft?</p>
+          <p className="text-sm font-medium">
+            {isDispatched
+              ? "Dispatch complete — add services for CRM draft?"
+              : "Add services → CRM (before or after dispatch)"}
+          </p>
           <p className="text-xs text-muted-foreground">
             This client uses CRM consolidated billing. Add additional services now (or skip), then
             lines append to their CRM draft invoice.
@@ -1812,9 +1820,11 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
               <FileText className="mr-1.5 h-3.5 w-3.5" />
               Add services → CRM
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
-              Close for now
-            </Button>
+            {isDispatched ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => onComplete?.()}>
+                Close for now
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}

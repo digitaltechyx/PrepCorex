@@ -138,33 +138,52 @@ export function shippedNeedsCrmDraftServices(item: {
 }
 
 /**
- * True when a shipment request is fully dispatched and still needs an invoice.
- * Requires explicit `invoiceStatus: "pending"` from a new dispatch (not historical).
+ * Create Invoice / Add services offer:
+ * - After confirm (Continue fulfillment), before or after dispatch
+ * - Hidden once invoiced / linked to CRM draft
+ * - After dispatch, still requires explicit `invoiceStatus: "pending"` (legacy rows stay hidden)
  */
+function shipmentRequestOffersBilling(
+  request: {
+    status?: string | null;
+    warehouseDispatchStatus?: string | null;
+    invoiceId?: string | null;
+    invoiceStatus?: string | null;
+    crmExternalInvoiceId?: string | null;
+  }
+): boolean {
+  if (request.invoiceId || request.crmExternalInvoiceId) return false;
+  const inv = String(request.invoiceStatus || "").trim().toLowerCase();
+  if (["invoiced", "crm_draft"].includes(inv)) return false;
+
+  const dispatch = String(request.warehouseDispatchStatus || "").trim().toLowerCase();
+  const reqStatus = String(request.status || "").trim().toLowerCase();
+
+  if (dispatch === "dispatched") {
+    return inv === "pending";
+  }
+  // Pre-dispatch: available once confirmed (Continue fulfillment).
+  return reqStatus === "confirmed" && (inv === "" || inv === "pending");
+}
+
 export function shipmentRequestNeedsOutboundInvoice(request: {
+  status?: string | null;
   warehouseDispatchStatus?: string | null;
   invoiceId?: string | null;
   invoiceStatus?: string | null;
   crmExternalInvoiceId?: string | null;
 }, opts?: { allowPrepcorexCreateInvoice?: boolean }): boolean {
   if (opts?.allowPrepcorexCreateInvoice === false) return false;
-  if (String(request.warehouseDispatchStatus || "").trim().toLowerCase() !== "dispatched") {
-    return false;
-  }
-  if (request.invoiceId || request.crmExternalInvoiceId) return false;
-  return String(request.invoiceStatus || "").trim().toLowerCase() === "pending";
+  return shipmentRequestOffersBilling(request);
 }
 
 export function shipmentRequestNeedsCrmDraftServices(request: {
+  status?: string | null;
   warehouseDispatchStatus?: string | null;
   invoiceId?: string | null;
   invoiceStatus?: string | null;
   crmExternalInvoiceId?: string | null;
 }, opts?: { allowPrepcorexCreateInvoice?: boolean }): boolean {
   if (opts?.allowPrepcorexCreateInvoice !== false) return false;
-  if (String(request.warehouseDispatchStatus || "").trim().toLowerCase() !== "dispatched") {
-    return false;
-  }
-  if (request.invoiceId || request.crmExternalInvoiceId) return false;
-  return String(request.invoiceStatus || "").trim().toLowerCase() === "pending";
+  return shipmentRequestOffersBilling(request);
 }

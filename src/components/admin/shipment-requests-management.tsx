@@ -188,15 +188,20 @@ export function ShipmentRequestsManagement({
     setInvoiceLoading(true);
     try {
       const shippedRows = await loadShippedForRequest(userId, request.id);
-      if (shippedRows.length === 0) {
-        toast({
-          variant: "destructive",
-          title: "No shipped record yet",
-          description: "Wait until dispatch finishes creating the shipped order, then try again.",
-        });
-        return;
+      if (shippedRows.length > 0) {
+        setInvoiceShipments(shippedRows);
+      } else {
+        // Pre-dispatch: build lines from the confirmed request so admin can invoice early.
+        const { shippedItemFromShipmentRequest } = await import("@/lib/shipment-utils");
+        const fromRequest = shippedItemFromShipmentRequest(request);
+        setInvoiceShipments([
+          {
+            ...fromRequest,
+            id: `request-${request.id}`,
+            shipmentRequestId: request.id,
+          } as typeof shippedRows[number],
+        ]);
       }
-      setInvoiceShipments(shippedRows);
       setInvoiceRequest(request);
     } catch (err) {
       toast({
@@ -2105,12 +2110,12 @@ function ReviewShipmentDialog({
             {readOnly
               ? confirmedUndispatched
                 ? allowPrepcorexCreateInvoice
-                  ? "Complete pick & pack (or ship from inventory), then dispatch — Create Invoice appears only after dispatch."
-                  : "Complete pick & pack (or ship from inventory), then dispatch. Add services → CRM appears only after full dispatch (not on confirm)."
+                  ? "Complete pick & pack (or ship from inventory), then dispatch. Create Invoice is available on this fulfillment screen before or after dispatch."
+                  : "Complete pick & pack (or ship from inventory), then dispatch. Add services → CRM is available on this fulfillment screen before or after dispatch."
                 : "Read-only view of this shipment request and how it was processed."
               : allowPrepcorexCreateInvoice
                 ? "Review the shipment request, confirm it, then complete fulfillment below without leaving this screen."
-                : "Review and confirm, then finish pick / pack / dispatch below. Additional services for CRM are added after dispatch — not Create Invoice."}
+                : "Review and confirm, then finish fulfillment below. Add services → CRM is available on Continue fulfillment (before or after dispatch)."}
           </DialogDescription>
         </DialogHeader>
 
@@ -2120,9 +2125,9 @@ function ReviewShipmentDialog({
             request.status === "awaiting_label_upload" ||
             confirmedUndispatched) ? (
             <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
-              CRM draft billing: finish confirm → pick → pack → dispatch first.{" "}
-              <span className="font-medium">Add services → CRM</span> appears only after dispatch
-              (never Create Invoice). Confirm alone does not mark the order shipped.
+              CRM draft billing: after confirm, use Continue fulfillment for pick → pack → dispatch.{" "}
+              <span className="font-medium">Add services → CRM</span> is available there before or
+              after dispatch (not Create Invoice). Confirm alone does not mark the order shipped.
             </div>
           ) : null}
           {readOnly && (
