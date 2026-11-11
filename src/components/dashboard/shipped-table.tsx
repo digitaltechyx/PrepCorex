@@ -9,7 +9,10 @@ import type {
   RestockHistory,
   UserProfile,
 } from "@/types";
-import { shippedNeedsOutboundInvoice } from "@/lib/invoice-line-catalog";
+import {
+  shippedNeedsCrmDraftServices,
+  shippedNeedsOutboundInvoice,
+} from "@/lib/invoice-line-catalog";
 import { formatServiceLabel } from "@/types";
 import {
   formatFbaPackDimsForClient,
@@ -1000,6 +1003,14 @@ export function ShippedTable({
     if (!admin?.onCreateInvoice || item.isRequest || item.status !== "Shipped") return null;
     const shippedDoc = resolveShippedDoc(item);
     if (!shippedDoc) return null;
+    // Outbound warehouse rows: only after full dispatch (not confirm / awaiting ship).
+    const rawRequest = item.rawRequest as ShipmentRequest | undefined;
+    if (
+      rawRequest &&
+      !isWarehouseDispatchedRequest(rawRequest as unknown as Record<string, unknown>)
+    ) {
+      return null;
+    }
     const allowCreate = admin.allowPrepcorexCreateInvoice !== false;
     if (shippedNeedsOutboundInvoice(shippedDoc, { allowPrepcorexCreateInvoice: allowCreate })) {
       return (
@@ -1016,12 +1027,10 @@ export function ShippedTable({
         </Button>
       );
     }
-    // Lazy import of CRM helper gate via same pending check when Create Invoice is off.
     if (
-      !allowCreate &&
-      !shippedDoc.invoiceId &&
-      !shippedDoc.crmExternalInvoiceId &&
-      String(shippedDoc.invoiceStatus || "").trim().toLowerCase() === "pending"
+      shippedNeedsCrmDraftServices(shippedDoc, {
+        allowPrepcorexCreateInvoice: allowCreate,
+      })
     ) {
       return (
         <Button

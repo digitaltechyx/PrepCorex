@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import {
   addDoc,
   collection,
@@ -41,21 +42,62 @@ function newLineId() {
   return `line_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Format shipped.date (Timestamp / Date / string) as dd/MM/yyyy for CRM descriptions. */
+export function formatShipDateForCrmDescription(value: unknown, fallback?: string): string {
+  if (typeof value === "string" && value.trim()) {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return format(d, "dd/MM/yyyy");
+    // Already a display label (e.g. from the invoice dialog).
+    return value.trim();
+  }
+  if (value && typeof value === "object") {
+    if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+      const d = (value as { toDate: () => Date }).toDate();
+      if (d instanceof Date && !Number.isNaN(d.getTime())) return format(d, "dd/MM/yyyy");
+    }
+    const seconds = Number((value as { seconds?: number }).seconds || 0);
+    if (seconds > 0) return format(new Date(seconds * 1000), "dd/MM/yyyy");
+  }
+  return (fallback || "").trim();
+}
+
+/** CRM item descriptions embed ship date (CRM has no separate shipDate column). */
+export function crmLineDescription(parts: {
+  name: string;
+  shipDate?: string | null;
+  shipTo?: string | null;
+}): string {
+  const name = String(parts.name || "").trim() || "Line item";
+  const shipDate = String(parts.shipDate || "").trim();
+  const shipTo = String(parts.shipTo || "").trim();
+  return [
+    name,
+    shipDate ? `Ship date: ${shipDate}` : "",
+    shipTo ? `Ship to: ${shipTo}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function buildCrmLinesFromShipments(
   shipments: ShippedItem[],
   serviceLines: Array<{ description: string; quantity: number; unitPrice: number }> = []
 ): CrmDraftLineInput[] {
+  const todayLabel = format(new Date(), "dd/MM/yyyy");
   const lines: CrmDraftLineInput[] = [];
+  let primaryShipDate = "";
+
   for (const shipped of shipments) {
+    const shipDate = formatShipDateForCrmDescription(shipped.date, todayLabel);
+    if (!primaryShipDate && shipDate) primaryShipDate = shipDate;
+    const shipTo = String(shipped.shipTo || "").trim();
+
     for (const line of normalizeShipmentItems(shipped)) {
       const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
       const unitPrice = money(line.unitPrice ?? shipped.unitPrice ?? 0);
       const productName = line.productName || shipped.productName || "Product";
-      const shipTo = String(shipped.shipTo || "").trim();
       lines.push({
-        description: [productName, shipTo ? `Ship to: ${shipTo}` : ""]
-          .filter(Boolean)
-          .join(" · "),
+        description: crmLineDescription({ name: productName, shipDate, shipTo }),
         quantity: qty,
         unitPrice,
         amount: money(qty * unitPrice),
@@ -70,7 +112,11 @@ export function buildCrmLinesFromShipments(
         shipped.id ||
         "Label";
       lines.push({
-        description: `Shipping label · ${orderLabel}`,
+        description: crmLineDescription({
+          name: `Shipping label · ${orderLabel}`,
+          shipDate,
+          shipTo,
+        }),
         quantity: 1,
         unitPrice: labelPrice,
         amount: labelPrice,
@@ -79,17 +125,22 @@ export function buildCrmLinesFromShipments(
     }
   }
   for (const svc of serviceLines) {
-    const description = String(svc.description || "").trim();
-    if (!description) continue;
+    const name = String(svc.description || "").trim();
+    if (!name) continue;
     const quantity = Number(svc.quantity) || 0;
     const unitPrice = money(svc.unitPrice);
     if (quantity <= 0) continue;
+    // Avoid double-prefix if admin already typed "Ship date:" into the service description.
+    const alreadyHasDate = /ship\s*date\s*:/i.test(name);
+    const description = alreadyHasDate
+      ? name
+      : crmLineDescription({ name, shipDate: primaryShipDate });
     lines.push({
       description,
       quantity,
       unitPrice,
       amount: money(quantity * unitPrice),
-      sourceKey: `svc:${description}:${quantity}:${unitPrice}`,
+      sourceKey: `svc:${name}:${quantity}:${unitPrice}`,
     });
   }
   return lines;

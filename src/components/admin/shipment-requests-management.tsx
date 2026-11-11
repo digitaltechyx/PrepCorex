@@ -2092,19 +2092,39 @@ function ReviewShipmentDialog({
             {readOnly
               ? confirmedUndispatched
                 ? "Confirm & fulfill shipment"
-                : "Shipment Request Details"
+                : String((request as ShipmentRequest).warehouseDispatchStatus ?? "")
+                      .trim()
+                      .toLowerCase() === "dispatched"
+                  ? allowPrepcorexCreateInvoice
+                    ? "Dispatched — create invoice"
+                    : "Dispatched — add services for CRM"
+                  : "Shipment Request Details"
               : "Review Shipment Request"}
           </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm">
             {readOnly
               ? confirmedUndispatched
-                ? "Complete pick & pack (or ship from inventory), then scan courier tracking to dispatch — all on this screen."
+                ? allowPrepcorexCreateInvoice
+                  ? "Complete pick & pack (or ship from inventory), then dispatch — Create Invoice appears only after dispatch."
+                  : "Complete pick & pack (or ship from inventory), then dispatch. Add services → CRM appears only after full dispatch (not on confirm)."
                 : "Read-only view of this shipment request and how it was processed."
-              : "Review the shipment request, confirm it, then complete fulfillment below without leaving this screen."}
+              : allowPrepcorexCreateInvoice
+                ? "Review the shipment request, confirm it, then complete fulfillment below without leaving this screen."
+                : "Review and confirm, then finish pick / pack / dispatch below. Additional services for CRM are added after dispatch — not Create Invoice."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
+          {!allowPrepcorexCreateInvoice &&
+          (request.status === "pending" ||
+            request.status === "awaiting_label_upload" ||
+            confirmedUndispatched) ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+              CRM draft billing: finish confirm → pick → pack → dispatch first.{" "}
+              <span className="font-medium">Add services → CRM</span> appears only after dispatch
+              (never Create Invoice). Confirm alone does not mark the order shipped.
+            </div>
+          ) : null}
           {readOnly && (
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -2729,8 +2749,8 @@ function ReviewShipmentDialog({
                       </div>
                     </div>
                     
-                    {/* Additional Services per shipment */}
-                    {hasAnyService && !readOnly && (
+                    {/* Additional Services at confirm — On clients only. Off clients add after dispatch via CRM. */}
+                    {hasAnyService && !readOnly && allowPrepcorexCreateInvoice && (
                       <div className="border rounded-lg p-3 bg-muted/30 space-y-3">
                         <div className="flex items-center justify-between gap-2">
                           <label className="text-xs font-medium">Additional Services for this product</label>
@@ -2898,7 +2918,6 @@ function ReviewShipmentDialog({
                         )}
                       </div>
                     )}
-
                     {showInlineProductCorrect && !isPrepLine ? (
                       <div className="mt-3 pt-3 border-t space-y-2">
                         {lineEditIndex === index ? (
@@ -3484,6 +3503,7 @@ function ReviewShipmentDialog({
           {readOnly && request.status === "confirmed" && (
             <div className="space-y-4 border-t pt-4">
               <AdminWarehouseActionsPanel
+                key={(request as ShipmentRequest & { id?: string }).id || "outbound-fulfill"}
                 mode="outbound"
                 clientUserId={clientUserId}
                 request={{ ...request, id: (request as ShipmentRequest & { id?: string }).id ?? "" }}

@@ -125,6 +125,7 @@ export const shippedNeedsInvoice = shippedNeedsOutboundInvoice;
 /**
  * Off (CRM draft) clients: still need post-dispatch Add Services / push to CRM
  * while pending and not yet linked to a CRM draft.
+ * Only rows with explicit `invoiceStatus: "pending"` (set at dispatch / quick fulfill).
  */
 export function shippedNeedsCrmDraftServices(item: {
   invoiceId?: string | null;

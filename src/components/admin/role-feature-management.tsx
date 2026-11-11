@@ -535,12 +535,18 @@ export function RoleFeatureManagement({ user, onSuccess }: RoleFeatureManagement
     selectedRoles.includes("warehouse_operator") &&
     JSON.stringify([...assignedWarehouseIds].sort()) !==
       JSON.stringify([...safeAssignedWarehouseIds].sort());
+  const savedPrepcorexCreateInvoice =
+    user.outboundBilling?.prepcorexCreateInvoice !== false;
+  const hasOutboundBillingChanges =
+    selectedRoles.includes("user") &&
+    prepcorexCreateInvoice !== savedPrepcorexCreateInvoice;
   const hasChanges =
     hasRoleOrFeatureChanges ||
     hasSubAdminScopeChanges ||
     hasCommissionAgentScopeChanges ||
     hasClientWarehouseChanges ||
-    hasOpsWarehouseChanges;
+    hasOpsWarehouseChanges ||
+    hasOutboundBillingChanges;
 
   return (
     <div className="min-w-0 space-y-3 sm:space-y-6">

@@ -205,8 +205,13 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     useState<AdminInboundCompleteResult | null>(null);
   const [trackingScan, setTrackingScan] = useState("");
   const [busy, setBusy] = useState(false);
-  /** Optimistic: show Create Invoice immediately after this session's dispatch. */
+  /** Optimistic: show Create Invoice / Add services immediately after this session's dispatch. */
   const [justDispatchedForInvoice, setJustDispatchedForInvoice] = useState(false);
+  const outboundRequestIdForInvoice =
+    props.mode === "outbound" ? String(props.request?.id ?? "").trim() : "";
+  useEffect(() => {
+    setJustDispatchedForInvoice(false);
+  }, [outboundRequestIdForInvoice]);
   /** When false and a prior putaway exists, later partials land in the same bin. */
   const [changeGoodPutaway, setChangeGoodPutaway] = useState(false);
   const [changeDamagedPutaway, setChangeDamagedPutaway] = useState(false);
@@ -1414,16 +1419,19 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     ["invoiced", "crm_draft"].includes(
       String(request.invoiceStatus || "").trim().toLowerCase()
     );
+  // Billing CTAs only after warehouseDispatchStatus === "dispatched" (never on confirm alone).
   const needsInvoice =
+    isDispatched &&
     !alreadyInvoiced &&
     allowPrepcorexCreateInvoice &&
     (shipmentRequestNeedsOutboundInvoice(request, { allowPrepcorexCreateInvoice }) ||
-      (isDispatched && justDispatchedForInvoice));
+      justDispatchedForInvoice);
   const needsCrmDraftServices =
+    isDispatched &&
     !alreadyInvoiced &&
     !allowPrepcorexCreateInvoice &&
     (shipmentRequestNeedsCrmDraftServices(request, { allowPrepcorexCreateInvoice }) ||
-      (isDispatched && justDispatchedForInvoice));
+      justDispatchedForInvoice);
   const isPicked = pickStatus === "picked";
   const pickWasSkipped = pickStatus === "skipped";
   const inventoryOnly = Boolean(reqData.warehouseAdminInventoryOnlyFulfillment);
@@ -1481,6 +1489,9 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
         Fast-path: auto pick &amp; pack in one step, optionally save courier tracking, then dispatch
         {isFbaOrder ? " (FBA — no master-case dimensions required)" : ""}. Or ship from client
         inventory when bins are empty but inventory table shows stock.
+        {!allowPrepcorexCreateInvoice && !isDispatched
+          ? " Billing: Add services → CRM only appears after Confirm dispatch (not after confirm alone)."
+          : ""}
       </p>
       <div className="flex flex-wrap gap-2 text-xs">
         <span className="rounded-md border bg-background px-2 py-1">Status: {status || "—"}</span>
@@ -1731,13 +1742,17 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                   }
                   toast({
                     title: "Order dispatched",
-                    description: trackingScan.trim()
-                      ? "Client inventory updated with tracking. You can create the invoice now or later."
-                      : "Dispatched without tracking. You can create the invoice now or later.",
+                    description: allowPrepcorexCreateInvoice
+                      ? trackingScan.trim()
+                        ? "Client inventory updated with tracking. You can create the invoice now or later."
+                        : "Dispatched without tracking. You can create the invoice now or later."
+                      : trackingScan.trim()
+                        ? "Client inventory updated with tracking. Add services to the CRM draft now or later from Shipped Orders."
+                        : "Dispatched without tracking. Add services to the CRM draft now or later from Shipped Orders.",
                   });
                   setTrackingScan("");
                   setJustDispatchedForInvoice(true);
-                  // Keep dialog open so admin can create invoice immediately.
+                  // Keep dialog open so admin can create invoice / add CRM services immediately.
                   onProgress?.();
                 } catch (error: unknown) {
                   toast({

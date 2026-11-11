@@ -319,7 +319,7 @@ export function CreateOutboundInvoiceDialog({
       if (isCrmDraftMode) {
         const {
           appendLinesToCrmOutboundDraft,
-          buildCrmLinesFromShipments,
+          crmLineDescription,
           markShipmentsLinkedToCrmDraft,
         } = await import("@/lib/crm-outbound-draft-invoice");
 
@@ -342,14 +342,39 @@ export function CreateOutboundInvoiceDialog({
           if (writes > 0) await batch.commit();
         }
 
-        const lines = buildCrmLinesFromShipments(
-          shipments,
-          usableServices.map((s) => ({
-            description: s.description.trim(),
-            quantity: s.quantity,
-            unitPrice: s.unitPrice,
-          }))
-        );
+        // Build from edited dialog lines so ship date lands in CRM Item Description.
+        const primaryShipDate =
+          productLines.map((l) => l.shipDate).find((d) => Boolean(String(d || "").trim())) ||
+          format(new Date(), "dd/MM/yyyy");
+        const lines = [
+          ...productLines
+            .filter((l) => l.productName.trim() && l.quantity > 0)
+            .map((l) => {
+              const name = l.productName.trim();
+              const shipDate = String(l.shipDate || primaryShipDate).trim();
+              const shipTo = String(l.shipTo || "").trim();
+              return {
+                description: crmLineDescription({ name, shipDate, shipTo }),
+                quantity: l.quantity,
+                unitPrice: l.unitPrice,
+                amount: Math.round(l.quantity * l.unitPrice * 100) / 100,
+                sourceKey: `shipped:${l.shipmentId || "x"}:item:${name}:${l.quantity}`,
+              };
+            }),
+          ...usableServices.map((s) => {
+            const name = s.description.trim();
+            const alreadyHasDate = /ship\s*date\s*:/i.test(name);
+            return {
+              description: alreadyHasDate
+                ? name
+                : crmLineDescription({ name, shipDate: primaryShipDate }),
+              quantity: s.quantity,
+              unitPrice: s.unitPrice,
+              amount: Math.round(s.quantity * s.unitPrice * 100) / 100,
+              sourceKey: `svc:${name}:${s.quantity}:${s.unitPrice}`,
+            };
+          }),
+        ];
         const shippedIds = [...new Set(shipments.map((s) => s.id).filter(Boolean))] as string[];
         const requestId =
           shipmentRequestId ||
@@ -509,7 +534,7 @@ export function CreateOutboundInvoiceDialog({
             </DialogTitle>
             <DialogDescription>
               {isCrmDraftMode
-                ? "Add any additional services for this dispatch, then save into this client’s consolidated CRM draft invoice."
+                ? "Add any additional services for this dispatch, then save into this client’s consolidated CRM draft. Each line’s Item Description in CRM will include Ship date."
                 : isMarketplace
                   ? "Review fulfilled order lines, add services from your catalog if needed, then generate the invoice."
                   : "Review shipment lines, add additional services (from your catalog or manually), then generate the invoice."}
@@ -538,7 +563,7 @@ export function CreateOutboundInvoiceDialog({
                       key={line.id}
                       className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-12 sm:items-end"
                     >
-                      <div className="sm:col-span-5">
+                      <div className="sm:col-span-4">
                         <Label className="text-xs">Product</Label>
                         <Input
                           value={line.productName}
@@ -549,6 +574,20 @@ export function CreateOutboundInvoiceDialog({
                               )
                             )
                           }
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <Label className="text-xs">Ship date</Label>
+                        <Input
+                          value={line.shipDate}
+                          onChange={(e) =>
+                            setProductLines((prev) =>
+                              prev.map((p) =>
+                                p.id === line.id ? { ...p, shipDate: e.target.value } : p
+                              )
+                            )
+                          }
+                          placeholder="dd/MM/yyyy"
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -586,7 +625,7 @@ export function CreateOutboundInvoiceDialog({
                           }
                         />
                       </div>
-                      <div className="sm:col-span-3">
+                      <div className="sm:col-span-2">
                         <Label className="text-xs">Amount</Label>
                         <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3 text-sm">
                           ${(line.quantity * line.unitPrice).toFixed(2)}
