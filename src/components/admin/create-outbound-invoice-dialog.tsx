@@ -539,7 +539,7 @@ export function CreateOutboundInvoiceDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="flex max-h-[min(92dvh,920px)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogContent className="z-[70] flex max-h-[min(92dvh,920px)] w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
           <DialogHeader className="border-b px-4 py-3 text-left sm:px-6">
             <DialogTitle>
               {isCrmDraftMode

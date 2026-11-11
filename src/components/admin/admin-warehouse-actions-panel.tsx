@@ -152,6 +152,8 @@ type OutboundProps = {
   onComplete?: () => void;
   /** After dispatch — open Create Invoice / CRM draft services while option remains if skipped. */
   onCreateInvoice?: (request: ShipmentRequest & { id: string }) => void;
+  /** True while parent is preparing the invoice dialog (disable CTA). */
+  invoiceOpening?: boolean;
   /** When false, show Add services → CRM instead of Create Invoice. */
   allowPrepcorexCreateInvoice?: boolean;
 };
@@ -1403,6 +1405,7 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
     onProgress,
     onComplete,
     onCreateInvoice,
+    invoiceOpening = false,
     allowPrepcorexCreateInvoice = true,
   } = props;
   const reqData = request as unknown as Record<string, unknown>;
@@ -1784,10 +1787,14 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             <Button
               type="button"
               size="sm"
-              disabled={busy}
+              disabled={busy || invoiceOpening}
               onClick={() => onCreateInvoice?.(request)}
             >
-              <FileText className="mr-1.5 h-3.5 w-3.5" />
+              {invoiceOpening ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileText className="mr-1.5 h-3.5 w-3.5" />
+              )}
               Create Invoice
             </Button>
             {isDispatched ? (
@@ -1814,10 +1821,14 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
             <Button
               type="button"
               size="sm"
-              disabled={busy}
+              disabled={busy || invoiceOpening}
               onClick={() => onCreateInvoice?.(request)}
             >
-              <FileText className="mr-1.5 h-3.5 w-3.5" />
+              {invoiceOpening ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileText className="mr-1.5 h-3.5 w-3.5" />
+              )}
               Add services → CRM
             </Button>
             {isDispatched ? (

@@ -836,6 +836,7 @@ export function ShipmentRequestsManagement({
         onClose={closeSelectedRequest}
         onRequestCorrected={() => void refreshSelectedRequest()}
         onCreateInvoice={(req) => void openCreateInvoice(req)}
+        invoiceOpening={invoiceLoading}
         allowPrepcorexCreateInvoice={allowsPrepcorexCreateInvoice(selectedUser)}
         onFulfillmentComplete={
           standaloneMode
@@ -849,6 +850,30 @@ export function ShipmentRequestsManagement({
         pricingRules={effectivePricingRules || []}
         boxForwardingPricing={effectiveBoxForwardingPricing}
         palletForwardingPricing={effectivePalletForwardingPricing}
+      />
+    ) : null;
+
+  // Render after reviewDialog so the portal stacks above the fulfillment dialog (same z-50).
+  const invoiceDialog =
+    selectedUser && invoiceRequest ? (
+      <CreateOutboundInvoiceDialog
+        open={Boolean(invoiceRequest)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInvoiceRequest(null);
+            setInvoiceShipments([]);
+          }
+        }}
+        clientUser={selectedUser}
+        shipments={invoiceShipments}
+        shipmentRequestId={invoiceRequest.id}
+        mode={
+          allowsPrepcorexCreateInvoice(selectedUser) ? "prepcorex" : "crm_draft"
+        }
+        onCreated={() => {
+          setInvoiceRequest(null);
+          setInvoiceShipments([]);
+        }}
       />
     ) : null;
 
@@ -867,7 +892,12 @@ export function ShipmentRequestsManagement({
         </div>
       );
     }
-    return reviewDialog;
+    return (
+      <>
+        {reviewDialog}
+        {invoiceDialog}
+      </>
+    );
   }
 
   return (
@@ -1300,29 +1330,8 @@ export function ShipmentRequestsManagement({
         </CardContent>
       </Card>
 
-      {selectedUser && invoiceRequest ? (
-        <CreateOutboundInvoiceDialog
-          open={Boolean(invoiceRequest)}
-          onOpenChange={(open) => {
-            if (!open) {
-              setInvoiceRequest(null);
-              setInvoiceShipments([]);
-            }
-          }}
-          clientUser={selectedUser}
-          shipments={invoiceShipments}
-          shipmentRequestId={invoiceRequest.id}
-          mode={
-            allowsPrepcorexCreateInvoice(selectedUser) ? "prepcorex" : "crm_draft"
-          }
-          onCreated={() => {
-            setInvoiceRequest(null);
-            setInvoiceShipments([]);
-          }}
-        />
-      ) : null}
-
       {reviewDialog}
+      {invoiceDialog}
 
       {/* Remarks Dialog */}
       <Dialog open={selectedRemarks !== null} onOpenChange={(open) => !open && setSelectedRemarks(null)}>
@@ -1354,6 +1363,7 @@ function ReviewShipmentDialog({
   onFulfillmentComplete,
   onRequestCorrected,
   onCreateInvoice,
+  invoiceOpening = false,
   allowPrepcorexCreateInvoice = true,
   isProcessing,
   additionalServicesPricing,
@@ -1370,6 +1380,8 @@ function ReviewShipmentDialog({
   onRequestCorrected?: () => void;
   /** Open Create Invoice after dispatch (or later from the list). */
   onCreateInvoice?: (request: ShipmentRequest) => void;
+  /** True while shipment lines are loading for the invoice dialog. */
+  invoiceOpening?: boolean;
   /** When false, post-dispatch offers Add services → CRM draft instead. */
   allowPrepcorexCreateInvoice?: boolean;
   onConfirm: (
@@ -3521,6 +3533,7 @@ function ReviewShipmentDialog({
                   onClose();
                 }}
                 onCreateInvoice={(req) => onCreateInvoice?.(req)}
+                invoiceOpening={invoiceOpening}
                 allowPrepcorexCreateInvoice={allowPrepcorexCreateInvoice}
               />
               <div className="flex justify-end">
