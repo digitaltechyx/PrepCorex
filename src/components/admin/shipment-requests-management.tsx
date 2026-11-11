@@ -835,7 +835,13 @@ export function ShipmentRequestsManagement({
         onApproveForLabelUpload={handleApproveForLabelUpload}
         onClose={closeSelectedRequest}
         onRequestCorrected={() => void refreshSelectedRequest()}
-        onCreateInvoice={(req) => void openCreateInvoice(req)}
+        onCreateInvoice={(req) => {
+          // Close fulfillment first so invoice/catalog/select aren't trapped under a parent Dialog.
+          void (async () => {
+            await openCreateInvoice(req);
+            closeSelectedRequest();
+          })();
+        }}
         invoiceOpening={invoiceLoading}
         allowPrepcorexCreateInvoice={allowsPrepcorexCreateInvoice(selectedUser)}
         onFulfillmentComplete={
