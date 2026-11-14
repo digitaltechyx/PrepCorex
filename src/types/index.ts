@@ -1572,6 +1572,8 @@ export interface ShippedItem {
     pricePerItem?: number;
     pricePerLabel?: number;
     total?: number;
+    extraServiceQuantities?: Record<string, number>;
+    extraServiceUnitPrices?: Record<string, number>;
   };
   /** Origin channel for this shipped entry (e.g. Shopify quick fulfill). */
   source?: "shopify" | string;
@@ -2373,6 +2375,12 @@ export interface LabelPurchase {
   /** How the label was paid. Defaults to stripe when omitted. */
   paymentMethod?: "stripe" | "wallet";
   stripeChargeId?: string;
+  /** Stripe payment method id used for this card charge (pm_…). */
+  stripePaymentMethodId?: string | null;
+  /** Card brand from Stripe (visa, mastercard, amex, …). */
+  cardBrand?: string | null;
+  /** Last 4 digits of the card charged. */
+  cardLast4?: string | null;
   paymentStatus: 'pending' | 'succeeded' | 'failed' | 'canceled';
   paymentAmount: number;
   paymentCurrency: string;

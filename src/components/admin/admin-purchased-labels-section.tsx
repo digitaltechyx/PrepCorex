@@ -137,6 +137,14 @@ export function AdminPurchasedLabelsSection() {
       <PurchasedLabelsPanel
         compactLayout
         userId={activeUserId}
+        accountName={
+          viewMode === "client" && selectedUser
+            ? formatUserDisplayName(selectedUser, { showEmail: false })
+            : undefined
+        }
+        accountEmail={
+          viewMode === "client" && selectedUser ? selectedUser.email : undefined
+        }
         emptyHint={
           viewMode === "mine"
             ? "Buy a label from the Buy Label tab — completed purchases will appear here for download."

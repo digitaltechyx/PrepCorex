@@ -3,7 +3,10 @@ import { getStripe } from "@/lib/stripe";
 import { adminDb, adminFieldValue } from "@/lib/firebase-admin";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { assertCanSpendLabelBilling } from "@/lib/label-billing-admin";
-import { getOrCreateStripeCustomer } from "@/lib/stripe-customer";
+import {
+  cardSummaryFromPaymentMethodId,
+  getOrCreateStripeCustomer,
+} from "@/lib/stripe-customer";
 import type { LabelPurchase } from "@/types";
 
 type BulkItem = {
@@ -112,6 +115,20 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    let cardBrand: string | null = null;
+    let cardLast4: string | null = null;
+    let stripePaymentMethodId: string | null = pmId;
+    if (pmId) {
+      try {
+        const card = await cardSummaryFromPaymentMethodId(pmId);
+        cardBrand = card.cardBrand;
+        cardLast4 = card.cardLast4;
+        stripePaymentMethodId = card.stripePaymentMethodId || pmId;
+      } catch (cardErr) {
+        console.warn("Could not resolve saved card for bulk label purchase", cardErr);
+      }
+    }
+
     const batchId = `bulk_${Date.now()}`;
     const writes = items.map((item, index) => {
       const purchaseData: Omit<LabelPurchase, "id" | "createdAt"> & {
@@ -125,6 +142,7 @@ export async function POST(request: NextRequest) {
         parcel: item.parcel,
         selectedRate: item.selectedRate,
         stripePaymentIntentId: paymentIntent.id,
+        paymentMethod: "stripe",
         paymentStatus: "pending",
         paymentAmount: Math.round(Number.parseFloat(item.selectedRate.amount) * 100),
         paymentCurrency: firstCurrency,
@@ -132,6 +150,9 @@ export async function POST(request: NextRequest) {
         labelProvider: item.selectedRate.labelProvider || "shippo",
         bulkBatchId: batchId,
         bulkBatchIndex: index,
+        ...(stripePaymentMethodId ? { stripePaymentMethodId } : {}),
+        ...(cardBrand ? { cardBrand } : {}),
+        ...(cardLast4 ? { cardLast4 } : {}),
       };
 
       return adminDb()

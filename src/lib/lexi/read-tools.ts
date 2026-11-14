@@ -179,6 +179,8 @@ function formatOutbound(id: string, data: FirebaseFirestore.DocumentData): Recor
     lines: summary.lines,
     warehousePickStatus: data.warehousePickStatus ?? null,
     warehouseDispatchStatus: data.warehouseDispatchStatus ?? null,
+    invoiceStatus: data.invoiceStatus ?? null,
+    invoiceNumber: data.invoiceNumber ?? null,
   };
 }
 
@@ -590,6 +592,8 @@ export async function lexiGetClientProfile(
   const snap = await adminDb().collection("users").doc(clientUserId).get();
   if (!snap.exists) return null;
   const d = snap.data()!;
+  const billing = d.outboundBilling as { prepcorexCreateInvoice?: boolean } | undefined;
+  const prepcorexCreateInvoice = billing?.prepcorexCreateInvoice !== false;
   return {
     uid: snap.id,
     name: d.name ?? null,
@@ -598,6 +602,32 @@ export async function lexiGetClientProfile(
     phone: d.phone ?? null,
     status: d.status ?? d.accountStatus ?? null,
     roles: d.roles ?? null,
+    outboundBilling: {
+      prepcorexCreateInvoice,
+      mode: prepcorexCreateInvoice ? "prepcorex" : "crm_draft",
+    },
+  };
+}
+
+/** Read-only: whether Create Invoice is On (PrepCorex) or Off (CRM consolidated draft). */
+export async function lexiLookupOutboundBilling(
+  adminProfile: UserProfile,
+  clientUserId: string
+): Promise<Record<string, unknown>> {
+  await assertLexiCanManageClient(adminProfile, clientUserId);
+  const snap = await adminDb().collection("users").doc(clientUserId).get();
+  if (!snap.exists) throw new Error("Client not found.");
+  const d = snap.data()!;
+  const billing = d.outboundBilling as { prepcorexCreateInvoice?: boolean } | undefined;
+  const prepcorexCreateInvoice = billing?.prepcorexCreateInvoice !== false;
+  return {
+    clientUserId,
+    clientUserName: String(d.name ?? d.email ?? clientUserId),
+    prepcorexCreateInvoice,
+    mode: prepcorexCreateInvoice ? "prepcorex" : "crm_draft",
+    meaning: prepcorexCreateInvoice
+      ? "On — propose_outbound_invoice creates a PrepCorex client invoice after Confirm."
+      : "Off — propose_outbound_invoice appends lines to the consolidated CRM draft after Confirm.",
   };
 }
 

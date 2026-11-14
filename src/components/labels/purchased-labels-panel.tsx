@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, Download, Package, ExternalLink, Filter, RotateCcw } from "lucide-react";
+import { Loader2, Download, Package, ExternalLink, Filter, RotateCcw, FileText } from "lucide-react";
 import type { LabelPurchase, LabelRefundRequest } from "@/types";
 import { getBuyLabelRateDisplay } from "@/lib/buy-label-rate-display";
 import {
@@ -26,7 +26,23 @@ import {
   labelRefundDisplayStatus,
   LABEL_REFUND_REQUESTS_COLLECTION,
 } from "@/lib/label-refund";
+import {
+  buildBuyLabelCardStatementPdf,
+  downloadBuyLabelCardStatementPdf,
+  loadPrepcorexLogoDataUrl,
+  selectBuyLabelCardCharges,
+} from "@/lib/buy-label-card-statement";
 import { LabelRefundRequestDialog } from "@/components/labels/label-refund-request-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 10;
@@ -36,6 +52,9 @@ type PurchasedLabelsPanelProps = {
   emptyHint?: string;
   /** Tighter spacing for admin Buy Labels purchased tab. */
   compactLayout?: boolean;
+  /** Optional override for statement header (admin viewing a client). */
+  accountName?: string;
+  accountEmail?: string;
 };
 
 function getStatusBadge(label: LabelPurchase) {
@@ -287,9 +306,17 @@ export function PurchasedLabelsPanel({
   userId,
   emptyHint = "Purchase your first shipping label to get started",
   compactLayout = false,
+  accountName,
+  accountEmail,
 }: PurchasedLabelsPanelProps) {
   const outerGap = compactLayout ? "space-y-3 sm:space-y-6" : "space-y-6";
   const cardPad = compactLayout ? "p-3 sm:p-6" : undefined;
+  const { user, userProfile } = useAuth();
+  const { toast } = useToast();
+  const [statementBusy, setStatementBusy] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
+  const [statementFrom, setStatementFrom] = useState("");
+  const [statementTo, setStatementTo] = useState("");
   const { data: labels, loading } = useCollection<LabelPurchase>(
     userId ? `users/${userId}/labelPurchases` : ""
   );
@@ -393,6 +420,126 @@ export function PurchasedLabelsPanel({
   const pageEnd = Math.min(pageStart + PAGE_SIZE, filteredLabels.length);
   const pageLabels = filteredLabels.slice(pageStart, pageEnd);
 
+  const statementPreviewCount = useMemo(
+    () =>
+      selectBuyLabelCardCharges(safeLabels, {
+        startDate: statementFrom,
+        endDate: statementTo,
+      }).length,
+    [safeLabels, statementFrom, statementTo]
+  );
+
+  const openCardStatementDialog = () => {
+    setStatementFrom(startDate || "");
+    setStatementTo(endDate || "");
+    setStatementOpen(true);
+  };
+
+  const handleDownloadCardStatement = async () => {
+    if (statementFrom && statementTo && statementFrom > statementTo) {
+      toast({
+        title: "Invalid date range",
+        description: "From date must be on or before To date.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setStatementBusy(true);
+    try {
+      const baseRows = selectBuyLabelCardCharges(safeLabels, {
+        startDate: statementFrom,
+        endDate: statementTo,
+      });
+      if (baseRows.length === 0) {
+        toast({
+          title: "No card charges",
+          description:
+            "No Buy Labels card payments in this date range. Wallet purchases are not included.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Resolve Visa **** 1234 (etc.) from Stripe for older purchases missing card fields.
+      let enrichedLabels = safeLabels;
+      try {
+        const token = await user?.getIdToken();
+        if (token && userId) {
+          const res = await fetch("/api/stripe/enrich-label-card-details", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              userId,
+              purchaseIds: baseRows.map((r) => r.id),
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            cards?: Record<
+              string,
+              { cardBrand?: string; cardLast4?: string; stripePaymentMethodId?: string }
+            >;
+          };
+          if (res.ok && data.cards && typeof data.cards === "object") {
+            enrichedLabels = safeLabels.map((label) => {
+              const patch = data.cards?.[label.id];
+              if (!patch) return label;
+              return {
+                ...label,
+                cardBrand: patch.cardBrand || label.cardBrand,
+                cardLast4: patch.cardLast4 || label.cardLast4,
+                stripePaymentMethodId:
+                  patch.stripePaymentMethodId || label.stripePaymentMethodId,
+              };
+            });
+          }
+        }
+      } catch (enrichErr) {
+        console.warn("card enrich skipped", enrichErr);
+      }
+
+      const rows = selectBuyLabelCardCharges(enrichedLabels, {
+        startDate: statementFrom,
+        endDate: statementTo,
+      });
+      const name =
+        accountName ||
+        userProfile?.name ||
+        userProfile?.email ||
+        "Client account";
+      const email = accountEmail || userProfile?.email || undefined;
+      const logoDataUrl = await loadPrepcorexLogoDataUrl();
+      const bytes = buildBuyLabelCardStatementPdf({
+        accountName: name,
+        accountEmail: email,
+        startDate: statementFrom,
+        endDate: statementTo,
+        rows,
+        logoDataUrl,
+      });
+      const stamp = format(new Date(), "yyyy-MM-dd");
+      downloadBuyLabelCardStatementPdf(
+        bytes,
+        `prepcorex-buy-labels-card-statement-${stamp}.pdf`
+      );
+      toast({
+        title: "Card statement downloaded",
+        description: `${rows.length} card charge${rows.length === 1 ? "" : "s"} included.`,
+      });
+      setStatementOpen(false);
+    } catch (err) {
+      toast({
+        title: "Could not build statement",
+        description: err instanceof Error ? err.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setStatementBusy(false);
+    }
+  };
+
   if (!userId) {
     return (
       <Card className="min-w-0 overflow-hidden">
@@ -438,10 +585,21 @@ export function PurchasedLabelsPanel({
                     Filter by Date
                   </CardTitle>
                   <CardDescription className={compactLayout ? "text-xs sm:text-sm" : undefined}>
-                    Narrow labels by purchase date range.
+                    Narrow labels by purchase date range. Card statement uses the same range.
                   </CardDescription>
                 </div>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={statementBusy || safeLabels.length === 0}
+                onClick={openCardStatementDialog}
+                className="shrink-0"
+              >
+                <FileText className="mr-1.5 h-3.5 w-3.5" />
+                Card statement
+              </Button>
             </div>
           </CardHeader>
           <CardContent className={compactLayout ? "p-3 pt-0 sm:p-6 sm:pt-0" : "pt-0"}>
@@ -477,6 +635,9 @@ export function PurchasedLabelsPanel({
                 />
               </div>
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Card statement is for card charges only; wallet purchases stay in purchase history.
+            </p>
             {(startDate || endDate) && (
               <Button
                 variant="outline"
@@ -670,6 +831,67 @@ export function PurchasedLabelsPanel({
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={statementOpen} onOpenChange={setStatementOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Buy Labels card statement</DialogTitle>
+            <DialogDescription>
+              Select a From / To date range for your PrepCorex card statement. This statement covers
+              card charges only. For wallet purchases, please check your purchase history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="card-statement-from">From</Label>
+              <Input
+                id="card-statement-from"
+                type="date"
+                value={statementFrom}
+                onChange={(e) => setStatementFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="card-statement-to">To</Label>
+              <Input
+                id="card-statement-to"
+                type="date"
+                value={statementTo}
+                onChange={(e) => setStatementTo(e.target.value)}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {statementPreviewCount > 0
+              ? `${statementPreviewCount} card charge${statementPreviewCount === 1 ? "" : "s"} in this range.`
+              : "Leave dates empty for all time, or adjust the range."}
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setStatementFrom("");
+                setStatementTo("");
+              }}
+            >
+              All time
+            </Button>
+            <Button
+              type="button"
+              disabled={statementBusy || statementPreviewCount === 0}
+              onClick={() => void handleDownloadCardStatement()}
+            >
+              {statementBusy ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-1.5 h-4 w-4" />
+              )}
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <LabelRefundRequestDialog
         open={Boolean(refundLabel)}

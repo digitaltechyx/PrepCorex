@@ -11,10 +11,24 @@ export function isWarehouseOpsClient(user: UserProfile, includeUnapproved = fals
   return true;
 }
 
+type UseWarehouseOpsClientsOptions = {
+  includeUnapproved?: boolean;
+  /**
+   * Reuse an existing `users` snapshot so Warehouse Ops does not open a second
+   * full-collection listener for the same data.
+   */
+  users?: UserProfile[];
+  usersLoading?: boolean;
+};
+
 /** Approved client users for warehouse floor queues (pick, pack, dispatch). */
-export function useWarehouseOpsClients(options?: { includeUnapproved?: boolean }) {
+export function useWarehouseOpsClients(options?: UseWarehouseOpsClientsOptions) {
   const includeUnapproved = options?.includeUnapproved ?? false;
-  const { data: allUsers, loading } = useCollection<UserProfile>("users");
+  const reuseUsers = options?.users !== undefined;
+  // Empty path skips the listener when the caller already owns a users snapshot.
+  const own = useCollection<UserProfile>(reuseUsers ? "" : "users");
+  const allUsers = reuseUsers ? (options.users ?? []) : own.data;
+  const loading = reuseUsers ? Boolean(options?.usersLoading) : own.loading;
   const clients = useMemo(
     () => allUsers.filter((u) => isWarehouseOpsClient(u, includeUnapproved)),
     [allUsers, includeUnapproved]

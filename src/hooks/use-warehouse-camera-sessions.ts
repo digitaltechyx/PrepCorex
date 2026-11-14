@@ -11,10 +11,8 @@ import {
   type WarehouseCameraSession,
 } from "@/lib/warehouse-camera-types";
 
-/** While a receive/outbound session is live or paused. */
+/** While a receive/outbound session is live or paused — keep the banner fresh. */
 const POLL_LIVE_MS = 5_000;
-/** No active live session — still detect new lives, but stop spamming the server. */
-const POLL_IDLE_MS = 30_000;
 /** Reuse on-demand history across tables/dialogs mounted for the same client. */
 const HISTORY_CACHE_MS = 60_000;
 
@@ -26,6 +24,7 @@ type LivePool = {
   timer: number | null;
   inFlight: boolean;
   onVisibility: () => void;
+  onFocus: () => void;
   user: User;
   clientUserId?: string;
 };
@@ -47,14 +46,17 @@ function hasActiveLiveSession(sessions: WarehouseCameraSession[]): boolean {
   return sessions.some((row) => isWarehouseCameraSessionActive(row));
 }
 
-function desiredPollMs(sessions: WarehouseCameraSession[]): number {
-  return hasActiveLiveSession(sessions) ? POLL_LIVE_MS : POLL_IDLE_MS;
+function clearLivePoolTimer(pool: LivePool): void {
+  if (pool.timer != null) {
+    window.clearTimeout(pool.timer);
+    pool.timer = null;
+  }
 }
 
 function scheduleLivePool(key: string, nextMs: number): void {
   const pool = livePools.get(key);
   if (!pool) return;
-  if (pool.timer != null) window.clearTimeout(pool.timer);
+  clearLivePoolTimer(pool);
   pool.timer = window.setTimeout(() => {
     const current = livePools.get(key);
     if (current) current.timer = null;
@@ -62,11 +64,15 @@ function scheduleLivePool(key: string, nextMs: number): void {
   }, nextMs);
 }
 
+/**
+ * Live polls only while a session is actively live/paused.
+ * Idle: no interval — re-check on mount, tab visible, or window focus only.
+ */
 async function refreshLivePool(key: string): Promise<void> {
   const pool = livePools.get(key);
   if (!pool || pool.inFlight) return;
   if (document.visibilityState !== "visible") {
-    scheduleLivePool(key, POLL_IDLE_MS);
+    clearLivePoolTimer(pool);
     return;
   }
 
@@ -84,9 +90,13 @@ async function refreshLivePool(key: string): Promise<void> {
     // Keep the last successful live state so a temporary failure does not flicker the banner.
   } finally {
     const current = livePools.get(key);
-    if (current) {
-      current.inFlight = false;
-      scheduleLivePool(key, desiredPollMs(current.sessions));
+    if (!current) return;
+    current.inFlight = false;
+    if (hasActiveLiveSession(current.sessions)) {
+      scheduleLivePool(key, POLL_LIVE_MS);
+    } else {
+      // Camera not in use — stop polling until focus/visibility/remount.
+      clearLivePoolTimer(current);
     }
   }
 }
@@ -110,15 +120,26 @@ function subscribeLivePool(
         const current = livePools.get(key);
         if (!current) return;
         if (document.visibilityState === "visible") {
-          if (current.timer != null) window.clearTimeout(current.timer);
-          current.timer = null;
+          clearLivePoolTimer(current);
           void refreshLivePool(key);
+        } else {
+          clearLivePoolTimer(current);
         }
+      },
+      onFocus: () => {
+        const current = livePools.get(key);
+        if (!current || document.visibilityState !== "visible") return;
+        clearLivePoolTimer(current);
+        void refreshLivePool(key);
       },
     };
     livePools.set(key, pool);
     document.addEventListener("visibilitychange", pool.onVisibility);
+    window.addEventListener("focus", pool.onFocus);
     void refreshLivePool(key);
+  } else {
+    pool.user = user;
+    pool.clientUserId = clientUserId;
   }
 
   pool.listeners.add(listener);
@@ -129,8 +150,9 @@ function subscribeLivePool(
     if (!current) return;
     current.listeners.delete(listener);
     if (current.listeners.size > 0) return;
-    if (current.timer != null) window.clearTimeout(current.timer);
+    clearLivePoolTimer(current);
     document.removeEventListener("visibilitychange", current.onVisibility);
+    window.removeEventListener("focus", current.onFocus);
     livePools.delete(key);
   };
 }
@@ -209,7 +231,7 @@ export function useWarehouseCameraSessions(clientUserId?: string, enabled = true
       cancelled = true;
       unsubscribeLive();
     };
-  }, [clientUserId, enabled, user]);
+  }, [clientUserId, enabled, user?.uid]);
 
   const recordedRequestIds = useMemo(
     () => warehouseCameraRecordedRequestIds(sessions),
@@ -224,7 +246,10 @@ export function useWarehouseCameraSessions(clientUserId?: string, enabled = true
   return { sessions, recordedRequestIds, recordedShipmentIds };
 }
 
-/** Only active live/paused sessions are polled; requests never overlap. */
+/**
+ * Polls every 5s only while a live/paused session is active.
+ * Otherwise one check on mount / tab visible / window focus — no idle interval.
+ */
 export function useWarehouseCameraLiveSessions(clientUserId?: string, enabled = true) {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<WarehouseCameraSession[]>([]);
@@ -240,7 +265,7 @@ export function useWarehouseCameraLiveSessions(clientUserId?: string, enabled = 
       clientUserId,
       setSessions
     );
-  }, [clientUserId, enabled, user]);
+  }, [clientUserId, enabled, user?.uid]);
 
   return { sessions };
 }

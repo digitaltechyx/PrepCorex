@@ -37,7 +37,15 @@ import { useCollection } from "@/hooks/use-collection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserPricingCollections } from "@/hooks/use-user-pricing-collections";
 import { resolvePrepUnitPrice } from "@/lib/pricing-utils";
-import { catalogFromPricingDoc } from "@/lib/additional-services-catalog";
+import {
+  catalogFromPricingDoc,
+  unitPriceForServiceKey,
+  type AdditionalServiceCatalogItem,
+} from "@/lib/additional-services-catalog";
+import {
+  applyCatalogPricesToAdditionalServices,
+  resolveOutboundAdditionalServicesPayload,
+} from "@/lib/shipment-utils";
 import imageCompression from "browser-image-compression";
 import { ImageIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +87,46 @@ import {
   saveBuyLabelParcelPrefill,
 } from "@/lib/buy-label-parcel-prefill";
 
+function shipmentLineAdditionalServicesTotal(
+  shipment:
+    | {
+        selectedAdditionalServices?: string[];
+        additionalServiceQuantities?: Record<string, number>;
+      }
+    | null
+    | undefined,
+  catalog: AdditionalServiceCatalogItem[]
+): number {
+  if (!shipment) return 0;
+  const keys = Array.isArray(shipment.selectedAdditionalServices)
+    ? shipment.selectedAdditionalServices
+    : [];
+  let sum = 0;
+  for (const key of keys) {
+    const qtyRaw = Number(shipment.additionalServiceQuantities?.[key]);
+    const qty = Number.isFinite(qtyRaw) && qtyRaw > 0 ? Math.floor(qtyRaw) : 1;
+    sum += qty * unitPriceForServiceKey(key, catalog);
+  }
+  return sum;
+}
+
+function shipmentsProductsTotal(shipments: Array<{ totalPrice?: number } | null | undefined>): number {
+  return (shipments || []).reduce((sum, s) => sum + (Number(s?.totalPrice) || 0), 0);
+}
+
+function shipmentsAdditionalServicesTotal(
+  shipments: Array<{
+    selectedAdditionalServices?: string[];
+    additionalServiceQuantities?: Record<string, number>;
+  } | null | undefined>,
+  catalog: AdditionalServiceCatalogItem[]
+): number {
+  return (shipments || []).reduce(
+    (sum, s) => sum + shipmentLineAdditionalServicesTotal(s, catalog),
+    0
+  );
+}
+
 const shipmentItemSchema = z.object({
   productId: z.string().min(1, "Select a product."),
   quantity: z.coerce.number().int().positive("Shipped quantity must be a positive number."),
@@ -89,9 +137,9 @@ const shipmentItemSchema = z.object({
   // Per-line type/details (product shipments only; validated in group superRefine)
   productType: z.enum(["Standard", "Custom"]).optional(),
   customDimensions: z.string().optional(),
-  // Additional Services per product - user only selects which services they want (boolean flags)
-  // Admin will add quantities during approval
+  // Additional services per line: selected keys + quantities (admin can still adjust on approval)
   selectedAdditionalServices: z.array(z.string()).optional(),
+  additionalServiceQuantities: z.record(z.coerce.number().int().nonnegative()).optional(),
   /** Set when line is created from a pending / not-yet-received inbound. */
   sourceInventoryRequestId: z.string().optional(),
   /**
@@ -1153,6 +1201,12 @@ export function CreateShipmentWithLabelsForm({
             }
             if (shipment.selectedAdditionalServices && shipment.selectedAdditionalServices.length > 0) {
               cleaned.selectedAdditionalServices = shipment.selectedAdditionalServices;
+              const qtyMap: Record<string, number> = {};
+              for (const key of shipment.selectedAdditionalServices) {
+                const raw = Number(shipment.additionalServiceQuantities?.[key]);
+                qtyMap[key] = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+              }
+              cleaned.additionalServiceQuantities = qtyMap;
             }
             if (
               shipment.stockRotationPolicy === "fefo" ||
@@ -1185,6 +1239,10 @@ export function CreateShipmentWithLabelsForm({
           const labelUrl = labelUrls.join(",");
           const mappedShipments = mapShipmentsForFirestore(shipmentsSlice);
           const prepIds = prepInboundIdsFromShipments(mappedShipments);
+          const pricedAdditionalServices = applyCatalogPricesToAdditionalServices(
+            resolveOutboundAdditionalServicesPayload({ shipments: mappedShipments }),
+            (key) => unitPriceForServiceKey(key, additionalServicesCatalog)
+          );
           const requestData: Record<string, unknown> = {
             userId: ownerId,
             userName: ownerDisplayName,
@@ -1197,6 +1255,10 @@ export function CreateShipmentWithLabelsForm({
             requestedBy: ownerId,
             requestedAt,
           };
+          if (pricedAdditionalServices) {
+            requestData.adminAdditionalServices = pricedAdditionalServices;
+            requestData.additionalServices = pricedAdditionalServices;
+          }
           if (prepIds.length > 0) {
             requestData.isPrepOutbound = true;
             requestData.prepInboundRequestIds = prepIds;
@@ -1458,10 +1520,12 @@ export function CreateShipmentWithLabelsForm({
             const groupPalletSubType = form.watch(`shipmentGroups.${groupIndex}.palletSubType`);
             const groupService = form.watch(`shipmentGroups.${groupIndex}.service`);
             const groupShipments = form.watch(`shipmentGroups.${groupIndex}.shipments`);
-            const groupTotal = (groupShipments || []).reduce(
-              (sum: number, s: any) => sum + (Number(s?.totalPrice) || 0),
-              0
+            const groupProductsTotal = shipmentsProductsTotal(groupShipments || []);
+            const groupServicesTotal = shipmentsAdditionalServicesTotal(
+              groupShipments || [],
+              additionalServicesCatalog
             );
+            const groupTotal = groupProductsTotal + groupServicesTotal;
             
             // Calculate available inventory + pending inbounds without useMemo (inside map)
             const normalizedQuery = productSearch.trim().toLowerCase();
@@ -1832,6 +1896,7 @@ export function CreateShipmentWithLabelsForm({
                                                   productType: shipmentType === "product" ? ("Standard" as const) : undefined,
                                                   customDimensions: undefined,
                                                   selectedAdditionalServices: undefined,
+                                                  additionalServiceQuantities: undefined,
                                         sourceInventoryRequestId: item.sourceInventoryRequestId,
                                         stockRotationPolicy: "auto" as const,
                                         lotAllocations: [] as OutboundLotAllocationValue[],
@@ -1948,21 +2013,64 @@ export function CreateShipmentWithLabelsForm({
                                         form.watch(
                                           `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
                                         ) || [];
+                                      const serviceQuantities =
+                                        form.watch(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                        ) || {};
                                       const labelForServiceKey = (key: string) =>
                                         additionalServicesCatalog.find((r) => r.key === key)?.name ?? key;
-                                      const selectedServicesDisplay = selectedServices.map(labelForServiceKey);
+                                      const qtyUnitForKey = (key: string) => {
+                                        if (key === "bubbleWrap") return "ft";
+                                        if (key === "stickerRemoval") return "items";
+                                        if (key === "warningLabels") return "labels";
+                                        return "qty";
+                                      };
+                                      const selectedServicesDisplay = selectedServices.map((key: string) => {
+                                        const qty = Math.max(1, Math.floor(Number(serviceQuantities[key]) || 1));
+                                        return `${labelForServiceKey(key)} × ${qty}`;
+                                      });
                                       const servicesPopupKey = `${popupKey}_line_${shipmentIndex}_additionalServicesInline`;
                                       const updateServices = (key: string, checked: boolean) => {
                                         const current =
                                           form.getValues(
                                             `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`
                                           ) || [];
+                                        const currentQty =
+                                          form.getValues(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                          ) || {};
                                         const next = checked
                                           ? Array.from(new Set([...current, key]))
                                           : current.filter((s: string) => s !== key);
+                                        const nextQty = { ...currentQty };
+                                        if (checked) {
+                                          nextQty[key] = Math.max(1, Math.floor(Number(nextQty[key]) || 1));
+                                        } else {
+                                          delete nextQty[key];
+                                        }
                                         form.setValue(
                                           `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices`,
                                           next,
+                                          { shouldValidate: true }
+                                        );
+                                        form.setValue(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                          nextQty,
+                                          { shouldValidate: true }
+                                        );
+                                      };
+                                      const updateServiceQty = (key: string, raw: string) => {
+                                        const n = Math.floor(Number(raw));
+                                        const currentQty =
+                                          form.getValues(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                          ) || {};
+                                        form.setValue(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                          {
+                                            ...currentQty,
+                                            [key]: Number.isFinite(n) && n > 0 ? n : 1,
+                                          },
                                           { shouldValidate: true }
                                         );
                                       };
@@ -2251,29 +2359,52 @@ export function CreateShipmentWithLabelsForm({
                                               <DialogHeader>
                                                 <DialogTitle>Additional Services</DialogTitle>
                                                 <DialogDescription>
-                                                  Choose all additional services needed for this selected product.
+                                                  Choose services and enter quantity for this product. Admin can still adjust on approval.
                                                 </DialogDescription>
                                               </DialogHeader>
                                               <div className="max-h-[min(60vh,420px)] space-y-3 overflow-y-auto py-1 pr-1">
                                                 {additionalServicesCatalog.map((svc) => {
                                                   const checked = selectedServices.includes(svc.key);
+                                                  const qty = Math.max(
+                                                    1,
+                                                    Math.floor(Number(serviceQuantities[svc.key]) || 1)
+                                                  );
                                                   return (
-                                                    <label key={svc.key} className="flex items-start gap-2 text-sm">
-                                                      <Checkbox
-                                                        checked={checked}
-                                                        onCheckedChange={(c) => updateServices(svc.key, Boolean(c))}
-                                                      />
-                                                      <span>
-                                                        <span className="font-medium">{svc.name}</span>
-                                                        <span className="block text-xs text-muted-foreground">
-                                                          {svc.description ||
-                                                            "Admin enters quantity when completing this request."}
+                                                    <div
+                                                      key={svc.key}
+                                                      className="space-y-2 rounded-md border p-2.5 text-sm"
+                                                    >
+                                                      <label className="flex items-start gap-2">
+                                                        <Checkbox
+                                                          checked={checked}
+                                                          onCheckedChange={(c) =>
+                                                            updateServices(svc.key, Boolean(c))
+                                                          }
+                                                        />
+                                                        <span>
+                                                          <span className="font-medium">{svc.name}</span>
+                                                          <span className="block text-xs text-muted-foreground">
+                                                            {svc.description || `Quantity (${qtyUnitForKey(svc.key)})`}
+                                                          </span>
+                                                          <span className="block text-xs text-muted-foreground">
+                                                            Rate: ${Number(svc.price || 0).toFixed(2)}
+                                                          </span>
                                                         </span>
-                                                        <span className="block text-xs text-muted-foreground">
-                                                          Rate: ${Number(svc.price || 0).toFixed(2)}
-                                                        </span>
-                                                      </span>
-                                                    </label>
+                                                      </label>
+                                                      {checked ? (
+                                                        <Input
+                                                          type="number"
+                                                          min={1}
+                                                          step={1}
+                                                          className="h-8"
+                                                          value={qty}
+                                                          onChange={(e) =>
+                                                            updateServiceQty(svc.key, e.target.value)
+                                                          }
+                                                          placeholder={`Qty (${qtyUnitForKey(svc.key)})`}
+                                                        />
+                                                      ) : null}
+                                                    </div>
                                                   );
                                                 })}
                                               </div>
@@ -2987,14 +3118,42 @@ export function CreateShipmentWithLabelsForm({
                                     name={`shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.selectedAdditionalServices` as const}
                                     render={({ field }) => {
                                       const selectedServices = field.value || [];
+                                      const serviceQuantities =
+                                        form.watch(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                        ) || {};
                                       const labelForKey = (key: string) =>
                                         additionalServicesCatalog.find((r) => r.key === key)?.name ?? key;
-                                      const selectedServicesDisplay = selectedServices.map(labelForKey);
+                                      const qtyUnitForKey = (key: string) => {
+                                        if (key === "bubbleWrap") return "ft";
+                                        if (key === "stickerRemoval") return "items";
+                                        if (key === "warningLabels") return "labels";
+                                        return "qty";
+                                      };
+                                      const selectedServicesDisplay = selectedServices.map((key: string) => {
+                                        const qty = Math.max(1, Math.floor(Number(serviceQuantities[key]) || 1));
+                                        return `${labelForKey(key)} × ${qty}`;
+                                      });
                                       const displayText =
                                         selectedServicesDisplay.length > 0
                                           ? selectedServicesDisplay.join(", ")
                                           : "Select (optional)";
                                       const productPopupKey = `${popupKey}_product_${shipmentIndex}_additionalServices`;
+                                      const setServiceQty = (key: string, raw: string) => {
+                                        const n = Math.floor(Number(raw));
+                                        const currentQty =
+                                          form.getValues(
+                                            `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                          ) || {};
+                                        form.setValue(
+                                          `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                          {
+                                            ...currentQty,
+                                            [key]: Number.isFinite(n) && n > 0 ? n : 1,
+                                          },
+                                          { shouldValidate: true }
+                                        );
+                                      };
 
                                       return (
                                         <FormItem>
@@ -3032,45 +3191,86 @@ export function CreateShipmentWithLabelsForm({
                                                   Additional Services for {product?.productName}
                                                 </DialogTitle>
                                                 <DialogDescription>
-                                                  Select which additional services you need for this product. Admin will
-                                                  add quantities and calculate pricing during approval.
+                                                  Select services and enter quantity for this product. Admin can still
+                                                  adjust quantities and pricing on approval.
                                                 </DialogDescription>
                                               </DialogHeader>
                                               <div className="max-h-[min(60vh,420px)] space-y-4 overflow-y-auto py-2 pr-1">
                                                 {additionalServicesCatalog.map((svc) => {
                                                   const checked = selectedServices.includes(svc.key);
+                                                  const qty = Math.max(
+                                                    1,
+                                                    Math.floor(Number(serviceQuantities[svc.key]) || 1)
+                                                  );
                                                   return (
                                                     <FormItem
                                                       key={svc.key}
-                                                      className="flex flex-row items-start space-x-3 space-y-0"
+                                                      className="space-y-2 rounded-md border p-3"
                                                     >
-                                                      <FormControl>
-                                                        <Checkbox
-                                                          checked={checked}
-                                                          onCheckedChange={(c) => {
-                                                            const current = field.value || [];
-                                                            if (c) {
-                                                              field.onChange(
-                                                                Array.from(new Set([...current, svc.key]))
-                                                              );
-                                                            } else {
-                                                              field.onChange(
-                                                                current.filter((s: string) => s !== svc.key)
-                                                              );
-                                                            }
-                                                          }}
-                                                        />
-                                                      </FormControl>
-                                                      <div className="space-y-1 leading-none">
-                                                        <FormLabel>{svc.name}</FormLabel>
-                                                        <p className="text-xs text-muted-foreground">
-                                                          {svc.description ||
-                                                            "Admin enters quantity when completing this request."}
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground">
-                                                          Rate: ${Number(svc.price || 0).toFixed(2)}
-                                                        </p>
+                                                      <div className="flex flex-row items-start space-x-3 space-y-0">
+                                                        <FormControl>
+                                                          <Checkbox
+                                                            checked={checked}
+                                                            onCheckedChange={(c) => {
+                                                              const current = field.value || [];
+                                                              const currentQty =
+                                                                form.getValues(
+                                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`
+                                                                ) || {};
+                                                              if (c) {
+                                                                field.onChange(
+                                                                  Array.from(new Set([...current, svc.key]))
+                                                                );
+                                                                form.setValue(
+                                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                                                  {
+                                                                    ...currentQty,
+                                                                    [svc.key]: Math.max(
+                                                                      1,
+                                                                      Math.floor(Number(currentQty[svc.key]) || 1)
+                                                                    ),
+                                                                  },
+                                                                  { shouldValidate: true }
+                                                                );
+                                                              } else {
+                                                                field.onChange(
+                                                                  current.filter((s: string) => s !== svc.key)
+                                                                );
+                                                                const nextQty = { ...currentQty };
+                                                                delete nextQty[svc.key];
+                                                                form.setValue(
+                                                                  `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                                                  nextQty,
+                                                                  { shouldValidate: true }
+                                                                );
+                                                              }
+                                                            }}
+                                                          />
+                                                        </FormControl>
+                                                        <div className="space-y-1 leading-none">
+                                                          <FormLabel>{svc.name}</FormLabel>
+                                                          <p className="text-xs text-muted-foreground">
+                                                            {svc.description ||
+                                                              `Quantity (${qtyUnitForKey(svc.key)})`}
+                                                          </p>
+                                                          <p className="text-xs text-muted-foreground">
+                                                            Rate: ${Number(svc.price || 0).toFixed(2)}
+                                                          </p>
+                                                        </div>
                                                       </div>
+                                                      {checked ? (
+                                                        <Input
+                                                          type="number"
+                                                          min={1}
+                                                          step={1}
+                                                          className="h-9"
+                                                          value={qty}
+                                                          onChange={(e) =>
+                                                            setServiceQty(svc.key, e.target.value)
+                                                          }
+                                                          placeholder={`Qty (${qtyUnitForKey(svc.key)})`}
+                                                        />
+                                                      ) : null}
                                                     </FormItem>
                                                   );
                                                 })}
@@ -3080,6 +3280,11 @@ export function CreateShipmentWithLabelsForm({
                                                     variant="ghost"
                                                     onClick={() => {
                                                       field.onChange([]);
+                                                      form.setValue(
+                                                        `shipmentGroups.${groupIndex}.shipments.${shipmentIndex}.additionalServiceQuantities`,
+                                                        {},
+                                                        { shouldValidate: true }
+                                                      );
                                                       setOpenPopups((prev) => ({
                                                         ...prev,
                                                         [productPopupKey]: false,
@@ -3145,20 +3350,28 @@ export function CreateShipmentWithLabelsForm({
 
           {shipmentGroups.length > 0 && (() => {
             const allGroups = form.watch("shipmentGroups") as any[] | undefined;
-            const groupTotals = (allGroups || []).map((g) =>
-              (g?.shipments || []).reduce(
-                (sum: number, s: any) => sum + (Number(s?.totalPrice) || 0),
-                0
-              )
-            );
-            const grandTotal = groupTotals.reduce((a: number, b: number) => a + b, 0);
+            const groupBreakdowns = (allGroups || []).map((g) => {
+              const shipments = g?.shipments || [];
+              const products = shipmentsProductsTotal(shipments);
+              const services = shipmentsAdditionalServicesTotal(
+                shipments,
+                additionalServicesCatalog
+              );
+              return {
+                products,
+                services,
+                total: products + services,
+                productsCount: shipments.length as number,
+              };
+            });
+            const productsGrand = groupBreakdowns.reduce((a, b) => a + b.products, 0);
+            const servicesGrand = groupBreakdowns.reduce((a, b) => a + b.services, 0);
+            const grandTotal = productsGrand + servicesGrand;
             return (
               <Card className="border-2 border-primary/30 bg-primary/5">
                 <CardContent className="p-4 sm:p-5">
                   <div className="space-y-2">
-                    {groupTotals.map((t, idx) => {
-                      const productsCount = (allGroups?.[idx]?.shipments || []).length as number;
-                      return (
+                    {groupBreakdowns.map((row, idx) => (
                         <div
                           key={idx}
                           className="flex items-center justify-between text-sm"
@@ -3166,13 +3379,22 @@ export function CreateShipmentWithLabelsForm({
                           <span className="text-muted-foreground">
                             Shipment {idx + 1}
                             <span className="ml-2 text-xs">
-                              ({productsCount} product{productsCount === 1 ? "" : "s"})
+                              ({row.productsCount} product{row.productsCount === 1 ? "" : "s"}
+                              {row.services > 0
+                                ? ` · services $${row.services.toFixed(2)}`
+                                : ""}
+                              )
                             </span>
                           </span>
-                          <span className="font-medium tabular-nums">${t.toFixed(2)}</span>
+                          <span className="font-medium tabular-nums">${row.total.toFixed(2)}</span>
                         </div>
-                      );
-                    })}
+                    ))}
+                    {servicesGrand > 0 ? (
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Additional services</span>
+                        <span className="tabular-nums">${servicesGrand.toFixed(2)}</span>
+                      </div>
+                    ) : null}
                     <div className="border-t border-primary/30 pt-2 flex items-center justify-between">
                       <span className="text-base font-semibold">Grand Total</span>
                       <span className="text-lg font-bold tabular-nums text-primary">

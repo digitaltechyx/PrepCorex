@@ -18,10 +18,10 @@ import { getUserRoles } from "@/lib/permissions";
 import type { UserProfile } from "@/types";
 import { countPendingNotificationItems } from "@/lib/pending-notification-count";
 
-/** Matches ShopifyOrdersPanel unfulfilled filter (not partial/cancelled). */
+/** Explicit unfulfilled only — missing/null must not inflate sidebar badges. */
 function isUnfulfilledShopifyOrder(status: unknown): boolean {
-  const s = status == null ? "" : String(status);
-  return !s || s === "unfulfilled" || s === "null";
+  const s = status == null ? "" : String(status).trim().toLowerCase();
+  return s === "unfulfilled";
 }
 
 /** Matches admin eBay orders "Quick Fulfill" eligibility. */
@@ -283,7 +283,10 @@ export function useAdminSidebarBadges(managedUsers: UserProfile[], enabled = tru
           state.shopifyDocs,
           managed,
           state.shopifyConnectedUids,
-          (data) => isUnfulfilledShopifyOrder(data.fulfillment_status)
+          (data) =>
+            isUnfulfilledShopifyOrder(
+              data.fulfillmentStatus ?? data.fulfillment_status
+            )
         )
       );
       setUnfulfilledEbayOrdersCount(

@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { useCollection } from "@/hooks/use-collection";
 import { hasRole } from "@/lib/permissions";
+import { isWarehouseDispatchedRequest } from "@/lib/warehouse-outbound-request-status";
 import type {
   Commission,
   DisposeRequest,
@@ -25,8 +26,44 @@ type DocumentRequestLite = {
 
 const ACTIVE_RETURN_STATUSES = new Set(["pending", "approved", "in_progress"]);
 
+/** Same open statuses as Shipped Orders “awaiting ship” rows. */
+const OPEN_OUTBOUND_REQUEST_STATUSES = new Set([
+  "pending",
+  "confirmed",
+  "awaiting_label_upload",
+]);
+
 function normalizeStatus(value: unknown): string {
   return String(value || "").toLowerCase();
+}
+
+/**
+ * Sidebar Shopify badge: only explicit unfulfilled open orders.
+ * Do not treat missing/null as pending — client Orders page is live Shopify,
+ * while Firestore often has stale/null fulfillment and inflated the badge.
+ */
+function isUnfulfilledShopifyOrder(order: {
+  fulfillment_status?: string | null;
+  fulfillmentStatus?: string | null;
+  financial_status?: string | null;
+  financialStatus?: string | null;
+  cancelled_at?: string | null;
+  cancelledAt?: string | null;
+}): boolean {
+  if (order.cancelled_at || order.cancelledAt) return false;
+  const financial = normalizeStatus(order.financialStatus ?? order.financial_status);
+  if (
+    financial === "cancelled" ||
+    financial === "canceled" ||
+    financial === "voided" ||
+    financial === "refunded"
+  ) {
+    return false;
+  }
+  const raw = order.fulfillmentStatus ?? order.fulfillment_status;
+  const s = raw == null ? "" : String(raw).trim().toLowerCase();
+  // Explicit unfulfilled only (not null / empty / "null" string / partial).
+  return s === "unfulfilled";
 }
 
 export function useClientSidebarBadges() {
@@ -83,7 +120,12 @@ export function useClientSidebarBadges() {
   );
 
   const pendingShopifyOrdersCount = useMemo(
-    () => shopifyOrders.filter((order) => order.fulfillment_status !== "fulfilled").length,
+    () =>
+      shopifyOrders.filter((order) =>
+        isUnfulfilledShopifyOrder(
+          order as ShopifyOrder & { fulfillmentStatus?: string | null }
+        )
+      ).length,
     [shopifyOrders]
   );
 
@@ -101,18 +143,20 @@ export function useClientSidebarBadges() {
     [inventoryRequests]
   );
 
+  /** Open outbound work shown on Shipped Orders (not the create form). */
   const pendingOutboundCount = useMemo(
     () =>
       shipmentRequests.filter((req) => {
-        const status = normalizeStatus(req.status);
-        return status === "pending" || status === "awaiting_label_upload";
+        if (!OPEN_OUTBOUND_REQUEST_STATUSES.has(normalizeStatus(req.status))) return false;
+        return !isWarehouseDispatchedRequest(req as unknown as Record<string, unknown>);
       }).length,
     [shipmentRequests]
   );
 
+  /** Inventory parent badge = inbound only (outbound badge lives on Shipped Orders). */
   const inventoryActionCount = useMemo(
-    () => pendingInboundCount + pendingOutboundCount,
-    [pendingInboundCount, pendingOutboundCount]
+    () => pendingInboundCount,
+    [pendingInboundCount]
   );
 
   const pendingProductReturnsCount = useMemo(

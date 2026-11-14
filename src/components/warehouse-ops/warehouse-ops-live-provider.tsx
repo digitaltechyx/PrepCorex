@@ -226,11 +226,13 @@ export function WarehouseOpsLiveProvider({ children }: { children: React.ReactNo
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+  // One shared `users` listener: inbound needs every account; clients are filtered from the same snapshot.
+  const { data: allUsers = [], loading: allUsersLoading } = useCollection<UserProfile>("users");
   const { clients, loading: clientsLoading } = useWarehouseOpsClients({
     includeUnapproved: true,
+    users: allUsers,
+    usersLoading: allUsersLoading,
   });
-  // Notifications includes every user account; inbound receiving must too (not only role=user clients).
-  const { data: allUsers = [], loading: allUsersLoading } = useCollection<UserProfile>("users");
   const inboundUsers = useMemo(() => {
     const byId = new Map<string, UserProfile>();
     for (const u of allUsers) {

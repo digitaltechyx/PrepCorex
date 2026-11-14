@@ -3,12 +3,15 @@ export type LexiActionType =
   | "inbound_approve"
   | "inbound_reject"
   | "inbound_complete"
+  | "inbound_cancel"
   | "outbound_create"
   | "outbound_approve"
   | "outbound_reject"
+  | "outbound_cancel"
   | "outbound_pick_pack"
   | "outbound_ship_inventory"
   | "outbound_dispatch"
+  | "outbound_invoice"
   | "inbound_fulfill_all"
   | "outbound_fulfill_all"
   | "restock"
@@ -21,12 +24,15 @@ export type LexiActionType =
 export const LEXI_CLIENT_ACTION_TYPES: LexiActionType[] = [
   "inbound_complete",
   "inbound_fulfill_all",
+  "inbound_cancel",
   "outbound_fulfill_all",
   "outbound_create",
   "outbound_reject",
+  "outbound_cancel",
   "outbound_pick_pack",
   "outbound_ship_inventory",
   "outbound_dispatch",
+  "outbound_invoice",
   "restock",
   "return_review",
   "dispose_review",
@@ -86,7 +92,9 @@ export type LexiActionPayload =
   | LexiOutboundApprovePayload
   | LexiOutboundJobPayload
   | LexiRejectPayload
+  | LexiCancelPayload
   | LexiOutboundDispatchPayload
+  | LexiOutboundInvoicePayload
   | LexiRestockPayload
   | LexiReviewPayload
   | LexiDisposeReviewPayload
@@ -184,6 +192,28 @@ export type LexiRejectPayload = {
   requestId: string;
   productName: string;
   reason: string;
+};
+
+/** Cancel a pending inbound or outbound request (with reason). */
+export type LexiCancelPayload = {
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  productName: string;
+  reason: string;
+};
+
+/**
+ * Create PrepCorex invoice (On clients) or append CRM draft (Off clients)
+ * for a shipment request / shipped rows.
+ */
+export type LexiOutboundInvoicePayload = {
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  productName: string;
+  /** Optional explicit shipped doc ids; otherwise resolve from requestId. */
+  shippedIds?: string[];
 };
 
 export type LexiOutboundJobPayload = {

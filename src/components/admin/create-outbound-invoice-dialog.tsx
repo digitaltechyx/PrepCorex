@@ -18,7 +18,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
-import { normalizeShipmentItems } from "@/lib/shipment-utils";
+import {
+  normalizeShipmentItems,
+  resolveOutboundAdditionalServicesPayload,
+  type OutboundAdditionalServicesPayload,
+} from "@/lib/shipment-utils";
+import {
+  DEFAULT_ADDITIONAL_SERVICES,
+  isLegacyAdditionalServiceKey,
+} from "@/lib/additional-services-catalog";
 import {
   addInvoiceCatalogLine,
   catalogLineLabel,
@@ -123,41 +131,69 @@ function buildProductLinesFromShipments(shipments: ShippedItem[]): ProductLine[]
   return lines;
 }
 
+function serviceLabelForKey(key: string): string {
+  return (
+    DEFAULT_ADDITIONAL_SERVICES.find((row) => row.key === key)?.name ||
+    key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())
+  );
+}
+
 function buildInitialServiceLines(shipments: ShippedItem[]): ServiceLine[] {
   const lines: ServiceLine[] = [];
-  for (const shipped of shipments) {
-    const add = shipped.additionalServices;
-    if (!add) continue;
+  const mergedQty: Record<string, number> = {};
+  const mergedPrice: Record<string, number> = {};
+
+  const absorb = (add: OutboundAdditionalServicesPayload | null | undefined) => {
+    if (!add) return;
     const bubble = Number(add.bubbleWrapFeet || 0);
     const sticker = Number(add.stickerRemovalItems || 0);
     const warn = Number(add.warningLabels || 0);
-    const ppf = Number(add.pricePerFoot || 0);
-    const ppi = Number(add.pricePerItem || 0);
-    const ppl = Number(add.pricePerLabel || 0);
     if (bubble > 0) {
-      lines.push({
-        id: newId("svc"),
-        description: "Bubble Wrap",
-        quantity: bubble,
-        unitPrice: ppf,
-      });
+      mergedQty.bubbleWrap = (mergedQty.bubbleWrap || 0) + bubble;
+      if (!(mergedPrice.bubbleWrap > 0)) mergedPrice.bubbleWrap = Number(add.pricePerFoot || 0);
     }
     if (sticker > 0) {
-      lines.push({
-        id: newId("svc"),
-        description: "Sticker Removal",
-        quantity: sticker,
-        unitPrice: ppi,
-      });
+      mergedQty.stickerRemoval = (mergedQty.stickerRemoval || 0) + sticker;
+      if (!(mergedPrice.stickerRemoval > 0)) {
+        mergedPrice.stickerRemoval = Number(add.pricePerItem || 0);
+      }
     }
     if (warn > 0) {
-      lines.push({
-        id: newId("svc"),
-        description: "Warning Labels",
-        quantity: warn,
-        unitPrice: ppl,
-      });
+      mergedQty.warningLabels = (mergedQty.warningLabels || 0) + warn;
+      if (!(mergedPrice.warningLabels > 0)) {
+        mergedPrice.warningLabels = Number(add.pricePerLabel || 0);
+      }
     }
+    const extras = add.extraServiceQuantities || {};
+    const extraPrices = add.extraServiceUnitPrices || {};
+    Object.entries(extras).forEach(([key, qty]) => {
+      if (isLegacyAdditionalServiceKey(key)) return;
+      const n = Math.floor(Number(qty) || 0);
+      if (!key || n <= 0) return;
+      mergedQty[key] = (mergedQty[key] || 0) + n;
+      if (!(mergedPrice[key] > 0)) mergedPrice[key] = Number(extraPrices[key] || 0);
+    });
+  };
+
+  for (const shipped of shipments) {
+    absorb(
+      resolveOutboundAdditionalServicesPayload(shipped) ||
+        (shipped.additionalServices as OutboundAdditionalServicesPayload | undefined)
+    );
+  }
+
+  const pushOrder = ["bubbleWrap", "stickerRemoval", "warningLabels"];
+  const keys = [
+    ...pushOrder.filter((k) => (mergedQty[k] || 0) > 0),
+    ...Object.keys(mergedQty).filter((k) => !pushOrder.includes(k) && (mergedQty[k] || 0) > 0),
+  ];
+  for (const key of keys) {
+    lines.push({
+      id: newId("svc"),
+      description: serviceLabelForKey(key),
+      quantity: mergedQty[key],
+      unitPrice: Number(mergedPrice[key] || 0),
+    });
   }
   return lines;
 }

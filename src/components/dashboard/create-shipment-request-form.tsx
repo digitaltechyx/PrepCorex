@@ -614,7 +614,7 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
       const requestedAt = Timestamp.now();
       const dateTimestamp = Timestamp.fromDate(values.date);
 
-      // Include selected additional services (user only selects which services, admin adds quantities)
+      // Client selects services + quantities; admin can still adjust on approval.
       const selectedAdditionalServices: string[] = [];
       if (values.bubbleWrapFeet !== undefined && values.bubbleWrapFeet > 0) {
         selectedAdditionalServices.push("bubbleWrap");
@@ -667,6 +667,42 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
 
       if (selectedAdditionalServices.length > 0) {
         requestData.selectedAdditionalServices = selectedAdditionalServices;
+      }
+      if (values.bubbleWrapFeet !== undefined && values.bubbleWrapFeet > 0) {
+        requestData.bubbleWrapFeet = values.bubbleWrapFeet;
+      }
+      if (values.stickerRemovalItems !== undefined && values.stickerRemovalItems > 0) {
+        requestData.stickerRemovalItems = values.stickerRemovalItems;
+      }
+      if (values.warningLabels !== undefined && values.warningLabels > 0) {
+        requestData.warningLabels = values.warningLabels;
+      }
+      try {
+        const { catalogFromPricingDoc, unitPriceForServiceKey } = await import(
+          "@/lib/additional-services-catalog"
+        );
+        const {
+          applyCatalogPricesToAdditionalServices,
+          resolveOutboundAdditionalServicesPayload,
+        } = await import("@/lib/shipment-utils");
+        const catalog = catalogFromPricingDoc(
+          (additionalServicesPricing?.[0] as any) || null
+        );
+        const priced = applyCatalogPricesToAdditionalServices(
+          resolveOutboundAdditionalServicesPayload({
+            selectedAdditionalServices,
+            bubbleWrapFeet: values.bubbleWrapFeet,
+            stickerRemovalItems: values.stickerRemovalItems,
+            warningLabels: values.warningLabels,
+          }),
+          (key) => unitPriceForServiceKey(key, catalog)
+        );
+        if (priced) {
+          requestData.adminAdditionalServices = priced;
+          requestData.additionalServices = priced;
+        }
+      } catch {
+        /* pricing attach is best-effort */
       }
 
       // Clean shipments array to remove undefined values
@@ -1300,9 +1336,9 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                 const hasStickerRemoval = stickerRemovalItems !== undefined && stickerRemovalItems > 0;
                 const hasWarningLabels = warningLabels !== undefined && warningLabels > 0;
                 const selectedServices: string[] = [];
-                if (hasBubbleWrap) selectedServices.push("Bubble Wrap");
-                if (hasStickerRemoval) selectedServices.push("Sticker Removal");
-                if (hasWarningLabels) selectedServices.push("Warning Labels");
+                if (hasBubbleWrap) selectedServices.push(`Bubble Wrap × ${bubbleWrapFeet}`);
+                if (hasStickerRemoval) selectedServices.push(`Sticker Removal × ${stickerRemovalItems}`);
+                if (hasWarningLabels) selectedServices.push(`Warning Labels × ${warningLabels}`);
                 const displayText = selectedServices.length > 0 
                   ? selectedServices.join(", ")
                   : "Select (optional)";
@@ -1327,75 +1363,126 @@ export function CreateShipmentRequestForm({ inventory }: CreateShipmentRequestFo
                         <DialogHeader>
                           <DialogTitle>Additional Services</DialogTitle>
                           <DialogDescription>
-                            Select which additional services you need. Admin will add quantities and calculate pricing during approval.
+                            Select services and enter quantity. Admin can still adjust quantities and pricing on approval.
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 py-2">
                           <FormField
                             control={form.control}
                             name="bubbleWrapFeet"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value !== undefined && field.value > 0}
-                                    onCheckedChange={(checked) => {
-                                      field.onChange(checked ? 1 : undefined);
-                                    }}
-                                  />
-                                </FormControl>
-                                <div className="space-y-1 leading-none">
-                                  <FormLabel>Bubble Wrap</FormLabel>
-                                  <p className="text-xs text-muted-foreground">
-                                    Admin will add quantity (feet) during approval
-                                  </p>
+                            render={({ field }) => {
+                              const checked = field.value !== undefined && field.value > 0;
+                              return (
+                              <FormItem className="space-y-2 rounded-md border p-3">
+                                <div className="flex flex-row items-start space-x-3 space-y-0">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(isChecked) => {
+                                        field.onChange(isChecked ? Math.max(1, Number(field.value) || 1) : undefined);
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel>Bubble Wrap</FormLabel>
+                                    <p className="text-xs text-muted-foreground">Quantity in feet</p>
+                                  </div>
                                 </div>
+                                {checked ? (
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className="h-9"
+                                    value={field.value ?? ""}
+                                    onChange={(e) => {
+                                      const n = Math.floor(Number(e.target.value));
+                                      field.onChange(Number.isFinite(n) && n > 0 ? n : undefined);
+                                    }}
+                                    placeholder="Feet"
+                                  />
+                                ) : null}
                               </FormItem>
-                            )}
+                              );
+                            }}
                           />
                           <FormField
                             control={form.control}
                             name="stickerRemovalItems"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value !== undefined && field.value > 0}
-                                    onCheckedChange={(checked) => {
-                                      field.onChange(checked ? 1 : undefined);
-                                    }}
-                                  />
-                                </FormControl>
-                                <div className="space-y-1 leading-none">
-                                  <FormLabel>Sticker Removal</FormLabel>
-                                  <p className="text-xs text-muted-foreground">
-                                    Admin will add quantity (items) during approval
-                                  </p>
+                            render={({ field }) => {
+                              const checked = field.value !== undefined && field.value > 0;
+                              return (
+                              <FormItem className="space-y-2 rounded-md border p-3">
+                                <div className="flex flex-row items-start space-x-3 space-y-0">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(isChecked) => {
+                                        field.onChange(isChecked ? Math.max(1, Number(field.value) || 1) : undefined);
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel>Sticker Removal</FormLabel>
+                                    <p className="text-xs text-muted-foreground">Quantity in items</p>
+                                  </div>
                                 </div>
+                                {checked ? (
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className="h-9"
+                                    value={field.value ?? ""}
+                                    onChange={(e) => {
+                                      const n = Math.floor(Number(e.target.value));
+                                      field.onChange(Number.isFinite(n) && n > 0 ? n : undefined);
+                                    }}
+                                    placeholder="Items"
+                                  />
+                                ) : null}
                               </FormItem>
-                            )}
+                              );
+                            }}
                           />
                           <FormField
                             control={form.control}
                             name="warningLabels"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={field.value !== undefined && field.value > 0}
-                                    onCheckedChange={(checked) => {
-                                      field.onChange(checked ? 1 : undefined);
-                                    }}
-                                  />
-                                </FormControl>
-                                <div className="space-y-1 leading-none">
-                                  <FormLabel>Warning Labels</FormLabel>
-                                  <p className="text-xs text-muted-foreground">
-                                    Admin will add quantity (count) during approval
-                                  </p>
+                            render={({ field }) => {
+                              const checked = field.value !== undefined && field.value > 0;
+                              return (
+                              <FormItem className="space-y-2 rounded-md border p-3">
+                                <div className="flex flex-row items-start space-x-3 space-y-0">
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(isChecked) => {
+                                        field.onChange(isChecked ? Math.max(1, Number(field.value) || 1) : undefined);
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <div className="space-y-1 leading-none">
+                                    <FormLabel>Warning Labels</FormLabel>
+                                    <p className="text-xs text-muted-foreground">Quantity (label count)</p>
+                                  </div>
                                 </div>
+                                {checked ? (
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    step={1}
+                                    className="h-9"
+                                    value={field.value ?? ""}
+                                    onChange={(e) => {
+                                      const n = Math.floor(Number(e.target.value));
+                                      field.onChange(Number.isFinite(n) && n > 0 ? n : undefined);
+                                    }}
+                                    placeholder="Labels"
+                                  />
+                                ) : null}
                               </FormItem>
-                            )}
+                              );
+                            }}
                           />
                           <div className="flex justify-end gap-2 pt-2">
                             <Button

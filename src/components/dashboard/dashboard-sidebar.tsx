@@ -121,7 +121,6 @@ export function DashboardSidebar() {
     pendingProductReturnsCount,
     pendingDocumentsCount,
     pendingDisposeCount,
-    pendingLabelsCount,
     pendingAffiliateClientsCount,
     affiliateAttentionCount,
   } = useClientSidebarBadges();
@@ -403,7 +402,7 @@ export function DashboardSidebar() {
       url: "/dashboard/create-shipment-with-labels",
       icon: Upload,
       color: "text-indigo-600",
-      badge: pendingOutboundCount > 0 ? pendingOutboundCount : null,
+      badge: null,
       requiredRole: "user" as const,
       requiredFeature: "create_shipment" as const,
     },
@@ -412,7 +411,7 @@ export function DashboardSidebar() {
       url: "/dashboard/buy-labels",
       icon: ShoppingBag,
       color: "text-blue-600",
-      badge: pendingLabelsCount > 0 ? pendingLabelsCount : null,
+      badge: null,
       requiredRole: "user" as const,
       requiredFeature: "buy_labels" as const,
     },
@@ -421,6 +420,7 @@ export function DashboardSidebar() {
       url: "/dashboard/shipped-orders",
       icon: Truck,
       color: "text-teal-600",
+      badge: pendingOutboundCount > 0 ? pendingOutboundCount : null,
       requiredRole: "user" as const,
       requiredFeature: "shipped_orders" as const,
     },
@@ -1391,9 +1391,6 @@ export function DashboardSidebar() {
                                     className="flex w-full min-w-0 items-center gap-2 pr-1"
                                   >
                                     <NavMenuTruncatedLabel label="Outbound Shipment" />
-                                    {pendingOutboundCount > 0 && (
-                                      <NavMenuCountBadge count={pendingOutboundCount} className="bg-primary text-primary-foreground shadow-sm" />
-                                    )}
                                   </Link>
                                 </SidebarMenuButton>
                                 {inventoryNestedItems.map((nestedItem) => {

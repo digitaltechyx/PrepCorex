@@ -7,6 +7,7 @@ import {
   purchaseLabelFromShipBest,
 } from '@/lib/shipbest-purchase';
 import { applyLabelBillingSpend } from '@/lib/label-billing-admin';
+import { cardSummaryFromPaymentIntent } from '@/lib/stripe-customer';
 import Stripe from 'stripe';
 
 const SHIPPO_API_BASE = 'https://api.goshippo.com';
@@ -198,12 +199,30 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
       continue;
     }
 
-    // Update label purchase with payment success
+    let cardPatch: Record<string, string | null> = {};
+    try {
+      const card = await cardSummaryFromPaymentIntent(paymentIntent);
+      if (card.cardBrand || card.cardLast4 || card.stripePaymentMethodId) {
+        cardPatch = {
+          ...(card.stripePaymentMethodId
+            ? { stripePaymentMethodId: card.stripePaymentMethodId }
+            : {}),
+          ...(card.cardBrand ? { cardBrand: card.cardBrand } : {}),
+          ...(card.cardLast4 ? { cardLast4: card.cardLast4 } : {}),
+        };
+      }
+    } catch (cardErr) {
+      console.warn('Could not resolve card details for payment intent', paymentIntentId, cardErr);
+    }
+
+    // Update label purchase with payment success (+ card fingerprint for statements)
     await labelPurchaseRef.update({
       paymentStatus: 'succeeded',
       status: 'payment_succeeded',
+      paymentMethod: labelPurchaseData.paymentMethod === 'wallet' ? 'wallet' : 'stripe',
       stripeChargeId: paymentIntent.latest_charge as string,
       paymentCompletedAt: new Date(),
+      ...cardPatch,
     });
 
     // Track period usage for limit-mode accounts (wallet pays via separate API).

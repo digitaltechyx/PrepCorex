@@ -279,6 +279,195 @@ export function enrichShippedOrderDetailsFromInventory(
   };
 }
 
+/** Normalized additional-services payload used on shipped docs and Create Invoice seeding. */
+export type OutboundAdditionalServicesPayload = {
+  bubbleWrapFeet?: number;
+  stickerRemovalItems?: number;
+  warningLabels?: number;
+  pricePerFoot?: number;
+  pricePerItem?: number;
+  pricePerLabel?: number;
+  total?: number;
+  extraServiceQuantities?: Record<string, number>;
+  extraServiceUnitPrices?: Record<string, number>;
+};
+
+function positiveInt(value: unknown): number {
+  const n = Math.floor(coerceNumber(value));
+  return n > 0 ? n : 0;
+}
+
+function hasOutboundAdditionalServices(
+  add: OutboundAdditionalServicesPayload | null | undefined
+): boolean {
+  if (!add) return false;
+  if (positiveInt(add.bubbleWrapFeet) > 0) return true;
+  if (positiveInt(add.stickerRemovalItems) > 0) return true;
+  if (positiveInt(add.warningLabels) > 0) return true;
+  if (coerceNumber(add.total) > 0) return true;
+  const extras = add.extraServiceQuantities;
+  if (extras && typeof extras === "object") {
+    return Object.values(extras).some((q) => positiveInt(q) > 0);
+  }
+  return false;
+}
+
+function normalizeOutboundAdditionalServices(
+  raw: Record<string, unknown> | null | undefined
+): OutboundAdditionalServicesPayload | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const extraRaw = raw.extraServiceQuantities;
+  const extraPricesRaw = raw.extraServiceUnitPrices;
+  const extraServiceQuantities: Record<string, number> = {};
+  if (extraRaw && typeof extraRaw === "object" && !Array.isArray(extraRaw)) {
+    Object.entries(extraRaw as Record<string, unknown>).forEach(([key, qty]) => {
+      const n = positiveInt(qty);
+      if (key && n > 0) extraServiceQuantities[key] = n;
+    });
+  }
+  const extraServiceUnitPrices: Record<string, number> = {};
+  if (extraPricesRaw && typeof extraPricesRaw === "object" && !Array.isArray(extraPricesRaw)) {
+    Object.entries(extraPricesRaw as Record<string, unknown>).forEach(([key, price]) => {
+      const n = coerceNumber(price);
+      if (key && n > 0) extraServiceUnitPrices[key] = n;
+    });
+  }
+  const payload: OutboundAdditionalServicesPayload = {
+    bubbleWrapFeet: positiveInt(raw.bubbleWrapFeet) || undefined,
+    stickerRemovalItems: positiveInt(raw.stickerRemovalItems) || undefined,
+    warningLabels: positiveInt(raw.warningLabels) || undefined,
+    pricePerFoot: coerceNumber(raw.pricePerFoot) || undefined,
+    pricePerItem: coerceNumber(raw.pricePerItem) || undefined,
+    pricePerLabel: coerceNumber(raw.pricePerLabel) || undefined,
+    total: coerceNumber(raw.total) || undefined,
+    ...(Object.keys(extraServiceQuantities).length > 0 ? { extraServiceQuantities } : {}),
+    ...(Object.keys(extraServiceUnitPrices).length > 0 ? { extraServiceUnitPrices } : {}),
+  };
+  return hasOutboundAdditionalServices(payload) ? payload : undefined;
+}
+
+/**
+ * Resolve additional services for invoice / CRM draft seeding.
+ * Prefers admin-approved payload, then client request-level qty, then per-line qty maps.
+ */
+export function resolveOutboundAdditionalServicesPayload(
+  source: unknown
+): OutboundAdditionalServicesPayload | undefined {
+  if (!source || typeof source !== "object") return undefined;
+  const root = source as Record<string, unknown>;
+
+  const approved =
+    normalizeOutboundAdditionalServices(
+      (root.additionalServices as Record<string, unknown> | undefined) || undefined
+    ) ||
+    normalizeOutboundAdditionalServices(
+      (root.adminAdditionalServices as Record<string, unknown> | undefined) || undefined
+    );
+  if (approved) return approved;
+
+  let bubble = positiveInt(root.bubbleWrapFeet);
+  let sticker = positiveInt(root.stickerRemovalItems);
+  let warning = positiveInt(root.warningLabels);
+  const extras: Record<string, number> = {};
+
+  const addKeyQty = (key: string, qty: number) => {
+    const n = positiveInt(qty);
+    if (!key || n <= 0) return;
+    if (key === "bubbleWrap") bubble += n;
+    else if (key === "stickerRemoval") sticker += n;
+    else if (key === "warningLabels") warning += n;
+    else extras[key] = (extras[key] || 0) + n;
+  };
+
+  const requestLevelSelected = Array.isArray(root.selectedAdditionalServices)
+    ? (root.selectedAdditionalServices as unknown[]).map((k) => String(k || "").trim()).filter(Boolean)
+    : [];
+  // Request-level selected flags without explicit qty already counted via bubbleWrapFeet fields.
+  requestLevelSelected.forEach((key) => {
+    if (key === "bubbleWrap" && bubble <= 0) bubble = 1;
+    else if (key === "stickerRemoval" && sticker <= 0) sticker = 1;
+    else if (key === "warningLabels" && warning <= 0) warning = 1;
+    else if (key !== "bubbleWrap" && key !== "stickerRemoval" && key !== "warningLabels") {
+      if (!extras[key]) extras[key] = 1;
+    }
+  });
+
+  const requestQtyMap =
+    root.additionalServiceQuantities &&
+    typeof root.additionalServiceQuantities === "object" &&
+    !Array.isArray(root.additionalServiceQuantities)
+      ? (root.additionalServiceQuantities as Record<string, unknown>)
+      : null;
+  if (requestQtyMap) {
+    Object.entries(requestQtyMap).forEach(([key, qty]) => addKeyQty(key, qty as number));
+  }
+
+  const shipments = Array.isArray(root.shipments) ? root.shipments : [];
+  shipments.forEach((raw) => {
+    if (!raw || typeof raw !== "object") return;
+    const line = raw as Record<string, unknown>;
+    const qtyMap =
+      line.additionalServiceQuantities &&
+      typeof line.additionalServiceQuantities === "object" &&
+      !Array.isArray(line.additionalServiceQuantities)
+        ? (line.additionalServiceQuantities as Record<string, unknown>)
+        : {};
+    const selected = Array.isArray(line.selectedAdditionalServices)
+      ? (line.selectedAdditionalServices as unknown[]).map((k) => String(k || "").trim()).filter(Boolean)
+      : Object.keys(qtyMap);
+    selected.forEach((key) => {
+      const fromMap = positiveInt(qtyMap[key]);
+      addKeyQty(key, fromMap > 0 ? fromMap : 1);
+    });
+  });
+
+  const payload: OutboundAdditionalServicesPayload = {
+    ...(bubble > 0 ? { bubbleWrapFeet: bubble } : {}),
+    ...(sticker > 0 ? { stickerRemovalItems: sticker } : {}),
+    ...(warning > 0 ? { warningLabels: warning } : {}),
+    ...(Object.keys(extras).length > 0 ? { extraServiceQuantities: extras } : {}),
+  };
+  return hasOutboundAdditionalServices(payload) ? payload : undefined;
+}
+
+/** Attach catalog unit prices + total onto an additional-services payload. */
+export function applyCatalogPricesToAdditionalServices(
+  payload: OutboundAdditionalServicesPayload | undefined,
+  priceForKey: (key: string) => number
+): OutboundAdditionalServicesPayload | undefined {
+  if (!payload) return undefined;
+  const pricePerFoot = coerceNumber(payload.pricePerFoot) || priceForKey("bubbleWrap");
+  const pricePerItem = coerceNumber(payload.pricePerItem) || priceForKey("stickerRemoval");
+  const pricePerLabel = coerceNumber(payload.pricePerLabel) || priceForKey("warningLabels");
+  const extraServiceUnitPrices: Record<string, number> = {
+    ...(payload.extraServiceUnitPrices || {}),
+  };
+  const extras = payload.extraServiceQuantities || {};
+  Object.keys(extras).forEach((key) => {
+    if (!(coerceNumber(extraServiceUnitPrices[key]) > 0)) {
+      const p = priceForKey(key);
+      if (p > 0) extraServiceUnitPrices[key] = p;
+    }
+  });
+  const bubble = positiveInt(payload.bubbleWrapFeet);
+  const sticker = positiveInt(payload.stickerRemovalItems);
+  const warning = positiveInt(payload.warningLabels);
+  let total =
+    bubble * pricePerFoot + sticker * pricePerItem + warning * pricePerLabel;
+  Object.entries(extras).forEach(([key, qty]) => {
+    total += positiveInt(qty) * coerceNumber(extraServiceUnitPrices[key]);
+  });
+  return {
+    ...payload,
+    ...(bubble > 0 ? { bubbleWrapFeet: bubble, pricePerFoot } : {}),
+    ...(sticker > 0 ? { stickerRemovalItems: sticker, pricePerItem } : {}),
+    ...(warning > 0 ? { warningLabels: warning, pricePerLabel } : {}),
+    ...(Object.keys(extras).length > 0 ? { extraServiceQuantities: extras } : {}),
+    ...(Object.keys(extraServiceUnitPrices).length > 0 ? { extraServiceUnitPrices } : {}),
+    ...(total > 0 ? { total } : {}),
+  };
+}
+
 /** Map an outbound request into a ShippedItem-shaped payload for details. */
 export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedItem {
   const items = (req.shipments || []).map((raw) => {
@@ -311,6 +500,7 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
   });
 
   const first = items[0];
+  const additionalServices = resolveOutboundAdditionalServicesPayload(req);
   return {
     id: req.id || "request",
     productName: first?.productName,
@@ -325,7 +515,8 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
     shippedQty: first?.shippedQty,
     packOf: first?.packOf,
     unitPrice: first?.unitPrice,
-    additionalServices: (req as { additionalServices?: ShippedItem["additionalServices"] })
-      .additionalServices,
+    ...(additionalServices
+      ? { additionalServices: additionalServices as ShippedItem["additionalServices"] }
+      : {}),
   };
 }

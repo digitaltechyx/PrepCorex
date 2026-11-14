@@ -10,14 +10,17 @@ import {
   lexiListPending,
   lexiListWarehouses,
   lexiLookupClientRecords,
+  lexiLookupOutboundBilling,
 } from "@/lib/lexi/read-tools";
 import type {
   LexiActionType,
+  LexiCancelPayload,
   LexiDisposeReviewPayload,
   LexiInboundFulfillAllPayload,
   LexiLabelReviewPayload,
   LexiOutboundDispatchPayload,
   LexiOutboundFulfillAllPayload,
+  LexiOutboundInvoicePayload,
   LexiOutboundJobPayload,
   LexiPendingAction,
   LexiRejectPayload,
@@ -119,6 +122,22 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "lookup_outbound_billing",
+      description:
+        "Read-only: whether this client has PrepCorex Create Invoice On or Off (CRM draft). Call before propose_outbound_invoice when billing mode is unclear.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+        },
+        required: ["clientUserId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "generate_report",
       description:
         "Generate a PrepCorex admin report from live data (read-only, no Confirm). Use when the admin asks for a report, CSV, or summary of inbound, outbound, stock, invoices, returns, dispose, operations, or financials. If the data is not in PrepCorex, say so.",
@@ -188,6 +207,67 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           reason: { type: "string" },
         },
         required: ["clientUserId", "clientUserName", "requestId", "productName", "reason"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_inbound_cancel",
+      description:
+        "Propose cancelling a pending inbound request with a reason (requires confirmation). Use when admin asks to cancel (not reject) a pending inbound.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName", "reason"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_outbound_cancel",
+      description:
+        "Propose cancelling a pending outbound request with a reason and restoring reserved stock (requires confirmation).",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName", "reason"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_outbound_invoice",
+      description:
+        "Propose Create Invoice for a dispatched outbound (billing On → PrepCorex invoice; billing Off → append CRM consolidated draft). Includes shipment lines and additional services already on the request. Requires Confirm. Prefer lookup_outbound_billing first if mode is unclear.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string", description: "shipmentRequests document id" },
+          productName: { type: "string" },
+          shippedIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional explicit shipped doc ids; otherwise resolved from requestId",
+          },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName"],
       },
     },
   },
@@ -486,6 +566,16 @@ export async function runLexiExtraTool(
         return { toolResult: JSON.stringify({ error: message }) };
       }
     }
+    case "lookup_outbound_billing": {
+      try {
+        const client = await resolve();
+        const billing = await lexiLookupOutboundBilling(adminProfile, client.uid);
+        return { toolResult: JSON.stringify(billing) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Billing lookup failed.";
+        return { toolResult: JSON.stringify({ error: message }) };
+      }
+    }
     case "generate_report": {
       try {
         const generated = await lexiGenerateReport(adminProfile, {
@@ -521,6 +611,102 @@ export async function runLexiExtraTool(
         `Reject ${kind} #${payload.requestId} for ${payload.clientUserName} (${payload.productName}): ${payload.reason}`,
         payload
       );
+    }
+    case "propose_inbound_cancel": {
+      const client = await resolve();
+      const requestId = String(args.requestId ?? "").trim();
+      const request = await lexiGetInboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Inbound #${requestId} not found.` }) };
+      }
+      if (String(request.status ?? "").toLowerCase() !== "pending") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Inbound #${requestId} is "${request.status}" — only pending inbounds can be cancelled.`,
+          }),
+        };
+      }
+      const reason = String(args.reason ?? "").trim();
+      if (reason.length < 3) {
+        return { toolResult: JSON.stringify({ error: "Cancellation reason is required (at least 3 characters)." }) };
+      }
+      const payload: LexiCancelPayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        reason,
+      };
+      return pending(
+        "inbound_cancel",
+        `Cancel inbound #${requestId} for ${payload.clientUserName} (${payload.productName}): ${reason}`,
+        payload
+      );
+    }
+    case "propose_outbound_cancel": {
+      const client = await resolve();
+      const requestId = String(args.requestId ?? "").trim();
+      const request = await lexiGetOutboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Outbound #${requestId} not found.` }) };
+      }
+      const status = String(request.status ?? "").toLowerCase();
+      if (status !== "pending" && status !== "awaiting_label_upload") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Outbound #${requestId} is "${request.status}" — only pending outbounds can be cancelled.`,
+          }),
+        };
+      }
+      const reason = String(args.reason ?? "").trim();
+      if (reason.length < 3) {
+        return { toolResult: JSON.stringify({ error: "Cancellation reason is required (at least 3 characters)." }) };
+      }
+      const payload: LexiCancelPayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        reason,
+      };
+      return pending(
+        "outbound_cancel",
+        `Cancel outbound #${requestId} for ${payload.clientUserName} (${payload.productName}): ${reason}`,
+        payload
+      );
+    }
+    case "propose_outbound_invoice": {
+      const client = await resolve();
+      const requestId = String(args.requestId ?? "").trim();
+      const request = await lexiGetOutboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Outbound #${requestId} not found.` }) };
+      }
+      const invoiceStatus = String(request.invoiceStatus ?? "").toLowerCase();
+      if (invoiceStatus === "invoiced") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Outbound #${requestId} is already invoiced on PrepCorex.`,
+          }),
+        };
+      }
+      const billing = await lexiLookupOutboundBilling(adminProfile, client.uid);
+      const mode = String(billing.mode);
+      const shippedIds = Array.isArray(args.shippedIds)
+        ? args.shippedIds.map((id) => String(id)).filter(Boolean)
+        : undefined;
+      const payload: LexiOutboundInvoicePayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        shippedIds: shippedIds && shippedIds.length > 0 ? shippedIds : undefined,
+      };
+      const summary =
+        mode === "crm_draft"
+          ? `Add services → CRM draft for outbound #${requestId} (${payload.productName}) — ${payload.clientUserName} (billing Off)`
+          : `Create PrepCorex invoice for outbound #${requestId} (${payload.productName}) — ${payload.clientUserName} (billing On)`;
+      return pending("outbound_invoice", summary, payload);
     }
     case "propose_outbound_pick_pack":
     case "propose_outbound_ship_inventory": {

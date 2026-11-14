@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lexi AI Assistant — Admin-First Phase 1 Plan</title>
+  <style>
+    @page { size: A4; margin: 16mm 14mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", Calibri, Arial, sans-serif;
+      color: #1a1a1a;
+      line-height: 1.45;
+      font-size: 11pt;
+      margin: 0;
+    }
+    h1 {
+      font-size: 20pt;
+      margin: 0 0 4px;
+      color: #0f172a;
+    }
+    h2 {
+      font-size: 13pt;
+      margin: 18px 0 8px;
+      color: #0f172a;
+      border-bottom: 1.5px solid #cbd5e1;
+      padding-bottom: 4px;
+      page-break-after: avoid;
+    }
+    h3 {
+      font-size: 11.5pt;
+      margin: 14px 0 6px;
+      color: #1e3a5f;
+      page-break-after: avoid;
+    }
+    .meta {
+      color: #475569;
+      font-size: 10pt;
+      margin-bottom: 14px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 9pt;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-right: 6px;
+    }
+    .admin { background: #dbeafe; color: #1e40af; }
+    .client { background: #dcfce7; color: #166534; }
+    .shared { background: #fef3c7; color: #92400e; }
+    .note {
+      background: #f8fafc;
+      border-left: 3px solid #3b82f6;
+      padding: 10px 12px;
+      margin: 10px 0 16px;
+      font-size: 10.5pt;
+    }
+    ol.sequence {
+      margin: 8px 0 12px 18px;
+      padding: 0;
+    }
+    ol.sequence li { margin: 3px 0; }
+    ul { margin: 4px 0 8px 18px; padding: 0; }
+    ul li { margin: 3px 0; }
+    .task {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 10px 0;
+      page-break-inside: avoid;
+    }
+    .task-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .task-title {
+      font-weight: 700;
+      font-size: 11.5pt;
+      color: #0f172a;
+    }
+    .task-phase {
+      font-size: 9pt;
+      color: #64748b;
+      white-space: nowrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10pt;
+      margin: 8px 0 12px;
+    }
+    th, td {
+      border: 1px solid #e2e8f0;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f1f5f9; }
+    footer {
+      margin-top: 20px;
+      font-size: 9pt;
+      color: #64748b;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Lexi AI Assistant — Phase 1 Plan</h1>
+  <div class="meta">
+    PrepCorex / PSF StockFlow · Admin-first, then Client · Due target: 15 Nov<br />
+    Goal: Lexi can run admin work by chat; client Lexi reuses the same engine with own-account scope.
+  </div>
+
+  <div class="note">
+    <strong>How admin unlocks client:</strong> Almost every write Lexi does (create inbound, approve outbound, restock, invoice, etc.) is the same server action.
+    Admin Phase 1 builds and hardens those actions + Confirm + audit.
+    <strong>Client-side Lexi</strong> is mainly a second chat mode that calls the same tools limited to the signed-in client’s account — not a full rebuild.
+    So finishing admin first makes client Lexi much faster; it does not appear by magic, but most of the hard work is already done.
+  </div>
+
+  <h2>1. Suggested sequence (your board order)</h2>
+  <ol class="sequence">
+    <li><span class="badge admin">Admin</span> Gap audit</li>
+    <li><span class="badge admin">Admin</span> Access &amp; safety</li>
+    <li><span class="badge admin">Admin</span> Inbound</li>
+    <li><span class="badge admin">Admin</span> Outbound</li>
+    <li><span class="badge admin">Admin</span> Inventory</li>
+    <li><span class="badge admin">Admin</span> Users &amp; pricing</li>
+    <li><span class="badge admin">Admin</span> Returns &amp; labels</li>
+    <li><span class="badge admin">Admin</span> Outbound invoicing <em>(+ storage draft if included)</em></li>
+    <li><span class="badge admin">Admin</span> Lookups &amp; reports</li>
+    <li><span class="badge client">Client</span> Client-side Lexi</li>
+    <li><span class="badge shared">Both</span> QA Testing</li>
+  </ol>
+
+  <h2>2. What Lexi can already do (admin chat)</h2>
+  <ul>
+    <li>Find clients / products; list pending (one client or all); warehouses; reports/CSV</li>
+    <li>Inbound: create, approve, reject, complete receive, fulfill-all</li>
+    <li>Outbound: create, approve, reject, pick &amp; pack, ship from inventory, dispatch, fulfill-all</li>
+    <li>Restock; return / dispose / delete / quarantine approve-reject; label refund / top-up / API fee review</li>
+  </ul>
+  <p style="font-size:10.5pt;color:#475569;">
+    Still missing on admin Lexi today (examples): invoices/CRM/storage from chat, users/pricing writes, warehouse allocate/move,
+    batches, cancel, buy labels purchase, integrations connect, client chat mode.
+  </p>
+
+  <h2>3. Task-by-task plan</h2>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">1. Gap audit</div>
+      <div class="task-phase">Admin · Foundation</div>
+    </div>
+    <ul>
+      <li>List every Admin dashboard action vs current Lexi tools</li>
+      <li>Mark: Done / Partial / Missing / Out of scope for Phase 1</li>
+      <li>Deliverable: short gap matrix (inbound, outbound, inventory, billing, users, labels, reports)</li>
+      <li>Locks the rest of Phase 1 scope so we don’t rebuild finished tools</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">2. Access &amp; safety</div>
+      <div class="task-phase">Admin · Foundation</div>
+    </div>
+    <ul>
+      <li>Keep Confirm-before-write for every new propose_* action</li>
+      <li>Enforce admin / sub-admin managed-client rules on all new tools</li>
+      <li>Audit log: who confirmed what, for which client, success/fail</li>
+      <li>High-risk actions (wipe, pricing change, invoice send): extra clear summary before Confirm</li>
+      <li>Prep allow-list design so Client mode can later reuse tools safely</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">3. Inbound</div>
+      <div class="task-phase">Admin · Ops</div>
+    </div>
+    <ul>
+      <li>Close gaps: inbound batches, cancel pending with reason, line/qty corrections, remarks</li>
+      <li>Harden approve / complete / fulfill-all against real Notifications cases</li>
+      <li>Read tools: pending receive vs pending approval clearly separated</li>
+      <li><span class="badge shared">Reuse later</span> Same create/cancel/complete APIs power Client Lexi inbound</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">4. Outbound</div>
+      <div class="task-phase">Admin · Ops</div>
+    </div>
+    <ul>
+      <li>Close gaps: batches, cancel pending, tracking number, admin remarks, multi-line edge cases</li>
+      <li>Harden pick &amp; pack / ship from inventory / dispatch / fulfill-all</li>
+      <li>Align with Continue fulfillment statuses (confirmed → ready → dispatched)</li>
+      <li><span class="badge shared">Reuse later</span> Create/cancel/status tools reused for Client Lexi outbound</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">5. Inventory</div>
+      <div class="task-phase">Admin · Ops</div>
+    </div>
+    <ul>
+      <li>Beyond restock: qty adjust, transfer between warehouses/bins (where admin UI allows), quarantine actions</li>
+      <li>Stronger inventory lookup (SKU, FEFO, reserved vs sellable)</li>
+      <li>Clear “cannot do from chat” only for true Warehouse Ops floor scans if still excluded</li>
+      <li><span class="badge shared">Reuse later</span> Client sees own inventory via same read/adjust rules scoped to uid</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">6. Users &amp; pricing</div>
+      <div class="task-phase">Admin · Config</div>
+    </div>
+    <ul>
+      <li>Find/create/update client profile fields Lexi is allowed to change</li>
+      <li>Assign pricing profile; assign warehouses / features flags</li>
+      <li>Approve/reject user where that is an admin action today</li>
+      <li>Read pricing summary for a client (no silent $0 outbound)</li>
+      <li>Admin-only — not exposed to Client Lexi writes</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">7. Returns &amp; labels</div>
+      <div class="task-phase">Admin · Ops</div>
+    </div>
+    <ul>
+      <li>Finish return / dispose / delete / quarantine review edge cases (batches if needed)</li>
+      <li>Label refund / top-up / API fee: solid propose + execute</li>
+      <li>Admin buy-labels / purchased-labels lookup (and wallet actions admin already has in UI)</li>
+      <li><span class="badge shared">Reuse later</span> Client can create return requests / request top-up using scoped tools</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">8. Outbound invoicing</div>
+      <div class="task-phase">Admin · Billing</div>
+    </div>
+    <ul>
+      <li>On clients: propose Create Invoice (before or after dispatch) from Lexi</li>
+      <li>Off clients: propose Add services → CRM draft from Lexi</li>
+      <li>List invoice / CRM draft status for a shipment or client</li>
+      <li>Recommended add-on in same task: CRM Storage draft generate / status / send sync</li>
+      <li>Admin-only billing writes; clients only get read of their invoices later</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">9. Lookups &amp; reports</div>
+      <div class="task-phase">Admin · Read</div>
+    </div>
+    <ul>
+      <li>Expand lookup topics: CRM draft status, storage drafts, label wallet, inbound/outbound trackers</li>
+      <li>Richer reports filters; keep generate_report Confirm-free (read-only)</li>
+      <li>Ensure answers use live tools — never guess pending counts</li>
+      <li><span class="badge shared">Reuse later</span> Client mode gets the same reads filtered to own uid</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">10. Client-side Lexi</div>
+      <div class="task-phase">Client · After admin</div>
+    </div>
+    <ul>
+      <li>New chat entry on client dashboard (not admin floating chat)</li>
+      <li>Tool allow-list: only own-account create/cancel/view — no other clients, no users/pricing, no admin invoice generate</li>
+      <li>Wire to admin-built actions: inbound/outbound/returns/dispose, inventory read, own invoices/shipped</li>
+      <li>Same Confirm UX; audit tagged as client actor</li>
+      <li>This task is thin if admin tasks 3–9 are complete — mostly UI + scoping + prompts</li>
+    </ul>
+  </div>
+
+  <div class="task">
+    <div class="task-head">
+      <div class="task-title">11. QA Testing</div>
+      <div class="task-phase">Both · Close Phase 1</div>
+    </div>
+    <ul>
+      <li>Admin matrix: approve/reject/fulfill/invoice/pricing for On and Off clients</li>
+      <li>Sub-admin: only managed clients</li>
+      <li>Client matrix: can act on self; blocked from other clients and admin tools</li>
+      <li>Regression: existing Lexi propose_* still work; Confirm + audit entries present</li>
+      <li>Sign-off checklist before calling Phase 1 done</li>
+    </ul>
+  </div>
+
+  <h2>4. What “admin first ⇒ client easier” means</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Built in Admin tasks</th>
+        <th>What Client Lexi reuses</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Inbound / Outbound / Inventory / Returns actions</td>
+        <td>Same APIs with clientUserId = signed-in user only</td>
+      </tr>
+      <tr>
+        <td>Access &amp; safety + audit</td>
+        <td>Same Confirm flow; stricter allow-list</td>
+      </tr>
+      <tr>
+        <td>Lookups &amp; reports</td>
+        <td>Same reads, filtered to own data</td>
+      </tr>
+      <tr>
+        <td>Users &amp; pricing / admin invoicing writes</td>
+        <td>Not given to clients (admin-only)</td>
+      </tr>
+      <tr>
+        <td>Client-side Lexi task</td>
+        <td>Chat UI + prompt + allow-list — not re-implementing ops</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>5. Suggested message to stakeholder</h2>
+  <div class="note">
+    We are building Lexi admin-first so every important PrepCorex admin action can be done safely from chat (with Confirm).
+    When admin coverage is solid, client Lexi is enabled as a restricted mode on the same engine — clients only act on their own account.
+    Phase 1 board order: Gap audit → Access &amp; safety → Inbound → Outbound → Inventory → Users &amp; pricing → Returns &amp; labels → Outbound invoicing → Lookups &amp; reports → Client-side Lexi → QA.
+  </div>
+
+  <footer>
+    Document: Lexi Admin-First Phase 1 Plan · PrepCorex · Generated for Digital Techyx / PSF | PrepCoreX tracker alignment.
+  </footer>
+</body>
+</html>

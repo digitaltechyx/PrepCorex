@@ -22,8 +22,10 @@ import { db } from "@/lib/firebase";
 import { auth } from "@/lib/firebase";
 import { lexiCompleteInboundOnClient } from "@/lib/lexi/inbound-complete-client";
 import { lexiCreateOutboundOnClient } from "@/lib/lexi/outbound-create-client";
+import { lexiCreateOutboundInvoiceOnClient } from "@/lib/lexi/outbound-invoice-client";
 import { lexiFulfillInboundAll, lexiFulfillOutboundAll } from "@/lib/lexi/workflow-client";
 import type {
+  LexiCancelPayload,
   LexiDisposeReviewPayload,
   LexiInboundCompletePayload,
   LexiInboundFulfillAllPayload,
@@ -31,6 +33,7 @@ import type {
   LexiOutboundCreatePayload,
   LexiOutboundDispatchPayload,
   LexiOutboundFulfillAllPayload,
+  LexiOutboundInvoicePayload,
   LexiOutboundJobPayload,
   LexiPendingAction,
   LexiRejectPayload,
@@ -102,6 +105,26 @@ export async function lexiRunClientAction(
       return (await lexiCreateOutboundOnClient(action.payload as LexiOutboundCreatePayload, operatorId))
         .message;
 
+    case "inbound_cancel": {
+      const p = action.payload as LexiCancelPayload;
+      const reason = String(p.reason || "").trim();
+      if (reason.length < 3) throw new Error("Cancellation reason is required.");
+      const requestRef = doc(db, `users/${p.clientUserId}/inventoryRequests`, p.requestId);
+      const snap = await getDoc(requestRef);
+      if (!snap.exists()) throw new Error("Inbound request not found.");
+      if (String(snap.data()?.status ?? "").toLowerCase() !== "pending") {
+        throw new Error("Only pending inbound requests can be cancelled.");
+      }
+      await updateDoc(requestRef, {
+        status: "cancelled",
+        cancelledAt: Timestamp.now(),
+        cancelledBy: operatorId,
+        cancellationReason: reason,
+        lexiCancelledBy: operatorId,
+      });
+      return `Inbound #${p.requestId} cancelled.`;
+    }
+
     case "outbound_reject": {
       const p = action.payload as LexiRejectPayload;
       await updateDoc(doc(db, `users/${p.clientUserId}/shipmentRequests`, p.requestId), {
@@ -117,6 +140,38 @@ export async function lexiRunClientAction(
       });
       return `Outbound #${p.requestId} rejected. Reserved stock restored.`;
     }
+
+    case "outbound_cancel": {
+      const p = action.payload as LexiCancelPayload;
+      const reason = String(p.reason || "").trim();
+      if (reason.length < 3) throw new Error("Cancellation reason is required.");
+      const requestRef = doc(db, `users/${p.clientUserId}/shipmentRequests`, p.requestId);
+      const snap = await getDoc(requestRef);
+      if (!snap.exists()) throw new Error("Outbound request not found.");
+      const status = String(snap.data()?.status ?? "").toLowerCase();
+      if (status !== "pending" && status !== "awaiting_label_upload") {
+        throw new Error("Only pending outbound requests can be cancelled.");
+      }
+      await updateDoc(requestRef, {
+        status: "cancelled",
+        cancelledAt: Timestamp.now(),
+        cancelledBy: operatorId,
+        cancellationReason: reason,
+        lexiCancelledBy: operatorId,
+      });
+      await restoreClientInventoryForOutboundRequest({
+        clientUserId: p.clientUserId,
+        shipmentRequestId: p.requestId,
+        reason,
+      });
+      return `Outbound #${p.requestId} cancelled. Reserved stock restored.`;
+    }
+
+    case "outbound_invoice":
+      return lexiCreateOutboundInvoiceOnClient(
+        action.payload as LexiOutboundInvoicePayload,
+        operatorId
+      );
 
     case "outbound_pick_pack": {
       const p = action.payload as LexiOutboundJobPayload;

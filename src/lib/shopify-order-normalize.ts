@@ -340,8 +340,13 @@ export function shopifyOrderFromFirestore(
     connectionId: str(data.connectionId),
     shopName: str(data.shopName) || shop.replace(".myshopify.com", ""),
     email: str(data.email),
-    financialStatus: str(data.financial_status),
-    fulfillmentStatus: data.fulfillment_status != null ? String(data.fulfillment_status) : null,
+    financialStatus: str(data.financial_status) || str(data.financialStatus),
+    fulfillmentStatus:
+      data.fulfillment_status != null
+        ? String(data.fulfillment_status)
+        : data.fulfillmentStatus != null
+          ? String(data.fulfillmentStatus)
+          : null,
     createdAt: str(data.created_at),
     updatedAt: str(data.updated_at),
     note: str(data.note),

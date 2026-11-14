@@ -3,7 +3,10 @@ import { getStripe } from '@/lib/stripe';
 import { adminDb, adminFieldValue } from '@/lib/firebase-admin';
 import { verifyBearerToken } from '@/lib/api-admin-auth';
 import { assertCanSpendLabelBilling } from '@/lib/label-billing-admin';
-import { getOrCreateStripeCustomer } from '@/lib/stripe-customer';
+import {
+  cardSummaryFromPaymentMethodId,
+  getOrCreateStripeCustomer,
+} from '@/lib/stripe-customer';
 import type { LabelPurchase } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -101,6 +104,20 @@ export async function POST(request: NextRequest) {
       throw new Error(`Stripe error: ${stripeError.message || 'Failed to create payment intent'}`);
     }
 
+    let cardBrand: string | null = null;
+    let cardLast4: string | null = null;
+    let stripePaymentMethodId: string | null = pmId;
+    if (pmId) {
+      try {
+        const card = await cardSummaryFromPaymentMethodId(pmId);
+        cardBrand = card.cardBrand;
+        cardLast4 = card.cardLast4;
+        stripePaymentMethodId = card.stripePaymentMethodId || pmId;
+      } catch (cardErr) {
+        console.warn('Could not resolve saved card for label purchase', cardErr);
+      }
+    }
+
     let docRef;
     try {
       const labelPurchaseData: Omit<LabelPurchase, 'id' | 'createdAt'> = {
@@ -111,12 +128,16 @@ export async function POST(request: NextRequest) {
         parcel,
         selectedRate,
         stripePaymentIntentId: paymentIntent.id,
+        paymentMethod: 'stripe',
         paymentStatus: 'pending',
         paymentAmount: amount,
         paymentCurrency: currency,
         status: 'payment_pending',
         labelProvider: selectedRate.labelProvider || 'shippo',
         ...(shippedItemId && { shippedItemId }),
+        ...(stripePaymentMethodId ? { stripePaymentMethodId } : {}),
+        ...(cardBrand ? { cardBrand } : {}),
+        ...(cardLast4 ? { cardLast4 } : {}),
       };
 
       docRef = await adminDb()
