@@ -312,6 +312,14 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
   },
 ];
 
+function compactPayload<T extends LexiPendingAction["payload"]>(payload: T): T {
+  const out = { ...(payload as Record<string, unknown>) };
+  for (const key of Object.keys(out)) {
+    if (out[key] === undefined) delete out[key];
+  }
+  return out as T;
+}
+
 function pending(
   type: LexiPendingAction["type"],
   summary: string,
@@ -319,7 +327,7 @@ function pending(
 ): { toolResult: string; pendingAction: LexiPendingAction } {
   return {
     toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
-    pendingAction: { id: randomUUID(), type, summary, payload },
+    pendingAction: { id: randomUUID(), type, summary, payload: compactPayload(payload) },
   };
 }
 
