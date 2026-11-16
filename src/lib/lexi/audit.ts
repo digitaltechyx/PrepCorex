@@ -5,7 +5,7 @@ import type { LexiActionType } from "@/lib/lexi/types";
 export async function writeLexiAuditLog(input: {
   adminUid: string;
   adminName: string;
-  actionType: LexiActionType | "chat";
+  actionType: LexiActionType | "chat" | "client_chat" | "client_inbound_create" | string;
   summary: string;
   payload?: Record<string, unknown>;
   result?: Record<string, unknown>;

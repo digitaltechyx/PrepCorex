@@ -72,6 +72,11 @@ const CLIENT_FEATURES: { value: UserFeature; label: string; description: string 
   { value: "disposed_inventory", label: "Disposed Inventory", description: "View disposed items and recycle bin" },
   { value: "quarantine_inventory", label: "Quarantine", description: "Request quarantine, release, or dispose of stock and view quarantined qty" },
   { value: "client_documents", label: "Documents", description: "Access to document requests" },
+  {
+    value: "lexi_assistant",
+    label: "LEXI™ Assistant",
+    description: "Client chat assistant for own inventory, inbound/outbound requests (Confirm required). Off by default — enable only for selected clients.",
+  },
   { value: "affiliate_dashboard", label: "Affiliate Dashboard", description: "Access affiliate/commission dashboard" },
 ];
 

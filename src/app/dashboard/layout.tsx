@@ -9,6 +9,7 @@ import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
 import { ClientAccountRestrictedOverlay } from "@/components/dashboard/client-account-restricted-overlay";
+import { LexiClientChat } from "@/components/dashboard/lexi/lexi-client-chat";
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
@@ -234,6 +235,7 @@ export default function DashboardLayout({
             </div>
           </main>
           <ClientAccountRestrictedOverlay />
+          <LexiClientChat />
         </SidebarInset>
         </div>
       </DashboardNavProvider>

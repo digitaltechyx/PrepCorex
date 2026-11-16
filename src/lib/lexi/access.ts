@@ -135,6 +135,8 @@ export async function assertLexiCanManageClient(
   adminProfile: UserProfile,
   clientUserId: string
 ): Promise<void> {
+  // Client Lexi (and self-service): actor may only touch their own uid.
+  if (String(adminProfile.uid || "").trim() === String(clientUserId || "").trim()) return;
   if (hasRole(adminProfile, "admin")) return;
   const managed = await loadManagedClientProfiles(adminProfile);
   if (!managed.some((u) => u.uid === clientUserId)) {

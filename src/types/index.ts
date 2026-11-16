@@ -413,6 +413,8 @@ export type UserFeature =
   | "quarantine_inventory"
   | "my_pricing"
   | "client_documents"
+  /** Opt-in: LEXI™ client assistant. Not granted by default — admin enables per client. */
+  | "lexi_assistant"
   | "integrations"
   | "integration_shopify"
   | "integration_ebay"

@@ -21,6 +21,7 @@ export type LexiActionType =
   | "quarantine_review"
   | "label_review";
 
+/** Admin Lexi actions that run in the admin browser after Confirm. */
 export const LEXI_CLIENT_ACTION_TYPES: LexiActionType[] = [
   "inbound_complete",
   "inbound_fulfill_all",
@@ -39,6 +40,16 @@ export const LEXI_CLIENT_ACTION_TYPES: LexiActionType[] = [
   "delete_review",
   "quarantine_review",
   "label_review",
+];
+
+/** Client Lexi actions that run on the server after Confirm. */
+export const LEXI_ENDUSER_SERVER_ACTION_TYPES: LexiActionType[] = ["inbound_create"];
+
+/** Client Lexi actions that run in the client browser after Confirm. */
+export const LEXI_ENDUSER_BROWSER_ACTION_TYPES: LexiActionType[] = [
+  "inbound_cancel",
+  "outbound_create",
+  "outbound_cancel",
 ];
 
 export type LexiReportAttachment = {

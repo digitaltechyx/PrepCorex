@@ -27,7 +27,7 @@ All writes use `propose_*` → admin **Confirm** → execute (server and/or brow
 | Returns & labels | return/dispose/delete/quarantine review | Done | |
 | Returns & labels | label refund / top-up / API fee | Done | |
 | Integrations | connect stores | Out of scope P1 | Guide |
-| Client Lexi | client dashboard chat mode | Deferred | Reuses same engine; allow-list next |
+| Client Lexi | client dashboard chat mode | Done (opt-in) | Feature `lexi_assistant` — admin enables per client; own-account only |
 | QA | Confirm + permission regression | Manual | Use Confirm on each propose_* |
 
 ## Workflow rule (every write)
