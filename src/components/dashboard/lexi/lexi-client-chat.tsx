@@ -252,9 +252,9 @@ export function LexiClientChat() {
   if (!enabled) return null;
 
   const panelClass = cn(
-    "z-50 flex flex-col overflow-hidden border border-slate-200/80 bg-[#f7f8fa] shadow-2xl dark:border-slate-700 dark:bg-slate-950",
+    "z-[60] flex flex-col overflow-hidden border border-slate-200/80 bg-[#f7f8fa] shadow-2xl dark:border-slate-700 dark:bg-slate-950",
     layout === "floating" &&
-      "fixed bottom-4 right-4 h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] rounded-2xl sm:bottom-6 sm:right-6",
+      "fixed bottom-24 right-4 h-[min(560px,calc(100vh-7.5rem))] w-[min(420px,calc(100vw-2rem))] rounded-2xl sm:bottom-28 sm:right-6",
     layout === "drawer" &&
       "fixed inset-y-0 right-0 h-full w-[min(440px,100vw)] rounded-none border-l shadow-[-12px_0_40px_rgba(15,23,42,0.12)]",
     layout === "expanded" &&
@@ -269,7 +269,7 @@ export function LexiClientChat() {
         <Button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-20 right-4 z-50 h-14 w-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 p-0 shadow-lg shadow-violet-600/30 hover:from-violet-500 hover:to-indigo-600 sm:bottom-6 sm:right-6"
+          className="fixed bottom-24 right-4 z-[60] h-14 w-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 p-0 shadow-lg shadow-violet-600/30 hover:from-violet-500 hover:to-indigo-600 sm:bottom-28 sm:right-6"
           aria-label="Open LEXI"
           title="LEXI™ · Powered by PrepCorex"
         >
@@ -283,7 +283,7 @@ export function LexiClientChat() {
             <button
               type="button"
               aria-label="Close Lexi backdrop"
-              className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-[2px]"
+              className="fixed inset-0 z-[55] bg-slate-900/30 backdrop-blur-[2px]"
               onClick={() => setOpen(false)}
             />
           ) : null}
