@@ -12,6 +12,10 @@ import { buildAdminReportCsv } from "@/lib/admin-reports-csv";
 import { filterActivitiesByReportType, moduleLabel } from "@/lib/admin-reports-modules";
 import { buildAdminReport } from "@/lib/admin-reports-server";
 import type { AdminReportType } from "@/lib/admin-reports-types";
+import {
+  buildLexiClientInboundReport,
+  buildLexiClientOutboundReport,
+} from "@/lib/lexi/lexi-client-module-report";
 import type { LexiReportAttachment } from "@/lib/lexi/types";
 import type { UserProfile } from "@/types";
 
@@ -60,12 +64,15 @@ function parseFlexibleDate(raw: string, endOfDay: boolean): Date | null {
   const value = String(raw || "").trim();
   if (!value) return null;
 
-  // YYYY-MM-DD or full ISO
-  const direct = new Date(value);
-  if (/^\d{4}-\d{2}-\d{2}/.test(value) && !Number.isNaN(direct.getTime())) {
-    return endOfDay
-      ? new Date(direct.getFullYear(), direct.getMonth(), direct.getDate(), 23, 59, 59, 999)
-      : new Date(direct.getFullYear(), direct.getMonth(), direct.getDate());
+  // YYYY-MM-DD as local calendar date (avoid UTC shift from Date.parse)
+  const ymd = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (ymd) {
+    const d = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    if (!Number.isNaN(d.getTime())) {
+      return endOfDay
+        ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
   }
 
   // YYYY-MM
@@ -101,25 +108,29 @@ function resolveNamedMonth(period?: string): { from: Date; to: Date; label: stri
     }
   }
 
-  // "september", "sep 2026", "october 2026"
-  const parts = raw.replace(/[_/]+/g, " ").split(/\s+/).filter(Boolean);
-  let monthIdx: number | undefined;
+  // "september", "sep and october", "sep-oct 2026", "october 2026"
+  const parts = raw.replace(/[_/,]+/g, " ").split(/\s+/).filter(Boolean);
+  const now = new Date();
   let year: number | undefined;
+  const months: number[] = [];
   for (const part of parts) {
     if (/^\d{4}$/.test(part)) {
       year = Number(part);
       continue;
     }
-    if (MONTH_ALIASES[part] != null) monthIdx = MONTH_ALIASES[part];
+    if (MONTH_ALIASES[part] != null) months.push(MONTH_ALIASES[part]);
   }
-  if (monthIdx == null) return null;
-  const now = new Date();
-  const d = new Date(year ?? now.getFullYear(), monthIdx, 1);
-  return {
-    from: startOfMonth(d),
-    to: endOfMonth(d),
-    label: format(d, "MMMM yyyy"),
-  };
+  if (months.length === 0) return null;
+  const y = year ?? now.getFullYear();
+  const startMonth = Math.min(...months);
+  const endMonth = Math.max(...months);
+  const from = startOfMonth(new Date(y, startMonth, 1));
+  const to = endOfMonth(new Date(y, endMonth, 1));
+  const label =
+    startMonth === endMonth
+      ? format(from, "MMMM yyyy")
+      : `${format(from, "MMM yyyy")} - ${format(to, "MMM yyyy")}`;
+  return { from, to, label };
 }
 
 function resolvePeriod(period?: string, fromIso?: string, toIso?: string): {
@@ -137,7 +148,8 @@ function resolvePeriod(period?: string, fromIso?: string, toIso?: string): {
         from,
         to,
         allTime: false,
-        label: `${format(from, "MMM d, yyyy")} – ${format(to, "MMM d, yyyy")}`,
+        // Avoid commas in the label so Excel CSV columns don't split the period.
+        label: `${format(from, "MMM d yyyy")} - ${format(to, "MMM d yyyy")}`,
       };
     }
   }
@@ -256,6 +268,96 @@ export async function lexiGenerateReport(
   const reportType: AdminReportType = REPORT_TYPES.has(rawType as AdminReportType)
     ? (rawType as AdminReportType)
     : "overview";
+
+  // Single-client inbound/outbound: read that user's collections directly so Lexi
+  // matches Inventory Date Added / Receiving Date (collectionGroup admin reports were empty).
+  if (clientId && reportType === "inbound") {
+    const inbound = await buildLexiClientInboundReport({
+      clientUserId: clientId,
+      clientUserName: clientName || clientId,
+      from: period.from,
+      to: period.to,
+      allTime: period.allTime,
+    });
+    const activityRowCount = inbound.rows.length;
+    const isEmpty = activityRowCount === 0;
+    const filename = `lexi-inbound-${clientName || clientId}-${Date.now()}.csv`.replace(/\s+/g, "-");
+    return {
+      summary: {
+        reportType: "inbound",
+        label: "Inbound",
+        period: inbound.periodLabel,
+        scope: clientName || clientId,
+        scopeClientId: clientId,
+        activityRowCount,
+        inventoryItemsInPeriod: inbound.inventoryItemCount,
+        inventoryRequests: inbound.inventoryRequestCount,
+        unitsReceived: inbound.unitsReceived,
+        currentStockOnHand: inbound.currentStockOnHand,
+        sampleActivities: inbound.rows.slice(0, 10).map((row) => ({
+          type: row.type,
+          description: row.description,
+          sku: row.sku,
+          quantity: row.quantity,
+          status: row.status,
+          occurredAt: row.occurredAt,
+          dateAdded: row.dateAdded,
+          receivingDate: row.receivingDate,
+        })),
+        isEmpty,
+        note: isEmpty
+          ? `No inbound inventory items or requests in ${inbound.periodLabel}. Current stock on hand is ${inbound.currentStockOnHand}.`
+          : `Found ${inbound.inventoryItemCount} inventory item(s) and ${inbound.inventoryRequestCount} inbound request(s) in ${inbound.periodLabel}. CSV is ready — do NOT say there are no records.`,
+      },
+      report: {
+        title: `Inbound — ${inbound.periodLabel}`,
+        filename,
+        csv: inbound.csv,
+      },
+    };
+  }
+
+  if (clientId && reportType === "outbound") {
+    const outbound = await buildLexiClientOutboundReport({
+      clientUserId: clientId,
+      clientUserName: clientName || clientId,
+      from: period.from,
+      to: period.to,
+      allTime: period.allTime,
+    });
+    const activityRowCount = outbound.rows.length;
+    const isEmpty = activityRowCount === 0;
+    const filename = `lexi-outbound-${clientName || clientId}-${Date.now()}.csv`.replace(/\s+/g, "-");
+    return {
+      summary: {
+        reportType: "outbound",
+        label: "Outbound",
+        period: outbound.periodLabel,
+        scope: clientName || clientId,
+        scopeClientId: clientId,
+        activityRowCount,
+        unitsShipped: outbound.unitsShipped,
+        shipmentRequests: outbound.shipmentRequestCount,
+        sampleActivities: outbound.rows.slice(0, 10).map((row) => ({
+          type: row.type,
+          description: row.description,
+          sku: row.sku,
+          quantity: row.quantity,
+          status: row.status,
+          occurredAt: row.occurredAt,
+        })),
+        isEmpty,
+        note: isEmpty
+          ? `No outbound activity in ${outbound.periodLabel}.`
+          : `Found ${activityRowCount} outbound row(s) in ${outbound.periodLabel}. CSV is ready — do NOT say there are no records.`,
+      },
+      report: {
+        title: `Outbound — ${outbound.periodLabel}`,
+        filename,
+        csv: outbound.csv,
+      },
+    };
+  }
 
   const summary = await buildAdminReport({
     from: period.from,

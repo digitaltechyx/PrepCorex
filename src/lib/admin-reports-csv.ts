@@ -35,9 +35,12 @@ export function buildAdminReportComparisonCsv(comparison: AdminReportComparisonS
     ["Period B", comparison.periodB.label],
     [],
   ];
+  const comparisonMetaLines = meta.map((r) =>
+    r.length === 0 ? "" : r.map((cell) => csvEscape(String(cell))).join(",")
+  );
 
   return [
-    ...meta.map((r) => r.join(",")),
+    ...comparisonMetaLines,
     "",
     toCsv(
       ["Metric", "Period A", "Period B", "Delta", "Change %"],
@@ -59,11 +62,14 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
     ["Scope", summary.scope.allClients ? "All clients" : summary.scope.clientName || summary.scope.clientId || ""],
     [],
   ];
+  const metaLines = meta.map((r) =>
+    r.length === 0 ? "" : r.map((cell) => csvEscape(String(cell))).join(",")
+  );
 
   switch (reportType) {
     case "financial":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         toCsv(
           ["Client", "Email", "Invoice #", "Date", "Status", "Subtotal", "Grand Total", "Auto Generated"],
@@ -82,7 +88,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
 
     case "commission":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         toCsv(
           ["Agent", "Client", "Invoice #", "Invoice Amount", "Rate %", "Tier", "Commission", "Status", "Created", "Paid At"],
@@ -103,7 +109,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
 
     case "client_activity":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         toCsv(
           ["Client", "Activity Type", "Description", "Quantity", "Status", "Date"],
@@ -120,7 +126,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
 
     case "audit":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         toCsv(
           ["Module", "Event", "Description", "Client", "Agent", "Performed By", "Date"],
@@ -138,7 +144,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
 
     case "operations":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         ...operationsSummaryRows(summary),
         "",
@@ -161,7 +167,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
     case "dispose": {
       const moduleActivities = filterActivitiesByReportType(summary.rows.activities, reportType);
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         `Module,${moduleLabel(reportType)}`,
         "",
@@ -192,7 +198,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
 
     case "full":
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         ...operationsSummaryRows(summary),
         "",
@@ -227,7 +233,7 @@ export function buildAdminReportCsv(summary: AdminReportSummary, reportType: Adm
     case "overview":
     default:
       return [
-        ...meta.map((r) => r.join(",")),
+        ...metaLines,
         "",
         "Section,Metric,Value",
         `Financial,Total Billed,${summary.financial.totalBilled.toFixed(2)}`,
