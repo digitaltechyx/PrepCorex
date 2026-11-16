@@ -78,7 +78,8 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "propose_inbound_create",
-      description: "Propose creating a pending product inbound request (requires admin confirmation).",
+      description:
+        "Propose creating a pending product inbound request (requires Confirm). Ask for required fields first; also ask optional expiry, UPC/retail id, tracking, and unit size/weight when relevant. Product inbound only — guide box/pallet/container and photos to Inventory UI.",
       parameters: {
         type: "object",
         properties: {
@@ -88,20 +89,27 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           clientUserName: { type: "string" },
           productName: { type: "string" },
-          sku: { type: "string" },
+          sku: { type: "string", description: "Optional — client may add later" },
           quantity: { type: "number" },
           productSubType: { type: "string", enum: ["new", "restock"] },
-          productId: { type: "string" },
+          productId: { type: "string", description: "Required for restock — from find_products" },
           remarks: { type: "string" },
+          retailIdentifier: {
+            type: "string",
+            description: "Optional UPC / EAN / FNSKU / ASIN",
+          },
+          expiryDate: {
+            type: "string",
+            description: "Optional lot/shelf expiry YYYY-MM-DD (important for FEFO products)",
+          },
+          trackingNumber: { type: "string", description: "Optional inbound tracking number" },
+          carrier: { type: "string", description: "Optional carrier (usps, ups, fedex, …)" },
+          unitLengthIn: { type: "number", description: "Optional unit length inches" },
+          unitWidthIn: { type: "number", description: "Optional unit width inches" },
+          unitHeightIn: { type: "number", description: "Optional unit height inches" },
+          unitWeightLb: { type: "number", description: "Optional unit weight lb" },
         },
-        required: [
-          "clientUserId",
-          "clientUserName",
-          "productName",
-          "sku",
-          "quantity",
-          "productSubType",
-        ],
+        required: ["clientUserId", "clientUserName", "productName", "quantity", "productSubType"],
       },
     },
   },
@@ -308,17 +316,39 @@ export async function runLexiTool(
         String(args.clientUserId ?? ""),
         String(args.clientUserName ?? "")
       );
+      const productSubType = args.productSubType === "restock" ? "restock" : "new";
+      if (productSubType === "restock" && !String(args.productId || "").trim()) {
+        return {
+          toolResult: JSON.stringify({
+            error: "Restock requires productId from find_products before proposing.",
+          }),
+        };
+      }
       const payload: LexiInboundCreatePayload = {
         clientUserId: client.uid,
         clientUserName: client.name,
         productName: String(args.productName),
-        sku: String(args.sku),
+        sku: args.sku ? String(args.sku) : undefined,
         quantity: Number(args.quantity),
-        productSubType: args.productSubType === "restock" ? "restock" : "new",
+        productSubType,
         productId: args.productId ? String(args.productId) : undefined,
         remarks: args.remarks ? String(args.remarks) : undefined,
+        retailIdentifier: args.retailIdentifier ? String(args.retailIdentifier) : undefined,
+        expiryDate: args.expiryDate ? String(args.expiryDate) : undefined,
+        trackingNumber: args.trackingNumber ? String(args.trackingNumber) : undefined,
+        carrier: args.carrier ? String(args.carrier) : undefined,
+        unitLengthIn: args.unitLengthIn != null ? Number(args.unitLengthIn) : undefined,
+        unitWidthIn: args.unitWidthIn != null ? Number(args.unitWidthIn) : undefined,
+        unitHeightIn: args.unitHeightIn != null ? Number(args.unitHeightIn) : undefined,
+        unitWeightLb: args.unitWeightLb != null ? Number(args.unitWeightLb) : undefined,
       };
-      const summary = `Create inbound for ${payload.clientUserName}: ${payload.quantity} units of ${payload.productName} (SKU ${payload.sku}, ${payload.productSubType})`;
+      const extras = [
+        payload.sku ? `SKU ${payload.sku}` : null,
+        payload.expiryDate ? `expiry ${payload.expiryDate}` : null,
+        payload.retailIdentifier ? `retail ${payload.retailIdentifier}` : null,
+        payload.trackingNumber ? `tracking ${payload.trackingNumber}` : null,
+      ].filter(Boolean);
+      const summary = `Create inbound for ${payload.clientUserName}: ${payload.quantity} × ${payload.productName} (${payload.productSubType}${extras.length ? ` · ${extras.join(" · ")}` : ""})`;
       return {
         toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
         pendingAction: { id: randomUUID(), type: "inbound_create", summary, payload },

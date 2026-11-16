@@ -37,8 +37,16 @@ const WELCOME =
 const SUGGESTIONS = [
   { label: "What's pending?", prompt: "What requests do I have pending?" },
   { label: "My inventory", prompt: "Summarize my inventory and offer an inventory CSV export." },
-  { label: "Create inbound", prompt: "Help me create an inbound request — ask for product details if needed." },
-  { label: "Create outbound", prompt: "Help me create an outbound shipment — ask for products, service, and box or pallet." },
+  {
+    label: "Create inbound",
+    prompt:
+      "Help me create a product inbound. Ask for new vs restock, product, quantity, then optional SKU, expiry date, UPC/retail id, tracking, unit size/weight, and remarks before proposing.",
+  },
+  {
+    label: "Create outbound",
+    prompt:
+      "Help me create an outbound. Ask for products (with pack size), service FBA/WFS/TFS or DTC/FBM, box or pallet, then optional ship-to and remarks before proposing.",
+  },
 ] as const;
 
 function newId(): string {

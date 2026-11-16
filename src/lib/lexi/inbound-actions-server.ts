@@ -1,11 +1,31 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { resolveLexiClient, resolveLexiClientForInbound } from "@/lib/lexi/access";
+import { addInboundTracking } from "@/lib/inbound-tracking-service";
 import type {
   LexiInboundApprovePayload,
   LexiInboundCreatePayload,
 } from "@/lib/lexi/types";
 import type { UserProfile } from "@/types";
+
+function parseExpiryTimestamp(raw?: string): Timestamp | undefined {
+  const value = String(raw || "").trim();
+  if (!value) return undefined;
+  // Prefer YYYY-MM-DD noon local-ish to avoid timezone day shifts.
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("expiryDate must be a valid date (use YYYY-MM-DD).");
+  }
+  return Timestamp.fromDate(d);
+}
+
+function optionalPositiveNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
 
 export async function lexiCreateInboundRequest(
   adminProfile: UserProfile,
@@ -21,6 +41,9 @@ export async function lexiCreateInboundRequest(
   if (!payload.productName?.trim()) throw new Error("Product name is required.");
   if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) {
     throw new Error("Quantity must be greater than zero.");
+  }
+  if (payload.productSubType === "restock" && !String(payload.productId || "").trim()) {
+    throw new Error("Restock requires productId from find_products.");
   }
 
   const now = Timestamp.now();
@@ -42,13 +65,49 @@ export async function lexiCreateInboundRequest(
   if (payload.sku?.trim()) doc.sku = payload.sku.trim();
 
   if (payload.productSubType === "restock" && payload.productId) {
-    doc.productId = payload.productId;
+    doc.productId = payload.productId.trim();
   }
   if (payload.remarks?.trim()) doc.remarks = payload.remarks.trim();
+  if (payload.retailIdentifier?.trim()) {
+    doc.retailIdentifier = payload.retailIdentifier.trim();
+  }
+
+  const expiry = parseExpiryTimestamp(payload.expiryDate);
+  if (expiry) doc.expiryDate = expiry;
+
+  const length = optionalPositiveNumber(payload.unitLengthIn);
+  const width = optionalPositiveNumber(payload.unitWidthIn);
+  const height = optionalPositiveNumber(payload.unitHeightIn);
+  const weight = optionalPositiveNumber(payload.unitWeightLb);
+  if (length != null) doc.unitLengthIn = length;
+  if (width != null) doc.unitWidthIn = width;
+  if (height != null) doc.unitHeightIn = height;
+  if (weight != null) doc.unitWeightLb = weight;
+
+  const trackingNumber = payload.trackingNumber?.trim() || "";
+  const carrier = payload.carrier?.trim() || undefined;
+  if (trackingNumber) {
+    doc.trackingNumber = trackingNumber;
+    if (carrier) doc.carrier = carrier;
+  }
 
   const ref = await adminDb()
     .collection(`users/${client.uid}/inventoryRequests`)
     .add(doc);
+
+  if (trackingNumber) {
+    try {
+      await addInboundTracking({
+        userId: client.uid,
+        requestId: ref.id,
+        trackingNumber,
+        carrier,
+        addedBy: adminUid,
+      });
+    } catch (err) {
+      console.warn("[lexi] inbound tracking attach failed", err);
+    }
+  }
 
   return { requestId: ref.id, clientUserId: client.uid, clientUserName: client.name };
 }

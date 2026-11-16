@@ -171,18 +171,30 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     type: "function",
     function: {
       name: "propose_inbound_create",
-      description: "Propose creating a pending inbound request for this client (requires Confirm).",
+      description:
+        "Propose creating a pending product inbound for this client (requires Confirm). Collect required fields first, then ask optional expiry, UPC/retail id, tracking, unit size/weight. Photos and box/pallet/container: guide to Inventory → Inbound Shipment.",
       parameters: {
         type: "object",
         properties: {
           clientUserId: uidProp,
           clientUserName: { type: "string" },
           productName: { type: "string" },
-          sku: { type: "string", description: "Optional — client can add later if omitted" },
+          sku: { type: "string", description: "Optional — can add later from Inventory" },
           quantity: { type: "number" },
           productSubType: { type: "string", enum: ["new", "restock"] },
-          productId: { type: "string" },
+          productId: { type: "string", description: "Required for restock — from find_products" },
           remarks: { type: "string" },
+          retailIdentifier: { type: "string", description: "Optional UPC / EAN / FNSKU / ASIN" },
+          expiryDate: {
+            type: "string",
+            description: "Optional lot/shelf expiry YYYY-MM-DD (ask when product has shelf life)",
+          },
+          trackingNumber: { type: "string" },
+          carrier: { type: "string" },
+          unitLengthIn: { type: "number" },
+          unitWidthIn: { type: "number" },
+          unitHeightIn: { type: "number" },
+          unitWeightLb: { type: "number" },
         },
         required: ["clientUserId", "clientUserName", "productName", "quantity", "productSubType"],
       },
@@ -370,20 +382,41 @@ export async function runLexiClientTool(
     }
     case "propose_inbound_create": {
       await resolveLexiClient(clientProfile, selfUid, selfName);
+      const productSubType = args.productSubType === "restock" ? "restock" : "new";
+      if (productSubType === "restock" && !String(args.productId || "").trim()) {
+        return {
+          toolResult: JSON.stringify({
+            error: "Restock requires productId from find_products before proposing.",
+          }),
+        };
+      }
       const payload: LexiInboundCreatePayload = {
         clientUserId: selfUid,
         clientUserName: selfName,
         productName: String(args.productName),
         sku: args.sku ? String(args.sku) : undefined,
         quantity: Number(args.quantity),
-        productSubType: args.productSubType === "restock" ? "restock" : "new",
+        productSubType,
         productId: args.productId ? String(args.productId) : undefined,
         remarks: args.remarks ? String(args.remarks) : undefined,
+        retailIdentifier: args.retailIdentifier ? String(args.retailIdentifier) : undefined,
+        expiryDate: args.expiryDate ? String(args.expiryDate) : undefined,
+        trackingNumber: args.trackingNumber ? String(args.trackingNumber) : undefined,
+        carrier: args.carrier ? String(args.carrier) : undefined,
+        unitLengthIn: args.unitLengthIn != null ? Number(args.unitLengthIn) : undefined,
+        unitWidthIn: args.unitWidthIn != null ? Number(args.unitWidthIn) : undefined,
+        unitHeightIn: args.unitHeightIn != null ? Number(args.unitHeightIn) : undefined,
+        unitWeightLb: args.unitWeightLb != null ? Number(args.unitWeightLb) : undefined,
       };
-      const skuLabel = payload.sku?.trim() ? `SKU ${payload.sku}` : "SKU later";
+      const extras = [
+        payload.sku ? `SKU ${payload.sku}` : null,
+        payload.expiryDate ? `expiry ${payload.expiryDate}` : null,
+        payload.retailIdentifier ? `retail ${payload.retailIdentifier}` : null,
+        payload.trackingNumber ? `tracking ${payload.trackingNumber}` : null,
+      ].filter(Boolean);
       return pending(
         "inbound_create",
-        `Create inbound: ${payload.quantity} × ${payload.productName} (${skuLabel}, ${payload.productSubType})`,
+        `Create inbound: ${payload.quantity} × ${payload.productName} (${payload.productSubType}${extras.length ? ` · ${extras.join(" · ")}` : ""})`,
         payload
       );
     }

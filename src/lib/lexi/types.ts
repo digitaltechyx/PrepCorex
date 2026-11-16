@@ -119,8 +119,21 @@ export type LexiInboundCreatePayload = {
   sku?: string;
   quantity: number;
   productSubType: "new" | "restock";
+  /** Required for restock — inventory product id from find_products. */
   productId?: string;
   remarks?: string;
+  /** Optional UPC / EAN / FNSKU / ASIN (single retail id field in PrepCorex). */
+  retailIdentifier?: string;
+  /** Optional lot/shelf expiry as YYYY-MM-DD (FEFO). */
+  expiryDate?: string;
+  /** Optional inbound shipment tracking. */
+  trackingNumber?: string;
+  carrier?: string;
+  /** Optional per-unit packaged dimensions (inches) / weight (lb). */
+  unitLengthIn?: number;
+  unitWidthIn?: number;
+  unitHeightIn?: number;
+  unitWeightLb?: number;
 };
 
 export type LexiInboundApprovePayload = {
