@@ -127,7 +127,11 @@ export function LexiMarkdown({ content, className }: { content: string; classNam
     if (/^[-*] /.test(line) || /^\d+\. /.test(line)) {
       const items: string[] = [];
       const ordered = /^\d+\. /.test(line);
-      while (i < lines.length && (ordered ? /^\d+\. /.test(lines[i]) : /^[-*] /.test(lines[i]))) {
+      while (
+        i < lines.length &&
+        (ordered ? /^\d+\. /.test(lines[i]) : /^[-*] /.test(lines[i]))
+      ) {
+        // Accept restarted numbers (model often emits 1. again) as one ordered list.
         items.push(lines[i].replace(ordered ? /^\d+\. / : /^[-*] /, ""));
         i += 1;
       }
