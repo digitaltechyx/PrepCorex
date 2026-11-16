@@ -25,9 +25,182 @@ function isoDay(ms: number): string | null {
   return format(new Date(ms), "yyyy-MM-dd");
 }
 
+function periodLabelFor(from: Date, to: Date, allTime: boolean): string {
+  return allTime ? "All time" : `${format(from, "MMM d yyyy")} - ${format(to, "MMM d yyyy")}`;
+}
+
+function formatExpirySummary(data: Record<string, unknown>): string {
+  const direct = pickReportDateMs(data, ["expiryDate"]);
+  if (direct > 0) return isoDay(direct) || "";
+
+  const lots = Array.isArray(data.fefoLots) ? data.fefoLots : Array.isArray(data.lots) ? data.lots : [];
+  const parts: string[] = [];
+  for (const lot of lots) {
+    if (!lot || typeof lot !== "object") continue;
+    const row = lot as Record<string, unknown>;
+    const ms = pickReportDateMs(row, ["expiryDate", "expiry"]);
+    const qty = Math.max(0, Math.floor(Number(row.quantity) || 0));
+    if (!ms) continue;
+    parts.push(`${isoDay(ms)}${qty ? ` (${qty})` : ""}`);
+  }
+  return parts.join("; ");
+}
+
+function formatUnitSize(data: Record<string, unknown>): string {
+  const l = Number(data.unitLengthIn);
+  const w = Number(data.unitWidthIn);
+  const h = Number(data.unitHeightIn);
+  const wt = Number(data.unitWeightLb);
+  const dims = [l, w, h].every((n) => Number.isFinite(n) && n > 0)
+    ? `${l}x${w}x${h} in`
+    : "";
+  const weight = Number.isFinite(wt) && wt > 0 ? `${wt} lb` : "";
+  return [dims, weight].filter(Boolean).join(" / ");
+}
+
+function inInventoryPeriod(
+  data: Record<string, unknown>,
+  from: Date,
+  to: Date,
+  allTime: boolean
+): { inRange: boolean; dateAddedMs: number; receivingMs: number } {
+  const dateAddedMs = pickReportDateMs(data, ["dateAdded", "createdAt"]);
+  const receivingMs = pickReportDateMs(data, ["receivingDate", "dateAdded", "createdAt"]);
+  if (allTime) return { inRange: true, dateAddedMs, receivingMs };
+  const inRange =
+    (dateAddedMs > 0 && isInReportRange(new Date(dateAddedMs), from, to, false)) ||
+    (receivingMs > 0 && isInReportRange(new Date(receivingMs), from, to, false));
+  return { inRange, dateAddedMs, receivingMs };
+}
+
 /**
- * Single-client inbound report from direct user paths (not collectionGroup).
- * Matches Inventory table Date Added / Receiving Date for the selected period.
+ * Inventory-only CSV (Inventory table products). Never includes inbound requests.
+ */
+export async function buildLexiClientInventoryReport(input: {
+  clientUserId: string;
+  clientUserName: string;
+  from: Date;
+  to: Date;
+  allTime?: boolean;
+}): Promise<{
+  rows: Array<{
+    productName: string;
+    sku: string;
+    retailIdentifier: string;
+    expiry: string;
+    unitSize: string;
+    quantity: number;
+    status: string;
+    dateAdded: string | null;
+    receivingDate: string | null;
+    remarks: string;
+  }>;
+  rowCount: number;
+  unitsOnHandInPeriod: number;
+  currentStockOnHand: number;
+  csv: string;
+  periodLabel: string;
+}> {
+  const allTime = input.allTime ?? false;
+  const from = reportStartOfDay(input.from);
+  const to = reportEndOfDay(input.to);
+  const periodLabel = periodLabelFor(from, to, allTime);
+
+  const snap = await adminDb().collection(`users/${input.clientUserId}/inventory`).get();
+  let currentStockOnHand = 0;
+  const rows: Array<{
+    productName: string;
+    sku: string;
+    retailIdentifier: string;
+    expiry: string;
+    unitSize: string;
+    quantity: number;
+    status: string;
+    dateAdded: string | null;
+    receivingDate: string | null;
+    remarks: string;
+  }> = [];
+
+  for (const doc of snap.docs) {
+    const data = doc.data() as Record<string, unknown>;
+    const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
+    currentStockOnHand += qty;
+
+    const { inRange, dateAddedMs, receivingMs } = inInventoryPeriod(data, from, to, allTime);
+    if (!inRange) continue;
+
+    rows.push({
+      productName: String(data.productName || "Product"),
+      sku: data.sku != null ? String(data.sku) : "",
+      retailIdentifier: data.retailIdentifier != null ? String(data.retailIdentifier) : "",
+      expiry: formatExpirySummary(data),
+      unitSize: formatUnitSize(data),
+      quantity: qty,
+      status: String(data.status || ""),
+      dateAdded: isoDay(dateAddedMs),
+      receivingDate: isoDay(receivingMs),
+      remarks: data.remarks != null ? String(data.remarks) : "",
+    });
+  }
+
+  rows.sort((a, b) => String(b.dateAdded || "").localeCompare(String(a.dateAdded || "")));
+  const unitsOnHandInPeriod = rows.reduce((sum, row) => sum + row.quantity, 0);
+
+  const csv = [
+    ["Report Type", "Inventory"].map(csvEscape).join(","),
+    ["Period", periodLabel].map(csvEscape).join(","),
+    ["Scope", input.clientUserName].map(csvEscape).join(","),
+    ["Includes", "Inventory products only (no inbound requests)"].map(csvEscape).join(","),
+    "",
+    ["Metric", "Count"].map(csvEscape).join(","),
+    ["Inventory products in period", String(rows.length)].map(csvEscape).join(","),
+    ["Units on hand (those products)", String(unitsOnHandInPeriod)].map(csvEscape).join(","),
+    ["Current stock on hand (all)", String(currentStockOnHand)].map(csvEscape).join(","),
+    "",
+    [
+      "Product",
+      "SKU",
+      "Retail ID",
+      "Expiry",
+      "Unit size",
+      "Quantity",
+      "Status",
+      "Date Added",
+      "Receiving Date",
+      "Remarks",
+    ]
+      .map(csvEscape)
+      .join(","),
+    ...rows.map((r) =>
+      [
+        r.productName,
+        r.sku,
+        r.retailIdentifier,
+        r.expiry,
+        r.unitSize,
+        String(r.quantity),
+        r.status,
+        r.dateAdded || "",
+        r.receivingDate || "",
+        r.remarks,
+      ]
+        .map(csvEscape)
+        .join(",")
+    ),
+  ].join("\r\n");
+
+  return {
+    rows,
+    rowCount: rows.length,
+    unitsOnHandInPeriod,
+    currentStockOnHand,
+    csv,
+    periodLabel,
+  };
+}
+
+/**
+ * Inbound requests only (inventoryRequests). Does not include Inventory table products.
  */
 export async function buildLexiClientInboundReport(input: {
   clientUserId: string;
@@ -47,9 +220,7 @@ export async function buildLexiClientInboundReport(input: {
   const allTime = input.allTime ?? false;
   const from = reportStartOfDay(input.from);
   const to = reportEndOfDay(input.to);
-  const periodLabel = allTime
-    ? "All time"
-    : `${format(from, "MMM d yyyy")} - ${format(to, "MMM d yyyy")}`;
+  const periodLabel = periodLabelFor(from, to, allTime);
 
   const userRef = adminDb().collection("users").doc(input.clientUserId);
   const [inventorySnap, requestSnap] = await Promise.all([
@@ -58,37 +229,14 @@ export async function buildLexiClientInboundReport(input: {
   ]);
 
   let currentStockOnHand = 0;
-  const rows: LexiModuleReportRow[] = [];
-
   for (const doc of inventorySnap.docs) {
-    const data = doc.data() as Record<string, unknown>;
-    const qty = Math.max(0, Math.floor(Number(data.quantity) || 0));
-    currentStockOnHand += qty;
-
-    const dateAddedMs = pickReportDateMs(data, ["dateAdded", "createdAt"]);
-    const receivingMs = pickReportDateMs(data, ["receivingDate", "dateAdded", "createdAt"]);
-    // Include if either Date Added or Receiving Date falls in range (Inventory table columns).
-    const inRange =
-      allTime ||
-      (dateAddedMs > 0 && isInReportRange(new Date(dateAddedMs), from, to, false)) ||
-      (receivingMs > 0 && isInReportRange(new Date(receivingMs), from, to, false));
-    if (!inRange) continue;
-
-    const occurredMs = dateAddedMs || receivingMs;
-    rows.push({
-      type: "Inventory item",
-      description: String(data.productName || "Product"),
-      sku: data.sku != null ? String(data.sku) : "",
-      quantity: qty,
-      status: String(data.status || ""),
-      occurredAt: isoDay(occurredMs) || "",
-      dateAdded: isoDay(dateAddedMs),
-      receivingDate: isoDay(receivingMs),
-    });
+    currentStockOnHand += Math.max(0, Math.floor(Number(doc.data().quantity) || 0));
   }
 
+  const rows: LexiModuleReportRow[] = [];
   let unitsReceived = 0;
   let inventoryRequestCount = 0;
+
   for (const doc of requestSnap.docs) {
     const data = doc.data() as Record<string, unknown>;
     const status = String(data.status || "").toLowerCase();
@@ -109,7 +257,7 @@ export async function buildLexiClientInboundReport(input: {
     if (status === "approved") unitsReceived += qty;
 
     rows.push({
-      type: "Inventory request",
+      type: "Inbound request",
       description: String(data.productName || "Inbound request"),
       sku: data.sku != null ? String(data.sku) : "",
       quantity: qty > 0 ? qty : null,
@@ -123,19 +271,17 @@ export async function buildLexiClientInboundReport(input: {
   rows.sort((a, b) => String(b.occurredAt).localeCompare(String(a.occurredAt)));
 
   const csv = [
-    ["Report Type", "Inbound"].map(csvEscape).join(","),
+    ["Report Type", "Inbound requests"].map(csvEscape).join(","),
     ["Period", periodLabel].map(csvEscape).join(","),
     ["Scope", input.clientUserName].map(csvEscape).join(","),
+    ["Includes", "Inbound requests only (no Inventory table products)"].map(csvEscape).join(","),
     "",
     ["Metric", "Count"].map(csvEscape).join(","),
-    ["Units received (approved requests)", String(unitsReceived)].map(csvEscape).join(","),
-    ["Inventory items in period", String(rows.filter((r) => r.type === "Inventory item").length)]
-      .map(csvEscape)
-      .join(","),
-    ["Inventory requests in period", String(inventoryRequestCount)].map(csvEscape).join(","),
+    ["Inbound requests in period", String(inventoryRequestCount)].map(csvEscape).join(","),
+    ["Units received (approved)", String(unitsReceived)].map(csvEscape).join(","),
     ["Current stock on hand", String(currentStockOnHand)].map(csvEscape).join(","),
     "",
-    ["Type", "Product", "SKU", "Quantity", "Status", "Date", "Date Added", "Receiving Date"]
+    ["Type", "Product", "SKU", "Quantity", "Status", "Request date", "Date Added", "Receiving Date"]
       .map(csvEscape)
       .join(","),
     ...rows.map((r) =>
@@ -158,7 +304,7 @@ export async function buildLexiClientInboundReport(input: {
     rows,
     unitsReceived,
     inventoryRequestCount,
-    inventoryItemCount: rows.filter((r) => r.type === "Inventory item").length,
+    inventoryItemCount: 0,
     currentStockOnHand,
     csv,
     periodLabel,
@@ -184,9 +330,7 @@ export async function buildLexiClientOutboundReport(input: {
   const allTime = input.allTime ?? false;
   const from = reportStartOfDay(input.from);
   const to = reportEndOfDay(input.to);
-  const periodLabel = allTime
-    ? "All time"
-    : `${format(from, "MMM d yyyy")} - ${format(to, "MMM d yyyy")}`;
+  const periodLabel = periodLabelFor(from, to, allTime);
 
   const userRef = adminDb().collection("users").doc(input.clientUserId);
   const [shippedSnap, requestSnap] = await Promise.all([
@@ -222,7 +366,9 @@ export async function buildLexiClientOutboundReport(input: {
     const occurredMs = pickReportDateMs(data, ["requestedAt", "date", "confirmedAt", "createdAt"]);
     if (!occurredMs || !isInReportRange(new Date(occurredMs), from, to, allTime)) continue;
     shipmentRequestCount += 1;
-    const first = Array.isArray(data.shipments) ? (data.shipments[0] as Record<string, unknown>) : null;
+    const first = Array.isArray(data.shipments)
+      ? (data.shipments[0] as Record<string, unknown>)
+      : null;
     rows.push({
       type: "Shipment request",
       description: String(first?.productName || data.productName || "Outbound request"),
@@ -241,6 +387,7 @@ export async function buildLexiClientOutboundReport(input: {
     ["Report Type", "Outbound"].map(csvEscape).join(","),
     ["Period", periodLabel].map(csvEscape).join(","),
     ["Scope", input.clientUserName].map(csvEscape).join(","),
+    ["Includes", "Shipped rows and outbound shipment requests only"].map(csvEscape).join(","),
     "",
     ["Metric", "Count"].map(csvEscape).join(","),
     ["Units shipped", String(unitsShipped)].map(csvEscape).join(","),

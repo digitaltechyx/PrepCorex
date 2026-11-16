@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { db } from "@/lib/firebase";
 import { cn } from "@/lib/utils";
 
-export type LexiFormKind = "inbound_create" | "outbound_create";
+export type LexiFormKind = "inbound_create" | "outbound_create" | "report_generate";
 
 type InventoryOption = {
   id: string;
@@ -637,6 +637,155 @@ export function LexiOutboundCreateForm({
             </>
           ) : (
             "Review & Confirm"
+          )}
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={submitting} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export function LexiReportGenerateForm({
+  disabled,
+  onCancel,
+  onSubmit,
+}: {
+  disabled?: boolean;
+  onCancel: () => void;
+  onSubmit: (fields: {
+    reportType: string;
+    period?: string;
+    from?: string;
+    to?: string;
+  }) => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reportType, setReportType] = useState("inventory");
+  const [periodMode, setPeriodMode] = useState<"preset" | "custom">("preset");
+  const [period, setPeriod] = useState("sep and october");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (periodMode === "custom" && (!from || !to)) {
+      setError("Choose From and To dates.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit(
+        periodMode === "custom" ? { reportType, from, to } : { reportType, period }
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not generate report.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={(e) => void handleSubmit(e)}
+      className="rounded-2xl border border-violet-200 bg-white p-3 shadow-sm dark:border-violet-900 dark:bg-slate-900"
+    >
+      <div className="mb-2">
+        <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Generate report CSV</p>
+        <p className="text-[11px] text-slate-500">
+          Pick exactly what you want — Inventory products and Inbound requests are separate.
+        </p>
+      </div>
+
+      <div className="space-y-2.5">
+        <Field label="Report type" required>
+          <select
+            className={selectClassName()}
+            value={reportType}
+            disabled={disabled || submitting}
+            onChange={(e) => setReportType(e.target.value)}
+          >
+            <option value="inventory">Inventory products only</option>
+            <option value="inbound">Inbound requests only</option>
+            <option value="outbound">Outbound / shipped</option>
+            <option value="returns">Returns</option>
+            <option value="dispose">Dispose</option>
+          </select>
+        </Field>
+
+        <Field label="Period mode" required>
+          <select
+            className={selectClassName()}
+            value={periodMode}
+            disabled={disabled || submitting}
+            onChange={(e) => setPeriodMode(e.target.value as "preset" | "custom")}
+          >
+            <option value="preset">Preset / month name</option>
+            <option value="custom">Custom from–to dates</option>
+          </select>
+        </Field>
+
+        {periodMode === "preset" ? (
+          <Field label="Period" required>
+            <select
+              className={selectClassName()}
+              value={period}
+              disabled={disabled || submitting}
+              onChange={(e) => setPeriod(e.target.value)}
+            >
+              <option value="this_month">This month</option>
+              <option value="last_month">Last month</option>
+              <option value="sep and october">September and October</option>
+              <option value="september">September</option>
+              <option value="october">October</option>
+              <option value="last_30_days">Last 30 days</option>
+              <option value="this_year">This year</option>
+              <option value="all_time">All time</option>
+            </select>
+          </Field>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="From" required>
+              <Input
+                type="date"
+                value={from}
+                disabled={disabled || submitting}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-9 rounded-lg text-[13px]"
+              />
+            </Field>
+            <Field label="To" required>
+              <Input
+                type="date"
+                value={to}
+                disabled={disabled || submitting}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-9 rounded-lg text-[13px]"
+              />
+            </Field>
+          </div>
+        )}
+      </div>
+
+      {error ? <p className="mt-2 text-[12px] text-red-600">{error}</p> : null}
+
+      <div className="mt-3 flex gap-2">
+        <Button
+          type="submit"
+          size="sm"
+          className="bg-violet-600 hover:bg-violet-700"
+          disabled={disabled || submitting}
+        >
+          {submitting ? (
+            <>
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              Generating…
+            </>
+          ) : (
+            "Generate CSV"
           )}
         </Button>
         <Button type="button" size="sm" variant="outline" disabled={submitting} onClick={onCancel}>

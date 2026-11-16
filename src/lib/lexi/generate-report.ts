@@ -6,7 +6,6 @@ import {
   subDays,
   subMonths,
 } from "date-fns";
-import { adminDb } from "@/lib/firebase-admin";
 import { resolveLexiClient, assertLexiCanManageClient } from "@/lib/lexi/access";
 import { buildAdminReportCsv } from "@/lib/admin-reports-csv";
 import { filterActivitiesByReportType, moduleLabel } from "@/lib/admin-reports-modules";
@@ -14,6 +13,7 @@ import { buildAdminReport } from "@/lib/admin-reports-server";
 import type { AdminReportType } from "@/lib/admin-reports-types";
 import {
   buildLexiClientInboundReport,
+  buildLexiClientInventoryReport,
   buildLexiClientOutboundReport,
 } from "@/lib/lexi/lexi-client-module-report";
 import type { LexiReportAttachment } from "@/lib/lexi/types";
@@ -190,27 +190,6 @@ function resolvePeriod(period?: string, fromIso?: string, toIso?: string): {
   }
 }
 
-function csvEscape(value: unknown): string {
-  const s = String(value ?? "");
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-async function inventoryCsv(clientUserId: string, clientName: string): Promise<string> {
-  const snap = await adminDb().collection(`users/${clientUserId}/inventory`).get();
-  const header = ["Product", "SKU", "Quantity", "Status"];
-  const rows = snap.docs.map((d) => {
-    const data = d.data();
-    return [
-      csvEscape(data.productName),
-      csvEscape(data.sku),
-      csvEscape(data.quantity ?? 0),
-      csvEscape(data.status),
-    ].join(",");
-  });
-  return [`Client,${csvEscape(clientName)}`, `Report,Inventory snapshot`, "", header.join(","), ...rows].join("\r\n");
-}
-
 export async function lexiGenerateReport(
   adminProfile: UserProfile,
   args: {
@@ -242,25 +221,44 @@ export async function lexiGenerateReport(
     if (!clientId) {
       throw new Error("Inventory/stock reports need a client. Ask which client, then generate again.");
     }
-    const csv = await inventoryCsv(clientId, clientName || clientId);
-    const rowCount = Math.max(0, csv.split(/\r?\n/).length - 4);
+
+    // Period-aware inventory-only export (Inventory table). Never mixes inbound requests.
+    const inventory = await buildLexiClientInventoryReport({
+      clientUserId: clientId,
+      clientUserName: clientName || clientId,
+      from: period.from,
+      to: period.to,
+      allTime: period.allTime,
+    });
     const filename = `lexi-inventory-${clientName || clientId}-${Date.now()}.csv`.replace(/\s+/g, "-");
     return {
       summary: {
         reportType: "inventory",
+        label: "Inventory",
         scope: clientName,
-        period: "Current snapshot",
-        rowCount,
-        isEmpty: rowCount === 0,
+        period: inventory.periodLabel,
+        rowCount: inventory.rowCount,
+        unitsOnHandInPeriod: inventory.unitsOnHandInPeriod,
+        currentStockOnHand: inventory.currentStockOnHand,
+        includes: "inventory_products_only",
+        excludes: "inbound_requests",
+        sampleRows: inventory.rows.slice(0, 10).map((row) => ({
+          productName: row.productName,
+          sku: row.sku,
+          quantity: row.quantity,
+          dateAdded: row.dateAdded,
+          receivingDate: row.receivingDate,
+        })),
+        isEmpty: inventory.rowCount === 0,
         note:
-          rowCount > 0
-            ? `Found ${rowCount} inventory row(s). CSV is ready to download. Summarize these numbers — do NOT say there are no records.`
-            : "CSV is ready. This inventory snapshot has 0 product rows.",
+          inventory.rowCount > 0
+            ? `Found ${inventory.rowCount} inventory product(s) in ${inventory.periodLabel}. CSV is inventory-only (no inbound requests). Do NOT say there are no records.`
+            : `No inventory products matched ${inventory.periodLabel}. Current stock on hand (all) is ${inventory.currentStockOnHand}.`,
       },
       report: {
-        title: `Inventory — ${clientName}`,
+        title: `Inventory — ${inventory.periodLabel}`,
         filename,
-        csv,
+        csv: inventory.csv,
       },
     };
   }
@@ -290,10 +288,11 @@ export async function lexiGenerateReport(
         scope: clientName || clientId,
         scopeClientId: clientId,
         activityRowCount,
-        inventoryItemsInPeriod: inbound.inventoryItemCount,
         inventoryRequests: inbound.inventoryRequestCount,
         unitsReceived: inbound.unitsReceived,
         currentStockOnHand: inbound.currentStockOnHand,
+        includes: "inbound_requests_only",
+        excludes: "inventory_table_products",
         sampleActivities: inbound.rows.slice(0, 10).map((row) => ({
           type: row.type,
           description: row.description,
@@ -306,11 +305,11 @@ export async function lexiGenerateReport(
         })),
         isEmpty,
         note: isEmpty
-          ? `No inbound inventory items or requests in ${inbound.periodLabel}. Current stock on hand is ${inbound.currentStockOnHand}.`
-          : `Found ${inbound.inventoryItemCount} inventory item(s) and ${inbound.inventoryRequestCount} inbound request(s) in ${inbound.periodLabel}. CSV is ready — do NOT say there are no records.`,
+          ? `No inbound requests in ${inbound.periodLabel}. Current stock on hand is ${inbound.currentStockOnHand}. If they wanted Inventory table products, use reportType inventory.`
+          : `Found ${inbound.inventoryRequestCount} inbound request(s) in ${inbound.periodLabel}. CSV is inbound-requests-only (no Inventory table products). Do NOT say there are no records.`,
       },
       report: {
-        title: `Inbound — ${inbound.periodLabel}`,
+        title: `Inbound requests — ${inbound.periodLabel}`,
         filename,
         csv: inbound.csv,
       },

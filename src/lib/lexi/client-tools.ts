@@ -140,7 +140,7 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: "generate_report",
       description:
-        "Generate a CSV report for THIS client only (read-only, no Confirm). For a named month (September, October) pass period like \"september\" / \"october\" / \"2026-09\" OR from+to ISO dates. Always trust activityRowCount/isEmpty in the tool result — never invent \"no records\" when activityRowCount > 0.",
+        "Generate a CSV for THIS client only (read-only). Pick reportType EXACTLY from the ask: inventory=Inventory table products only; inbound=inbound requests only; outbound=shipped/requests. Never mix inventory with inbound. For months use period september/october/sep and october or from+to. Trust isEmpty/rowCount/activityRowCount.",
       parameters: {
         type: "object",
         properties: {
