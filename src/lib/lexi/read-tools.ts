@@ -104,6 +104,22 @@ export async function lexiGetInboundRequest(
   return null;
 }
 
+function formatExpiryYmd(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  const sec = Number((value as { seconds?: number }).seconds);
+  if (!Number.isFinite(sec) || sec <= 0) return null;
+  const d = new Date(sec * 1000);
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function formatRequest(id: string, data: FirebaseFirestore.DocumentData): Record<string, unknown> {
   const expected =
     Number(data.receivedQuantity) ||
@@ -112,17 +128,30 @@ function formatRequest(id: string, data: FirebaseFirestore.DocumentData): Record
     0;
   const received = Math.max(0, Number(data.warehouseGoodReceivedQty) || 0);
   const remaining = Math.max(0, expected - received);
+  const status = String(data.status ?? "");
 
   return {
     requestId: id,
     productName: data.productName ?? "",
     sku: data.sku ?? "",
-    status: data.status ?? "",
+    status,
     fulfillmentStatus: data.fulfillmentStatus ?? null,
     quantity: expected,
     remainingToReceive: remaining,
     productSubType: data.productSubType ?? null,
     inventoryType: data.inventoryType ?? "product",
+    retailIdentifier: data.retailIdentifier ?? "",
+    expiryDate: formatExpiryYmd(data.expiryDate),
+    remarks: data.remarks ?? "",
+    unitLengthIn: data.unitLengthIn ?? null,
+    unitWidthIn: data.unitWidthIn ?? null,
+    unitHeightIn: data.unitHeightIn ?? null,
+    unitWeightLb: data.unitWeightLb ?? null,
+    canUpdateWhilePending: status.toLowerCase() === "pending",
+    note:
+      status.toLowerCase() === "pending"
+        ? "Client/admin can update fields while pending via propose_inbound_update (do not cancel+recreate for field edits)."
+        : undefined,
   };
 }
 

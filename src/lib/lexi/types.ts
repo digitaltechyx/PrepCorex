@@ -1,5 +1,6 @@
 export type LexiActionType =
   | "inbound_create"
+  | "inbound_update"
   | "inbound_approve"
   | "inbound_reject"
   | "inbound_complete"
@@ -25,6 +26,7 @@ export type LexiActionType =
 export const LEXI_CLIENT_ACTION_TYPES: LexiActionType[] = [
   "inbound_complete",
   "inbound_fulfill_all",
+  "inbound_update",
   "inbound_cancel",
   "outbound_fulfill_all",
   "outbound_create",
@@ -47,6 +49,7 @@ export const LEXI_ENDUSER_SERVER_ACTION_TYPES: LexiActionType[] = ["inbound_crea
 
 /** Client Lexi actions that run in the client browser after Confirm. */
 export const LEXI_ENDUSER_BROWSER_ACTION_TYPES: LexiActionType[] = [
+  "inbound_update",
   "inbound_cancel",
   "outbound_create",
   "outbound_cancel",
@@ -97,6 +100,7 @@ export type LexiPendingAction = {
 
 export type LexiActionPayload =
   | LexiInboundCreatePayload
+  | LexiInboundUpdatePayload
   | LexiInboundApprovePayload
   | LexiInboundCompletePayload
   | LexiOutboundCreatePayload
@@ -134,6 +138,30 @@ export type LexiInboundCreatePayload = {
   unitWidthIn?: number;
   unitHeightIn?: number;
   unitWeightLb?: number;
+};
+
+/**
+ * Partial update for a pending inbound (Inventory → Update Request).
+ * Only include fields the user wants to change. Pass empty string for
+ * sku / retailIdentifier / remarks / expiryDate to clear them.
+ */
+export type LexiInboundUpdatePayload = {
+  clientUserId: string;
+  clientUserName: string;
+  requestId: string;
+  /** Display name for Confirm summary (current or new). */
+  productName: string;
+  /** New product name when renaming. */
+  productNameNew?: string;
+  sku?: string;
+  quantity?: number;
+  retailIdentifier?: string;
+  expiryDate?: string;
+  remarks?: string;
+  unitLengthIn?: number | null;
+  unitWidthIn?: number | null;
+  unitHeightIn?: number | null;
+  unitWeightLb?: number | null;
 };
 
 export type LexiInboundApprovePayload = {

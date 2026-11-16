@@ -14,6 +14,7 @@ import { prepareLexiOutboundCreate } from "@/lib/lexi/outbound-create-server";
 import type {
   LexiCancelPayload,
   LexiInboundCreatePayload,
+  LexiInboundUpdatePayload,
   LexiPendingAction,
   LexiReportAttachment,
 } from "@/lib/lexi/types";
@@ -197,6 +198,34 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           unitWeightLb: { type: "number" },
         },
         required: ["clientUserId", "clientUserName", "productName", "quantity", "productSubType"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_inbound_update",
+      description:
+        "Propose updating a PENDING inbound request (requires Confirm). Use this when the client wants to change fields (unit size/weight, expiry, SKU, qty, retail id, remarks, product name). Do NOT tell them to cancel and recreate. Look up the request first. Only pass fields that should change.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: uidProp,
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string", description: "Current product name for Confirm summary" },
+          productNameNew: { type: "string", description: "New product name when renaming" },
+          sku: { type: "string" },
+          quantity: { type: "number" },
+          retailIdentifier: { type: "string" },
+          expiryDate: { type: "string", description: "YYYY-MM-DD or empty to clear" },
+          remarks: { type: "string" },
+          unitLengthIn: { type: "number" },
+          unitWidthIn: { type: "number" },
+          unitHeightIn: { type: "number" },
+          unitWeightLb: { type: "number" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName"],
       },
     },
   },
@@ -417,6 +446,74 @@ export async function runLexiClientTool(
       return pending(
         "inbound_create",
         `Create inbound: ${payload.quantity} × ${payload.productName} (${payload.productSubType}${extras.length ? ` · ${extras.join(" · ")}` : ""})`,
+        payload
+      );
+    }
+    case "propose_inbound_update": {
+      const requestId = String(args.requestId ?? "").trim();
+      const request = await lexiGetInboundRequest(clientProfile, selfUid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Inbound #${requestId} not found.` }) };
+      }
+      if (String(request.status ?? "").toLowerCase() !== "pending") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Inbound #${requestId} is "${request.status}" — only pending requests can be updated.`,
+          }),
+        };
+      }
+      const payload: LexiInboundUpdatePayload = {
+        clientUserId: selfUid,
+        clientUserName: selfName,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        productNameNew: args.productNameNew != null ? String(args.productNameNew) : undefined,
+        sku: args.sku !== undefined ? String(args.sku) : undefined,
+        quantity: args.quantity != null ? Number(args.quantity) : undefined,
+        retailIdentifier:
+          args.retailIdentifier !== undefined ? String(args.retailIdentifier) : undefined,
+        expiryDate: args.expiryDate !== undefined ? String(args.expiryDate) : undefined,
+        remarks: args.remarks !== undefined ? String(args.remarks) : undefined,
+        unitLengthIn: args.unitLengthIn != null ? Number(args.unitLengthIn) : undefined,
+        unitWidthIn: args.unitWidthIn != null ? Number(args.unitWidthIn) : undefined,
+        unitHeightIn: args.unitHeightIn != null ? Number(args.unitHeightIn) : undefined,
+        unitWeightLb: args.unitWeightLb != null ? Number(args.unitWeightLb) : undefined,
+      };
+      const changeBits = [
+        payload.productNameNew ? `name → ${payload.productNameNew}` : null,
+        payload.sku !== undefined ? (payload.sku ? `SKU ${payload.sku}` : "SKU clear") : null,
+        payload.quantity != null ? `qty ${payload.quantity}` : null,
+        payload.expiryDate !== undefined
+          ? payload.expiryDate
+            ? `expiry ${payload.expiryDate}`
+            : "expiry clear"
+          : null,
+        payload.retailIdentifier !== undefined
+          ? payload.retailIdentifier
+            ? `retail ${payload.retailIdentifier}`
+            : "retail clear"
+          : null,
+        payload.unitLengthIn != null ||
+        payload.unitWidthIn != null ||
+        payload.unitHeightIn != null ||
+        payload.unitWeightLb != null
+          ? `unit ${[payload.unitLengthIn, payload.unitWidthIn, payload.unitHeightIn]
+              .filter((n) => n != null)
+              .join("×")}${payload.unitWeightLb != null ? ` ${payload.unitWeightLb}lb` : ""}`
+          : null,
+        payload.remarks !== undefined ? "remarks" : null,
+      ].filter(Boolean);
+      if (changeBits.length === 0) {
+        return {
+          toolResult: JSON.stringify({
+            error:
+              "Pass at least one field to change (e.g. unitLengthIn, unitWidthIn, unitHeightIn, unitWeightLb).",
+          }),
+        };
+      }
+      return pending(
+        "inbound_update",
+        `Update pending inbound #${requestId} (${payload.productName}): ${changeBits.join(" · ")}`,
         payload
       );
     }

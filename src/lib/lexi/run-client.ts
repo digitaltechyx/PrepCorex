@@ -21,6 +21,7 @@ import { approveDisposeBatchLine, rejectDisposeBatchLine } from "@/lib/dispose-b
 import { db } from "@/lib/firebase";
 import { auth } from "@/lib/firebase";
 import { lexiCompleteInboundOnClient } from "@/lib/lexi/inbound-complete-client";
+import { lexiUpdatePendingInboundOnClient } from "@/lib/lexi/inbound-update-client";
 import { lexiCreateOutboundOnClient } from "@/lib/lexi/outbound-create-client";
 import { lexiCreateOutboundInvoiceOnClient } from "@/lib/lexi/outbound-invoice-client";
 import { lexiFulfillInboundAll, lexiFulfillOutboundAll } from "@/lib/lexi/workflow-client";
@@ -29,6 +30,7 @@ import type {
   LexiDisposeReviewPayload,
   LexiInboundCompletePayload,
   LexiInboundFulfillAllPayload,
+  LexiInboundUpdatePayload,
   LexiLabelReviewPayload,
   LexiOutboundCreatePayload,
   LexiOutboundDispatchPayload,
@@ -104,6 +106,12 @@ export async function lexiRunClientAction(
     case "outbound_create":
       return (await lexiCreateOutboundOnClient(action.payload as LexiOutboundCreatePayload, operatorId))
         .message;
+
+    case "inbound_update":
+      return lexiUpdatePendingInboundOnClient(
+        action.payload as LexiInboundUpdatePayload,
+        operatorId
+      );
 
     case "inbound_cancel": {
       const p = action.payload as LexiCancelPayload;

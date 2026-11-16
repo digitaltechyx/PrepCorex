@@ -32,7 +32,7 @@ type LexiLayoutMode = "floating" | "drawer" | "expanded";
 
 const LAYOUT_STORAGE_KEY = "prepcorex.lexi.client.layout";
 const WELCOME =
-  "Hi — I'm LEXI™, powered by PrepCorex. I can check your inventory and requests, export CSV, and help create or cancel inbound/outbound — only after you Confirm. I only work on your account.";
+  "Hi — I'm LEXI™, powered by PrepCorex. I can check your inventory and requests, export CSV, create or update pending inbound, and create or cancel outbound — only after you Confirm. I only work on your account.";
 
 const SUGGESTIONS = [
   { label: "What's pending?", prompt: "What requests do I have pending?" },
@@ -41,6 +41,11 @@ const SUGGESTIONS = [
     label: "Create inbound",
     prompt:
       "Help me create a product inbound. Ask for new vs restock, product, quantity, then optional SKU, expiry date, UPC/retail id, tracking, unit size/weight, and remarks before proposing.",
+  },
+  {
+    label: "Update inbound",
+    prompt:
+      "I want to update a pending inbound request (for example add unit size). Look up my pending inbound, ask which fields to change, and propose an update — do not cancel and recreate.",
   },
   {
     label: "Create outbound",

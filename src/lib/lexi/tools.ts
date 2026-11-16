@@ -13,6 +13,7 @@ import type {
   LexiInboundApprovePayload,
   LexiInboundCompletePayload,
   LexiInboundCreatePayload,
+  LexiInboundUpdatePayload,
   LexiOutboundApprovePayload,
   LexiOutboundCreatePayload,
   LexiPendingAction,
@@ -110,6 +111,37 @@ export const LEXI_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           unitWeightLb: { type: "number", description: "Optional unit weight lb" },
         },
         required: ["clientUserId", "clientUserName", "productName", "quantity", "productSubType"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "propose_inbound_update",
+      description:
+        "Propose updating a PENDING inbound request (requires Confirm). Prefer this over cancel+recreate when the client/admin wants to change product name, SKU, qty, expiry, retail id, remarks, or unit L/W/H/weight. Look up the request first. Only pass fields that should change.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientUserId: {
+            type: "string",
+            description: "Exact Firebase uid from find_clients — never a display name",
+          },
+          clientUserName: { type: "string" },
+          requestId: { type: "string" },
+          productName: { type: "string", description: "Current product name for the Confirm summary" },
+          productNameNew: { type: "string", description: "New product name when renaming" },
+          sku: { type: "string", description: "New SKU, or empty string to clear" },
+          quantity: { type: "number" },
+          retailIdentifier: { type: "string", description: "UPC/EAN/FNSKU/ASIN, or empty to clear" },
+          expiryDate: { type: "string", description: "YYYY-MM-DD, or empty string to clear expiry" },
+          remarks: { type: "string" },
+          unitLengthIn: { type: "number", description: "Unit length inches" },
+          unitWidthIn: { type: "number", description: "Unit width inches" },
+          unitHeightIn: { type: "number", description: "Unit height inches" },
+          unitWeightLb: { type: "number", description: "Unit weight lb" },
+        },
+        required: ["clientUserId", "clientUserName", "requestId", "productName"],
       },
     },
   },
@@ -352,6 +384,78 @@ export async function runLexiTool(
       return {
         toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
         pendingAction: { id: randomUUID(), type: "inbound_create", summary, payload },
+      };
+    }
+    case "propose_inbound_update": {
+      const requestId = String(args.requestId ?? "").trim();
+      const client = await resolveLexiClientForInbound(adminProfile, {
+        clientUserId: String(args.clientUserId ?? ""),
+        clientUserName: String(args.clientUserName ?? ""),
+        requestId,
+      });
+      const request = await lexiGetInboundRequest(adminProfile, client.uid, requestId);
+      if (!request) {
+        return { toolResult: JSON.stringify({ error: `Inbound #${requestId} not found.` }) };
+      }
+      if (String(request.status ?? "").toLowerCase() !== "pending") {
+        return {
+          toolResult: JSON.stringify({
+            error: `Inbound #${requestId} is "${request.status}" — only pending requests can be updated. Do not cancel+recreate unless they ask to cancel.`,
+          }),
+        };
+      }
+      const payload: LexiInboundUpdatePayload = {
+        clientUserId: client.uid,
+        clientUserName: client.name,
+        requestId,
+        productName: String(args.productName || request.productName || ""),
+        productNameNew: args.productNameNew != null ? String(args.productNameNew) : undefined,
+        sku: args.sku !== undefined ? String(args.sku) : undefined,
+        quantity: args.quantity != null ? Number(args.quantity) : undefined,
+        retailIdentifier:
+          args.retailIdentifier !== undefined ? String(args.retailIdentifier) : undefined,
+        expiryDate: args.expiryDate !== undefined ? String(args.expiryDate) : undefined,
+        remarks: args.remarks !== undefined ? String(args.remarks) : undefined,
+        unitLengthIn: args.unitLengthIn != null ? Number(args.unitLengthIn) : undefined,
+        unitWidthIn: args.unitWidthIn != null ? Number(args.unitWidthIn) : undefined,
+        unitHeightIn: args.unitHeightIn != null ? Number(args.unitHeightIn) : undefined,
+        unitWeightLb: args.unitWeightLb != null ? Number(args.unitWeightLb) : undefined,
+      };
+      const changeBits = [
+        payload.productNameNew ? `name → ${payload.productNameNew}` : null,
+        payload.sku !== undefined ? (payload.sku ? `SKU ${payload.sku}` : "SKU clear") : null,
+        payload.quantity != null ? `qty ${payload.quantity}` : null,
+        payload.expiryDate !== undefined
+          ? payload.expiryDate
+            ? `expiry ${payload.expiryDate}`
+            : "expiry clear"
+          : null,
+        payload.retailIdentifier !== undefined
+          ? payload.retailIdentifier
+            ? `retail ${payload.retailIdentifier}`
+            : "retail clear"
+          : null,
+        payload.unitLengthIn != null ||
+        payload.unitWidthIn != null ||
+        payload.unitHeightIn != null ||
+        payload.unitWeightLb != null
+          ? `unit ${[payload.unitLengthIn, payload.unitWidthIn, payload.unitHeightIn]
+              .filter((n) => n != null)
+              .join("×")}${payload.unitWeightLb != null ? ` ${payload.unitWeightLb}lb` : ""}`
+          : null,
+        payload.remarks !== undefined ? "remarks" : null,
+      ].filter(Boolean);
+      if (changeBits.length === 0) {
+        return {
+          toolResult: JSON.stringify({
+            error: "Pass at least one field to change (e.g. unitLengthIn/unitWidthIn/unitHeightIn/unitWeightLb).",
+          }),
+        };
+      }
+      const summary = `Update pending inbound #${requestId} (${payload.productName}) for ${payload.clientUserName}: ${changeBits.join(" · ")}`;
+      return {
+        toolResult: JSON.stringify({ proposed: true, summary, awaitingConfirmation: true }),
+        pendingAction: { id: randomUUID(), type: "inbound_update", summary, payload },
       };
     }
     case "propose_inbound_approve": {

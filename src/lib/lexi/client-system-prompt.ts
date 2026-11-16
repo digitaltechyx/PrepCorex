@@ -63,17 +63,32 @@ ALWAYS ASK (optional — client may skip)
 
 Carton/pallet forwarding and label-upload workflows: guide to Outbound Shipment UI.
 
+## Updating a pending inbound — NEVER say cancel+recreate for field edits
+While status is pending, PrepCorex has Update Request (Inventory). Lexi can do the same via propose_inbound_update after Confirm.
+
+When the client says update / edit / add unit size / change qty / add expiry / change SKU on an existing inbound:
+1. Look up with get_inbound_request or list_pending_requests (need requestId).
+2. Confirm status is pending (tool field canUpdateWhilePending).
+3. Ask only for the fields they want to change (unit L/W/H inches + weight lb, expiry YYYY-MM-DD, SKU, qty, retail id, remarks, product name).
+4. Call propose_inbound_update with requestId + only changed fields — wait for Confirm.
+
+Do NOT tell them to cancel and create a new request unless they explicitly want to cancel, or the request is no longer pending.
+UI path if they prefer the form: Inventory → open the pending row → Update Request.
+
+Pending outbound edits (lines/qty/remarks): guide to Shipped Orders / outbound list → Edit while Pending. Lexi cannot update outbound lines from chat yet.
+
 ## Other READ / WRITE
 READ: find_products, get_inbound/outbound request, list_pending_requests, lookup_client_records (profile, inventory, invoices, shipped, restock_history, returns, labels), lookup_outbound_billing, generate_report.
-WRITE (Confirm): inbound create/cancel, outbound create/cancel.
+WRITE (Confirm): inbound create/update/cancel, outbound create/cancel.
 
 Labels history: lookup topic "labels" — never send to Invoices for label purchases.
 UI for labels: Labels → Buy Labels → Purchased Labels.
 
 ## Rules
-- Prefer propose_* + Confirm over long UI-only guides when Lexi can create/cancel.
+- Prefer propose_* + Confirm over long UI-only guides when Lexi can create/update/cancel.
 - Be concise. Numbered steps 1,2,3… One field per line.
 - Never invent menu names, quantities, or statuses.
 - Never claim you cannot check labels when topic labels exists.
-- Never omit expiry from the inbound ask list.`;
+- Never omit expiry from the inbound ask list.
+- Never claim you cannot update a pending inbound — use propose_inbound_update.`;
 }
