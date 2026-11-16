@@ -13,6 +13,11 @@ import {
   X,
 } from "lucide-react";
 import { LexiMarkdown } from "@/components/admin/lexi/lexi-markdown";
+import {
+  LexiInboundCreateForm,
+  LexiOutboundCreateForm,
+  type LexiFormKind,
+} from "@/components/dashboard/lexi/lexi-create-forms";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,28 +36,44 @@ type UiMessage = LexiChatMessage & { id: string; report?: LexiReportAttachment }
 type LexiLayoutMode = "floating" | "drawer" | "expanded";
 
 const LAYOUT_STORAGE_KEY = "prepcorex.lexi.client.layout";
+const FORM_TAG_RE = /\[LEXI_FORM:(inbound_create|outbound_create)\]/i;
 const WELCOME =
-  "Hi — I'm LEXI™, powered by PrepCorex. I can check your inventory and requests, export CSV, create or update pending inbound, and create or cancel outbound — only after you Confirm. I only work on your account.";
+  "Hi — I'm LEXI™, powered by PrepCorex. I can check your inventory and requests, export CSV, create or update pending inbound, and create or cancel outbound — only after you Confirm. For create inbound/outbound I open a short form with dropdowns.";
 
 const SUGGESTIONS = [
-  { label: "What's pending?", prompt: "What requests do I have pending?" },
-  { label: "My inventory", prompt: "Summarize my inventory and offer an inventory CSV export." },
+  { label: "What's pending?", prompt: "What requests do I have pending?", form: null },
+  {
+    label: "My inventory",
+    prompt: "Summarize my inventory and offer an inventory CSV export.",
+    form: null,
+  },
   {
     label: "Create inbound",
-    prompt:
-      "Help me create a product inbound. Ask for new vs restock, product, quantity, then optional SKU, expiry date, UPC/retail id, tracking, unit size/weight, and remarks before proposing.",
+    prompt: "Open the create inbound form.",
+    form: "inbound_create" as LexiFormKind,
   },
   {
     label: "Update inbound",
     prompt:
       "I want to update a pending inbound request (for example add unit size). Look up my pending inbound, ask which fields to change, and propose an update — do not cancel and recreate.",
+    form: null,
   },
   {
     label: "Create outbound",
-    prompt:
-      "Help me create an outbound. Ask for products (with pack size), service FBA/WFS/TFS or DTC/FBM, box or pallet, then optional ship-to and remarks before proposing.",
+    prompt: "Open the create outbound form.",
+    form: "outbound_create" as LexiFormKind,
   },
 ] as const;
+
+function stripFormTag(content: string): string {
+  return content.replace(FORM_TAG_RE, "").trim();
+}
+
+function detectFormKind(content: string): LexiFormKind | null {
+  const match = content.match(FORM_TAG_RE);
+  if (!match) return null;
+  return match[1].toLowerCase() as LexiFormKind;
+}
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -89,6 +110,7 @@ export function LexiClientChat() {
     { id: newId(), role: "assistant", content: WELCOME },
   ]);
   const [pendingAction, setPendingAction] = useState<LexiPendingAction | null>(null);
+  const [activeForm, setActiveForm] = useState<LexiFormKind | null>(null);
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -110,8 +132,10 @@ export function LexiClientChat() {
     if (executing) return "Running confirmed action…";
     if (loading) return "Looking up your account…";
     if (pendingAction) return "Waiting for your Confirm";
+    if (activeForm === "inbound_create") return "Create inbound form";
+    if (activeForm === "outbound_create") return "Create outbound form";
     return "Online";
-  }, [executing, loading, pendingAction]);
+  }, [activeForm, executing, loading, pendingAction]);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -143,16 +167,19 @@ export function LexiClientChat() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "LEXI request failed.");
 
+        const reply = String(data.reply ?? "");
+        const formKind = detectFormKind(reply);
         setMessages((prev) => [
           ...prev,
           {
             id: newId(),
             role: "assistant",
-            content: String(data.reply ?? ""),
+            content: stripFormTag(reply) || (formKind ? "Please complete the form below." : ""),
             report: data.report ?? undefined,
           },
         ]);
         setPendingAction(data.pendingAction ?? null);
+        if (formKind && !data.pendingAction) setActiveForm(formKind);
         scrollToBottom();
       } catch (error) {
         const text = error instanceof Error ? error.message : "LEXI request failed.";
@@ -167,18 +194,94 @@ export function LexiClientChat() {
     [getToken, scrollToBottom]
   );
 
+  const openCreateForm = useCallback(
+    (kind: LexiFormKind) => {
+      if (loading || executing) return;
+      setPendingAction(null);
+      setActiveForm(kind);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: "user",
+          content: kind === "inbound_create" ? "Create inbound" : "Create outbound",
+        },
+        {
+          id: newId(),
+          role: "assistant",
+          content:
+            kind === "inbound_create"
+              ? "Use the form below — dropdowns for type/carrier, then Review & Confirm."
+              : "Use the form below — pick products and service/shipment options, then Review & Confirm.",
+        },
+      ]);
+      scrollToBottom();
+    },
+    [executing, loading, scrollToBottom]
+  );
+
+  const submitCreateForm = useCallback(
+    async (kind: LexiFormKind, fields: Record<string, unknown>) => {
+      const token = await getToken();
+      const res = await fetch("/api/client/lexi/propose", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ kind, fields }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not prepare that request.");
+
+      setActiveForm(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: "assistant",
+          content: String(data.reply ?? "Ready for Confirm."),
+        },
+      ]);
+      setPendingAction(data.pendingAction ?? null);
+      scrollToBottom();
+    },
+    [getToken, scrollToBottom]
+  );
+
   const sendUserText = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || loading) return;
+
+      const lower = trimmed.toLowerCase();
+      const wantsInboundCreate =
+        /\bcreate\b/.test(lower) &&
+        /\binbound\b/.test(lower) &&
+        !/\b(cancel|update|edit|report|csv|list|pending)\b/.test(lower);
+      const wantsOutboundCreate =
+        /\bcreate\b/.test(lower) &&
+        /\boutbound\b/.test(lower) &&
+        !/\b(cancel|update|edit|report|csv|list|pending)\b/.test(lower);
+
+      if (wantsInboundCreate) {
+        openCreateForm("inbound_create");
+        return;
+      }
+      if (wantsOutboundCreate) {
+        openCreateForm("outbound_create");
+        return;
+      }
+
       setPendingAction(null);
+      setActiveForm(null);
       const userMsg: UiMessage = { id: newId(), role: "user", content: trimmed };
       const next = [...messages, userMsg];
       setMessages(next);
       scrollToBottom();
       await sendToLexi(next);
     },
-    [loading, messages, scrollToBottom, sendToLexi]
+    [loading, messages, openCreateForm, scrollToBottom, sendToLexi]
   );
 
   const handleSend = async () => {
@@ -274,7 +377,8 @@ export function LexiClientChat() {
       "fixed inset-3 sm:inset-6 h-auto max-h-[calc(100vh-1.5rem)] w-auto max-w-3xl rounded-2xl sm:left-1/2 sm:right-auto sm:w-full sm:-translate-x-1/2"
   );
 
-  const showSuggestions = messages.length <= 2 && !pendingAction && !loading;
+  const showSuggestions = messages.length <= 2 && !pendingAction && !loading && !activeForm;
+  const clientUid = userProfile?.uid || "";
 
   return (
     <>
@@ -388,7 +492,7 @@ export function LexiClientChat() {
                       </div>
                     ) : (
                       <div className="rounded-2xl rounded-bl-md border border-slate-200/80 bg-white px-3.5 py-2.5 text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                        <LexiMarkdown content={m.content} />
+                        {m.content ? <LexiMarkdown content={m.content} /> : null}
                         {m.report ? (
                           <button
                             type="button"
@@ -421,12 +525,35 @@ export function LexiClientChat() {
                       key={s.label}
                       type="button"
                       disabled={loading}
-                      onClick={() => void sendUserText(s.prompt)}
+                      onClick={() => {
+                        if (s.form) openCreateForm(s.form);
+                        else void sendUserText(s.prompt);
+                      }}
                       className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-900 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     >
                       {s.label}
                     </button>
                   ))}
+                </div>
+              ) : null}
+
+              {activeForm && clientUid && !pendingAction ? (
+                <div className="pt-1">
+                  {activeForm === "inbound_create" ? (
+                    <LexiInboundCreateForm
+                      userId={clientUid}
+                      disabled={loading || executing}
+                      onCancel={() => setActiveForm(null)}
+                      onSubmit={(fields) => submitCreateForm("inbound_create", fields)}
+                    />
+                  ) : (
+                    <LexiOutboundCreateForm
+                      userId={clientUid}
+                      disabled={loading || executing}
+                      onCancel={() => setActiveForm(null)}
+                      onSubmit={(fields) => submitCreateForm("outbound_create", fields)}
+                    />
+                  )}
                 </div>
               ) : null}
             </div>
