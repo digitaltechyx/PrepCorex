@@ -171,10 +171,11 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           period: {
             type: "string",
-            enum: ["today", "last_7_days", "last_30_days", "this_month", "last_month", "this_year", "all_time"],
+            description:
+              "Preset (this_month, last_month, …) OR month name/YYYY-MM such as september, october, 2026-09. Trust activityRowCount/isEmpty from the result.",
           },
-          from: { type: "string", description: "Optional ISO date start" },
-          to: { type: "string", description: "Optional ISO date end" },
+          from: { type: "string", description: "Optional start date YYYY-MM-DD or YYYY-MM" },
+          to: { type: "string", description: "Optional end date YYYY-MM-DD or YYYY-MM" },
           clientUserId: uidProp,
           clientUserName: { type: "string" },
         },

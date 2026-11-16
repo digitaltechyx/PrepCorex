@@ -62,6 +62,15 @@ function resolveClientScope(
   }
 
   if (clientId) {
+    // Self-scope (client Lexi / own-account reports): caller is normally excluded from
+    // the "clients" list, so allow an explicit self lookup when clientId === callerUid.
+    if (clientId === callerUid) {
+      const self = users.find((u) => u.uid === clientId);
+      return {
+        clientUsers: self ? [self] : [],
+        scopeLabel: self?.name || self?.email || clientId,
+      };
+    }
     const one = clients.find((u) => u.uid === clientId);
     return {
       clientUsers: one ? [one] : [],
@@ -334,7 +343,13 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
         };
       }),
       loadCollectionGroupActivities("inventory", allowedIds, from, to, allTime, (path, data) => {
-        const occurredMs = pickReportDateMs(data, ["receivingDate", "dateAdded", "approvedAt", "createdAt"]);
+        // Prefer dateAdded so Lexi/Inventory "Date Added" month filters match the client Inventory table.
+        const occurredMs = pickReportDateMs(data, [
+          "dateAdded",
+          "receivingDate",
+          "approvedAt",
+          "createdAt",
+        ]);
         if (!occurredMs) return null;
         return {
           id: path,
@@ -361,18 +376,28 @@ export async function buildAdminReport(input: BuildAdminReportInput): Promise<Ad
         };
       }),
       loadCollectionGroupActivities("inventoryRequests", allowedIds, from, to, allTime, (path, data) => {
-        const status = String(data.status || "");
-        const occurredMs = pickReportDateMs(data, ["receivingDate", "approvedAt", "requestedAt", "addDate", "createdAt"]);
+        const status = String(data.status || "").toLowerCase();
+        // Prefer request/add dates so "inbounds in September/October" matches when the inbound was created.
+        const occurredMs = pickReportDateMs(data, [
+          "requestedAt",
+          "addDate",
+          "approvedAt",
+          "receivingDate",
+          "createdAt",
+        ]);
         if (!occurredMs) return null;
-        const inboundQty = status === "approved" ? inboundReceivedQuantity(data) : 0;
+        const qty =
+          status === "approved"
+            ? inboundReceivedQuantity(data)
+            : Math.max(0, Number(data.requestedQuantity) || Number(data.quantity) || 0);
         return {
           id: path,
           userId: uidFromFirestorePath(path),
           clientName: userNameById.get(uidFromFirestorePath(path)) || "",
           type: "Inventory Request",
           description: String(data.productName || "Client inventory request"),
-          quantity: inboundQty > 0 ? inboundQty : undefined,
-          status,
+          quantity: qty > 0 ? qty : undefined,
+          status: String(data.status || ""),
           occurredAt: new Date(occurredMs).toISOString(),
         };
       }),

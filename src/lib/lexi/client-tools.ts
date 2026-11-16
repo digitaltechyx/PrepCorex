@@ -140,7 +140,7 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: "generate_report",
       description:
-        "Generate a CSV report for THIS client only (read-only, no Confirm). Prefer inventory, inbound, outbound, invoices-related overview.",
+        "Generate a CSV report for THIS client only (read-only, no Confirm). For a named month (September, October) pass period like \"september\" / \"october\" / \"2026-09\" OR from+to ISO dates. Always trust activityRowCount/isEmpty in the tool result — never invent \"no records\" when activityRowCount > 0.",
       parameters: {
         type: "object",
         properties: {
@@ -159,7 +159,16 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           },
           period: {
             type: "string",
-            enum: ["today", "last_7_days", "last_30_days", "this_month", "last_month", "this_year", "all_time"],
+            description:
+              "Preset (this_month, last_month, …) OR month name/YYYY-MM such as september, october, 2026-09",
+          },
+          from: {
+            type: "string",
+            description: "Optional start date YYYY-MM-DD or YYYY-MM (use with to for custom ranges)",
+          },
+          to: {
+            type: "string",
+            description: "Optional end date YYYY-MM-DD or YYYY-MM",
           },
           clientUserId: uidProp,
           clientUserName: { type: "string" },
@@ -400,6 +409,8 @@ export async function runLexiClientTool(
         const generated = await lexiGenerateReport(clientProfile, {
           reportType: String(args.reportType ?? "inventory"),
           period: args.period ? String(args.period) : undefined,
+          from: args.from ? String(args.from) : undefined,
+          to: args.to ? String(args.to) : undefined,
           clientUserId: selfUid,
           clientUserName: selfName,
         });
