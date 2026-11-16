@@ -95,7 +95,7 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
     function: {
       name: "lookup_client_records",
       description:
-        "Read-only lookup of this client's profile, inventory, invoices, shipped, restock history, or returns.",
+        "Read-only lookup of this client's profile, inventory, invoices, shipped, restock history, returns, or purchased shipping labels (Buy Labels). Use topic labels for label purchase counts/status — never send the client to Invoices for labels.",
       parameters: {
         type: "object",
         properties: {
@@ -103,7 +103,15 @@ export const LEXI_CLIENT_OPENAI_TOOLS: OpenAI.Chat.Completions.ChatCompletionToo
           clientUserName: { type: "string" },
           topic: {
             type: "string",
-            enum: ["profile", "inventory", "invoices", "shipped", "restock_history", "returns"],
+            enum: [
+              "profile",
+              "inventory",
+              "invoices",
+              "shipped",
+              "restock_history",
+              "returns",
+              "labels",
+            ],
           },
           query: { type: "string" },
         },

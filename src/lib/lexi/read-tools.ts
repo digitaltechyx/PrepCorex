@@ -706,7 +706,73 @@ export async function lexiLookupClientRecords(
         status: d.status ?? null,
         quantity: d.quantity ?? null,
       }));
+    case "labels":
+    case "label_purchases":
+    case "purchased_labels": {
+      // Buy Labels purchases live in labelPurchases — NOT under Invoices.
+      try {
+        let snap: FirebaseFirestore.QuerySnapshot;
+        try {
+          snap = await db
+            .collection(`users/${uid}/labelPurchases`)
+            .orderBy("createdAt", "desc")
+            .limit(100)
+            .get();
+        } catch {
+          snap = await db.collection(`users/${uid}/labelPurchases`).limit(100).get();
+        }
+        const rows = snap.docs.map((d: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const data = d.data();
+          return {
+            purchaseId: d.id,
+            status: data.status ?? null,
+            paymentStatus: data.paymentStatus ?? null,
+            refundStatus: data.refundStatus ?? null,
+            paymentAmount: data.paymentAmount ?? null,
+            paymentCurrency: data.paymentCurrency ?? null,
+            paymentMethod: data.paymentMethod ?? null,
+            carrier: data.selectedRate?.provider ?? null,
+            serviceLevel: data.selectedRate?.serviceLevel ?? null,
+            trackingNumber: data.trackingNumber ?? null,
+            createdAt: toIso(data.createdAt),
+            labelPurchasedAt: toIso(data.labelPurchasedAt),
+          };
+        });
+        const filtered = q
+          ? rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q))
+          : rows;
+        const byStatus: Record<string, number> = {};
+        const byPaymentStatus: Record<string, number> = {};
+        for (const row of filtered) {
+          const st = String(row.status || "unknown");
+          const pay = String(row.paymentStatus || "unknown");
+          byStatus[st] = (byStatus[st] || 0) + 1;
+          byPaymentStatus[pay] = (byPaymentStatus[pay] || 0) + 1;
+        }
+        return {
+          totalPurchases: filtered.length,
+          byStatus,
+          byPaymentStatus,
+          note:
+            filtered.length >= 100
+              ? "Showing latest 100 purchases. Open Buy Labels → Purchased Labels for the full list."
+              : "Purchased labels from Buy Labels (not Invoices).",
+          uiPath: "Client dashboard → Labels → Buy Labels → Purchased Labels tab",
+          recent: filtered.slice(0, 20),
+        };
+      } catch {
+        return {
+          totalPurchases: 0,
+          byStatus: {},
+          byPaymentStatus: {},
+          recent: [],
+          error: "Could not load label purchases.",
+        };
+      }
+    }
     default:
-      return { error: `Unknown topic "${topic}". Use profile, inventory, invoices, shipped, restock_history, or returns.` };
+      return {
+        error: `Unknown topic "${topic}". Use profile, inventory, invoices, shipped, restock_history, returns, or labels.`,
+      };
   }
 }

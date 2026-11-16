@@ -103,7 +103,7 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "lookup_client_records",
       description:
-        "Read-only lookup of a client's PrepCorex records: profile, inventory, invoices, shipped orders, restock history, or returns. Use this to answer questions. Never treat this as a write.",
+        "Read-only lookup of a client's PrepCorex records: profile, inventory, invoices, shipped orders, restock history, returns, or purchased shipping labels (topic labels). Label purchases are NOT under Invoices — use topic labels. Never treat this as a write.",
       parameters: {
         type: "object",
         properties: {
@@ -111,7 +111,15 @@ export const LEXI_EXTRA_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           clientUserName: { type: "string", description: "Display name hint if uid is uncertain" },
           topic: {
             type: "string",
-            enum: ["profile", "inventory", "invoices", "shipped", "restock_history", "returns"],
+            enum: [
+              "profile",
+              "inventory",
+              "invoices",
+              "shipped",
+              "restock_history",
+              "returns",
+              "labels",
+            ],
           },
           query: { type: "string", description: "Optional name/SKU/number filter" },
         },
