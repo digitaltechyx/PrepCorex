@@ -807,14 +807,14 @@ function InventoryProductName({
   );
 
   return (
-    <div className="flex items-start gap-0.5 min-w-0 flex-1">
+    <div className="flex min-w-[9.5rem] flex-1 items-start gap-1 sm:min-w-[12rem]">
       <div className="min-w-0 flex-1 overflow-hidden">
         {isTruncated ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="w-full text-left cursor-default rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="w-full rounded-sm text-left cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {nameText}
               </button>
@@ -2802,7 +2802,7 @@ export function InventoryTable({
           <Table containerClassName="overflow-x-auto overflow-y-hidden mouse-h-scroll">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-xs sm:text-sm w-[300px] max-w-[300px]">
+                <TableHead className="min-w-[22rem] w-[22rem] max-w-[28rem] text-xs sm:text-sm">
                   Product
                 </TableHead>
                 <TableHead className="text-xs sm:text-sm hidden md:table-cell w-[92px]">Source</TableHead>
@@ -2838,9 +2838,9 @@ export function InventoryTable({
                    isLowStockVisual && lowStockRowCardClass
                  )}
                >
-                    <TableCell className="font-medium w-[300px] max-w-[300px] align-middle overflow-visible">
-                      <div className="flex flex-col sm:block min-w-0">
-                        <div className="flex items-center gap-3 min-w-0">
+                    <TableCell className="min-w-[22rem] w-[22rem] max-w-[28rem] align-middle overflow-visible font-medium">
+                      <div className="flex min-w-0 flex-col sm:block">
+                        <div className="flex min-w-0 items-center gap-3">
                           <InventoryAvatar
                             item={item as any}
                             className="h-14 w-14 shrink-0"
@@ -2848,7 +2848,10 @@ export function InventoryTable({
                           />
                           <InventoryProductName
                             name={item.productName}
-                            textClassName={isLowStockVisual ? lowStockTextClass : undefined}
+                            textClassName={cn(
+                              "line-clamp-2 break-words",
+                              isLowStockVisual ? lowStockTextClass : undefined
+                            )}
                             onViewFull={setProductNamePreview}
                           />
                           {inboundVideoRequestIdIfRecorded(item as any, recordedRequestIds) ? (
