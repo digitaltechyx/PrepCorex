@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertAllowlistedBuyLabelRate } from "@/lib/buy-label-rate-display";
 import {
   buildShipBestCustomNo,
   purchaseLabelFromShipBest,
@@ -32,6 +33,25 @@ export async function POST(request: NextRequest) {
             "Missing required fields: labelPurchaseId, userId, logisticsProductCode, fromAddress, toAddress, parcel",
         },
         { status: 400 }
+      );
+    }
+
+    try {
+      assertAllowlistedBuyLabelRate({
+        labelProvider: "shipbest",
+        provider: "ShipBest",
+        logisticsProductCode: String(logisticsProductCode),
+        servicelevel: { token: String(logisticsProductCode) },
+      });
+    } catch (allowlistErr: unknown) {
+      return NextResponse.json(
+        {
+          error:
+            allowlistErr instanceof Error
+              ? allowlistErr.message
+              : "This ShipBest courier rate is not available.",
+        },
+        { status: 403 }
       );
     }
 

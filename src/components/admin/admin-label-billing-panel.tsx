@@ -506,7 +506,7 @@ export function AdminLabelBillingPanel() {
                       checked={allowShipbest}
                       onCheckedChange={(v) => setAllowShipbest(v === true)}
                     />
-                    ShipBest (all products incl. GOFO)
+                    ShipBest (GOFO / UPS / FedEx; USPS blocked)
                   </label>
                 </div>
                 <p className="text-xs text-muted-foreground">

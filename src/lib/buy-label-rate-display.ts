@@ -37,17 +37,35 @@ export function isPrepCorexGofoRate(rate: RateDisplayInput): boolean {
   return /gofo/i.test(rateIdentityBlob(rate));
 }
 
-/** All ShipBest logistics products are available in Buy Labels (GOFO, USPS, etc.). */
-export function isHiddenShipBestCourierRate(_rate: RateDisplayInput): boolean {
-  return false;
+/** ShipBest product codes blocked from Buy Labels (still enabled on ShipBest portal). */
+const BLOCKED_SHIPBEST_PRODUCT_CODES = new Set(["LP247100004"]);
+
+/** ShipBest USPS (LP247100004) — hidden from rates and blocked at purchase. */
+export function isBlockedShipBestUspsRate(rate: RateDisplayInput): boolean {
+  if (!isShipBestRate(rate)) return false;
+  const code = String(
+    rate.logisticsProductCode ?? rate.servicelevel?.token ?? ""
+  )
+    .trim()
+    .toUpperCase();
+  if (code && BLOCKED_SHIPBEST_PRODUCT_CODES.has(code)) return true;
+  // Also match by name when open-quote rows omit the product code.
+  return /\busps\b/i.test(rateIdentityBlob(rate));
+}
+
+/** Hidden ShipBest courier rates (currently: USPS only). */
+export function isHiddenShipBestCourierRate(rate: RateDisplayInput): boolean {
+  return isBlockedShipBestUspsRate(rate);
 }
 
 export function filterVisibleBuyLabelRates<T extends RateDisplayInput>(rates: T[]): T[] {
-  return rates;
+  return rates.filter((rate) => !isHiddenShipBestCourierRate(rate));
 }
 
-export function assertAllowlistedBuyLabelRate(_rate: RateDisplayInput): void {
-  // No ShipBest product blocklist — any returned ShipBest rate may be purchased.
+export function assertAllowlistedBuyLabelRate(rate: RateDisplayInput): void {
+  if (isBlockedShipBestUspsRate(rate)) {
+    throw new Error("ShipBest USPS is not available for purchase in PrepCorex.");
+  }
 }
 
 export function getBuyLabelRateDisplay(rate: RateDisplayInput): {

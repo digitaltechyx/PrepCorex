@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyBuyLabelsMarkup } from "@/lib/buy-labels-markup";
-import { filterVisibleBuyLabelRates } from "@/lib/buy-label-rate-display";
+import {
+  filterVisibleBuyLabelRates,
+  isBlockedShipBestUspsRate,
+} from "@/lib/buy-label-rate-display";
 import { verifyBearerToken } from "@/lib/api-admin-auth";
 import { adminDb } from "@/lib/firebase-admin";
 import { resolveBuyLabelsRateOptions } from "@/lib/label-billing-admin";
@@ -75,7 +78,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (productsResult.status === "fulfilled" && productsResult.value.length > 0) {
-      const products = productsResult.value;
+      // Skip blocked ShipBest products (USPS LP247100004) before quoting.
+      const products = productsResult.value.filter(
+        (product) =>
+          !isBlockedShipBestUspsRate({
+            labelProvider: "shipbest",
+            provider: "ShipBest",
+            logisticsProductCode: product.code,
+            servicelevel: { name: product.name, token: product.code },
+            serviceDescription: product.description,
+          })
+      );
       const collected = await Promise.all(
         products.slice(0, 40).map(async (product) => {
           try {
@@ -166,7 +179,7 @@ export async function POST(request: NextRequest) {
         };
       });
 
-    // All ShipBest logistics products (GOFO, USPS, etc.) are offered when allowShipbest is on.
+    // ShipBest products except blocked ones (USPS LP247100004).
     const rates = filterVisibleBuyLabelRates(allRates);
 
     if (rates.length === 0) {
