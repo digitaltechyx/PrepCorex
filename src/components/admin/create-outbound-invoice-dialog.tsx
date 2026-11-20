@@ -358,7 +358,6 @@ export function CreateOutboundInvoiceDialog({
       if (isCrmDraftMode) {
         const {
           appendLinesToCrmOutboundDraft,
-          crmLineDescription,
           markShipmentsLinkedToCrmDraft,
         } = await import("@/lib/crm-outbound-draft-invoice");
 
@@ -406,24 +405,31 @@ export function CreateOutboundInvoiceDialog({
               const name = l.productName.trim();
               const shipDate = String(l.shipDate || primaryShipDate).trim();
               const shipTo = String(l.shipTo || "").trim();
+              const sku = String(l.sku || "").trim();
+              const packaging = String(l.packaging || "").trim();
               return {
-                description: crmLineDescription({ name, shipDate, shipTo }),
+                // Keep product name clean; shipDate/sku/packaging travel as dedicated fields
+                // so CRM → PrepCorex mirror can fill DATE / SKU / PACK columns.
+                description: name,
                 quantity: l.quantity,
                 unitPrice: l.unitPrice,
                 amount: Math.round(l.quantity * l.unitPrice * 100) / 100,
+                ...(shipDate ? { shipDate } : {}),
+                ...(shipTo ? { shipTo } : {}),
+                ...(sku ? { sku } : {}),
+                ...(packaging ? { packaging } : {}),
                 sourceKey: `request:${scopeId}:item:${name}:${l.quantity}`,
               };
             }),
           ...usableServices.map((s) => {
             const name = s.description.trim();
-            const alreadyHasDate = /ship\s*date\s*:/i.test(name);
             return {
-              description: alreadyHasDate
-                ? name
-                : crmLineDescription({ name, shipDate: primaryShipDate }),
+              description: name,
               quantity: s.quantity,
               unitPrice: s.unitPrice,
               amount: Math.round(s.quantity * s.unitPrice * 100) / 100,
+              ...(primaryShipDate ? { shipDate: primaryShipDate } : {}),
+              packaging: "Additional service",
               // Include outbound scope so the same service on another order still appends.
               sourceKey: `request:${scopeId}:svc:${name}:${s.quantity}:${s.unitPrice}`,
             };

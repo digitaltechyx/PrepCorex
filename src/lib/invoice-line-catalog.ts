@@ -147,6 +147,7 @@ function shipmentRequestOffersBilling(
   request: {
     status?: string | null;
     warehouseDispatchStatus?: string | null;
+    warehouseDispatchedClientSyncAt?: unknown;
     invoiceId?: string | null;
     invoiceStatus?: string | null;
     crmExternalInvoiceId?: string | null;
@@ -158,9 +159,11 @@ function shipmentRequestOffersBilling(
 
   const dispatch = String(request.warehouseDispatchStatus || "").trim().toLowerCase();
   const reqStatus = String(request.status || "").trim().toLowerCase();
+  const hasDispatchStamp = Boolean(request.warehouseDispatchedClientSyncAt);
 
-  if (dispatch === "dispatched") {
-    return inv === "pending";
+  if (dispatch === "dispatched" || hasDispatchStamp) {
+    // Prefer explicit pending; also allow missing invoiceStatus on legacy dispatched rows.
+    return inv === "" || inv === "pending";
   }
   // Pre-dispatch: available once confirmed (Continue fulfillment).
   return reqStatus === "confirmed" && (inv === "" || inv === "pending");

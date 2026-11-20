@@ -51,8 +51,18 @@ interface InvoiceData {
   type?: string;
   isContainerHandling?: boolean;
   storageType?: string;
-  /** Legal Terms & Conditions block (same as CRM). */
+  /** Legal Terms & Conditions block (same as CRM / per-client template). */
   terms?: string;
+  invoiceNote?: string;
+  fobPoint?: string;
+  shippingTerms?: string;
+  shippedVia?: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyCityStateZip?: string;
+  companyCountry?: string;
+  companyPhone?: string;
+  companyEmail?: string;
 }
 
 /** Same default Terms & Conditions as CRM invoice PDFs. */
@@ -257,11 +267,23 @@ function mapInvoiceDataToQuote(data: InvoiceData): QuoteInvoiceData {
   const soldToName = String(data.soldTo?.name || "").trim() || "Customer";
   const soldToAddress = String(data.soldTo?.address || "").trim();
 
+  const noteFromInvoice = String(data.invoiceNote || "").trim();
+  const defaultNote =
+    "Please make all payments to Prep Services FBA LLC. All prices are F.O.B. NJ Sales Tax 6.625% — Excluded.";
+
   return {
     invoiceNumber: data.invoiceNumber,
     invoiceDate: formatInvoiceDate(data.date),
     dueDate: data.dueDate ? formatInvoiceDate(data.dueDate) : undefined,
-    company: { ...DEFAULT_COMPANY },
+    company: {
+      name: String(data.companyName || "").trim() || DEFAULT_COMPANY.name,
+      addressLine: String(data.companyAddress || "").trim() || DEFAULT_COMPANY.addressLine,
+      cityStateZip:
+        String(data.companyCityStateZip || "").trim() || DEFAULT_COMPANY.cityStateZip,
+      country: String(data.companyCountry || "").trim() || DEFAULT_COMPANY.country,
+      phone: String(data.companyPhone || "").trim() || DEFAULT_COMPANY.phone,
+      email: String(data.companyEmail || "").trim() || DEFAULT_COMPANY.email,
+    },
     soldTo: {
       name: soldToName,
       email: data.soldTo?.email || undefined,
@@ -277,11 +299,10 @@ function mapInvoiceDataToQuote(data: InvoiceData): QuoteInvoiceData {
     total: finalTotal,
     lineTable: "detail",
     terms: String(data.terms || "").trim() || DEFAULT_INVOICE_TERMS,
-    invoiceNote:
-      "Please make all payments to Prep Services FBA LLC. All prices are F.O.B. NJ Sales Tax 6.625% — Excluded.",
-    fobPoint: "NEW JERSEY",
-    shippingTerms: "NET",
-    shippedVia: "Standard",
+    invoiceNote: noteFromInvoice || defaultNote,
+    fobPoint: String(data.fobPoint || "").trim() || "NEW JERSEY",
+    shippingTerms: String(data.shippingTerms || "").trim() || "NET",
+    shippedVia: String(data.shippedVia || "").trim() || "Standard",
   };
 }
 

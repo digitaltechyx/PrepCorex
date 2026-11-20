@@ -968,10 +968,13 @@ export function ShipmentRequestsManagement({
         onClose={closeSelectedRequest}
         onRequestCorrected={() => void refreshSelectedRequest()}
         onCreateInvoice={(req) => {
-          // Hide fulfillment sheet only — do not call onStandaloneClose or the invoice host unmounts.
+          // Keep fulfillment open for CRM-draft clients so Add services → CRM stays visible
+          // after dispatch; PrepCorex Create Invoice can close the sheet once the dialog opens.
           void (async () => {
             const opened = await openCreateInvoice(req);
-            if (opened) setSelectedRequest(null);
+            if (opened && allowsPrepcorexCreateInvoice(selectedUser)) {
+              setSelectedRequest(null);
+            }
           })();
         }}
         invoiceOpening={invoiceLoading}
@@ -2512,6 +2515,29 @@ function ReviewShipmentDialog({
               CRM draft billing: after confirm, use Continue fulfillment for pick → pack → dispatch.{" "}
               <span className="font-medium">Add services → CRM</span> is available there before or
               after dispatch (not Create Invoice). Confirm alone does not mark the order shipped.
+            </div>
+          ) : null}
+          {onCreateInvoice &&
+          shipmentRequestNeedsCrmDraftServices(request, {
+            allowPrepcorexCreateInvoice,
+          }) ? (
+            <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 shadow-sm dark:bg-amber-950/40">
+              <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
+                Add services → CRM draft
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                disabled={invoiceOpening}
+                onClick={() => onCreateInvoice(request)}
+              >
+                {invoiceOpening ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileText className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Add services → CRM
+              </Button>
             </div>
           ) : null}
           {readOnly && (

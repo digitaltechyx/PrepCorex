@@ -1748,8 +1748,8 @@ export function AdminWarehouseActionsPanel(props: AdminWarehouseActionsPanelProp
                         ? "Client inventory updated with tracking. You can create the invoice now or later."
                         : "Dispatched without tracking. You can create the invoice now or later."
                       : trackingScan.trim()
-                        ? "Client inventory updated with tracking. Add services to the CRM draft now or later from Shipped Orders."
-                        : "Dispatched without tracking. Add services to the CRM draft now or later from Shipped Orders.",
+                        ? "Client inventory updated with tracking. Add services to the CRM draft on this screen now, or later from Shipped Orders."
+                        : "Dispatched without tracking. Add services to the CRM draft on this screen now, or later from Shipped Orders.",
                   });
                   setTrackingScan("");
                   setJustDispatchedForInvoice(true);

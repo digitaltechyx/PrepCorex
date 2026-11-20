@@ -191,6 +191,17 @@ export function InvoicesSection({
         lateFeeAmount: (invoice as any).lateFeeAmount,
         lateFeeReason: (invoice as any).lateFeeReason,
         adminAdditionalCharges: (invoice as any).adminAdditionalCharges,
+        terms: (invoice as any).terms,
+        invoiceNote: (invoice as any).invoiceNote,
+        fobPoint: (invoice as any).fobPoint,
+        shippingTerms: (invoice as any).shippingTerms,
+        shippedVia: (invoice as any).shippedVia,
+        companyName: (invoice as any).companyName,
+        companyAddress: (invoice as any).companyAddress,
+        companyCityStateZip: (invoice as any).companyCityStateZip,
+        companyCountry: (invoice as any).companyCountry,
+        companyPhone: (invoice as any).companyPhone,
+        companyEmail: (invoice as any).companyEmail,
       });
       
       toast({

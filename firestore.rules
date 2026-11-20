@@ -351,6 +351,11 @@ service cloud.firestore {
       allow read, write: if isAdminOrSubAdmin();
     }
 
+    // ---- CRM per-client invoice templates (terms / company / FOB) ----
+    match /crmClientInvoiceTemplates/{templateId} {
+      allow read, write: if isAdminOrSubAdmin();
+    }
+
     // ---- LOCATIONS ----
     // Clients need read access to render warehouse names + shipping address card.
     // Writes remain admin/sub_admin only.

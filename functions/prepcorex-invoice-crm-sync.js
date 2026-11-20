@@ -71,16 +71,46 @@ async function upsertPrepcorexInvoiceSync(db, userId, invoiceId, invoice, opts =
 
   const items = mapItems(invoice.items);
   const adminAdditionalCharges = mapAdditionalCharges(invoice.adminAdditionalCharges);
+
+  // CRM per-client templates key off email — fill soldTo gaps from the user profile.
+  let clientName = asString(invoice.soldTo && invoice.soldTo.name);
+  let clientEmail = asString(invoice.soldTo && invoice.soldTo.email).toLowerCase();
+  let clientPhone = asString(invoice.soldTo && invoice.soldTo.phone) || null;
+  let clientAddress = asString(invoice.soldTo && invoice.soldTo.address) || null;
+  if (!clientEmail || !clientName || !clientPhone) {
+    try {
+      const userSnap = await db.collection("users").doc(userId).get();
+      if (userSnap.exists) {
+        const user = userSnap.data() || {};
+        if (!clientName) {
+          clientName = asString(user.name || user.companyName || user.displayName);
+        }
+        if (!clientEmail) {
+          clientEmail = asString(user.email).toLowerCase();
+        }
+        if (!clientPhone) {
+          clientPhone = asString(user.phone) || null;
+        }
+        if (!clientAddress) {
+          clientAddress =
+            asString(user.address || user.companyAddress || user.shippingAddress) || null;
+        }
+      }
+    } catch (_) {
+      /* keep soldTo-only values */
+    }
+  }
+
   const payload = {
     sourceUserId: userId,
     sourceInvoiceId: invoiceId,
     invoiceNumber: asString(invoice.invoiceNumber) || invoiceId,
     invoiceDate: asString(invoice.date) || null,
     dueDate: asString(invoice.dueDate) || null,
-    clientName: asString(invoice.soldTo && invoice.soldTo.name),
-    clientEmail: asString(invoice.soldTo && invoice.soldTo.email),
-    clientPhone: asString(invoice.soldTo && invoice.soldTo.phone) || null,
-    clientAddress: asString(invoice.soldTo && invoice.soldTo.address) || null,
+    clientName,
+    clientEmail,
+    clientPhone,
+    clientAddress,
     type: asString(invoice.type) || null,
     status: asString(invoice.status) || "pending",
     subtotal: asNumber(invoice.subtotal),
