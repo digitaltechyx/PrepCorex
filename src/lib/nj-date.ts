@@ -156,6 +156,36 @@ export function addDaysToDateInput(value: string, days: number): string {
   return formatDateInputLocal(next);
 }
 
+/** Weekend check for a `YYYY-MM-DD` calendar date (local parse). */
+export function isWeekendDateInput(value: string): boolean {
+  const d = parseDateOnlyLocal(value);
+  if (!d) return false;
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+/**
+ * Add (or subtract) N Mon–Fri business days to a `YYYY-MM-DD` date.
+ * Weekends are skipped; US federal holidays are not excluded.
+ */
+export function addBusinessDaysToDateInput(value: string, businessDays: number): string {
+  const steps = Math.trunc(Number(businessDays) || 0);
+  if (!steps) return value;
+  let current = value;
+  let remaining = Math.abs(steps);
+  const dir = steps > 0 ? 1 : -1;
+  while (remaining > 0) {
+    current = addDaysToDateInput(current, dir);
+    if (!isWeekendDateInput(current)) remaining -= 1;
+  }
+  return current;
+}
+
+/** Previous Mon–Fri business day before `value`. */
+export function previousBusinessDayDateInput(value: string): string {
+  return addBusinessDaysToDateInput(value, -1);
+}
+
 export function formatDateInputForDisplay(value?: string): string {
   if (!value) return "the due date";
   const d = parseDateOnlyLocal(value);

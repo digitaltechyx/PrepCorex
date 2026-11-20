@@ -42,6 +42,9 @@ export type ShopifyNormalizedOrder = {
   email: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  /** ISO timestamp when Shopify cancelled the order; null if active. */
+  cancelledAt: string | null;
+  cancelReason: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   note: string | null;
@@ -202,6 +205,8 @@ export function normalizeShopifyOrder(
     email: str(raw.email) || str(customer?.email),
     financialStatus: str(raw.financial_status),
     fulfillmentStatus: raw.fulfillment_status != null ? String(raw.fulfillment_status) : null,
+    cancelledAt: str(raw.cancelled_at),
+    cancelReason: str(raw.cancel_reason),
     createdAt: str(raw.created_at),
     updatedAt: str(raw.updated_at),
     note: str(raw.note),
@@ -236,6 +241,8 @@ export function shopifyOrderToFirestoreDoc(order: ShopifyNormalizedOrder): Recor
     email: order.email ?? undefined,
     financial_status: order.financialStatus ?? undefined,
     fulfillment_status: order.fulfillmentStatus,
+    cancelled_at: order.cancelledAt ?? undefined,
+    cancel_reason: order.cancelReason ?? undefined,
     created_at: order.createdAt ?? undefined,
     updated_at: order.updatedAt ?? undefined,
     note: order.note ?? undefined,
@@ -347,6 +354,8 @@ export function shopifyOrderFromFirestore(
         : data.fulfillmentStatus != null
           ? String(data.fulfillmentStatus)
           : null,
+    cancelledAt: str(data.cancelled_at) || str(data.cancelledAt),
+    cancelReason: str(data.cancel_reason) || str(data.cancelReason),
     createdAt: str(data.created_at),
     updatedAt: str(data.updated_at),
     note: str(data.note),

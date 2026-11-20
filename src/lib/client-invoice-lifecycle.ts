@@ -1,13 +1,17 @@
 import type { Invoice } from "@/types";
 import { computeInvoiceTotals } from "@/lib/invoice-totals";
 import {
-  addDaysToDateInput,
+  addBusinessDaysToDateInput,
   compareDateInputs,
   formatDateInputForDisplay,
   getTodayDateInputInNJ,
+  previousBusinessDayDateInput,
 } from "@/lib/nj-date";
 
-export const CLIENT_INVOICE_DUE_DAYS = 5;
+/** Due date = invoice date + this many Mon–Fri business days (NJ). */
+export const CLIENT_INVOICE_DUE_BUSINESS_DAYS = 5;
+/** @deprecated Use CLIENT_INVOICE_DUE_BUSINESS_DAYS — kept for older imports. */
+export const CLIENT_INVOICE_DUE_DAYS = CLIENT_INVOICE_DUE_BUSINESS_DAYS;
 export const CLIENT_INVOICE_LATE_FEE_AMOUNT = 19;
 
 export const CLIENT_INVOICE_TERMS = [
@@ -16,7 +20,7 @@ export const CLIENT_INVOICE_TERMS = [
   "Prep Services FBA may pause receiving, prep, storage, and shipments until payment is completed.",
   "All completed labor services are non-refundable.",
   "Client is responsible for product compliance, labeling accuracy, and marketplace requirements.",
-  "Any billing concern must be reported within 48 hours of invoice receipt. Unauthorized chargebacks may result in service suspension.",
+  "Any billing concern must be reported within 5 business days of invoice receipt. Unauthorized chargebacks may result in service suspension.",
 ].join("\n");
 
 export type ClientInvoiceEmailKind =
@@ -25,6 +29,19 @@ export type ClientInvoiceEmailKind =
   | "reminder_due_day"
   | "late_fee";
 
+/**
+ * Opt-in flag for create / reminder / late-fee emails.
+ * Only invoices created after this automation was enabled get the flag —
+ * existing invoices without it are never emailed by the automation.
+ */
+export const CLIENT_INVOICE_EMAILS_ENABLED_FIELD = "enableClientInvoiceEmails" as const;
+
+export function isClientInvoiceEmailAutomationEnabled(
+  invoice: Record<string, unknown> | null | undefined
+): boolean {
+  return Boolean(invoice && invoice[CLIENT_INVOICE_EMAILS_ENABLED_FIELD] === true);
+}
+
 export function applyClientInvoiceLifecycleFields<T extends Record<string, unknown>>(
   invoice: T
 ): T & {
@@ -32,9 +49,10 @@ export function applyClientInvoiceLifecycleFields<T extends Record<string, unkno
   grossTotal: number;
   grandTotal: number;
   lateFeeAmount: number;
+  enableClientInvoiceEmails: true;
 } {
   const todayNJ = getTodayDateInputInNJ();
-  const dueDate = addDaysToDateInput(todayNJ, CLIENT_INVOICE_DUE_DAYS);
+  const dueDate = addBusinessDaysToDateInput(todayNJ, CLIENT_INVOICE_DUE_BUSINESS_DAYS);
   const totals = computeInvoiceTotals(invoice as Parameters<typeof computeInvoiceTotals>[0], {
     lateFeeAmount: 0,
   });
@@ -45,6 +63,7 @@ export function applyClientInvoiceLifecycleFields<T extends Record<string, unkno
     grossTotal: totals.grossTotal,
     grandTotal: totals.grandTotal,
     lateFeeAmount: 0,
+    enableClientInvoiceEmails: true,
   };
 }
 
@@ -72,7 +91,7 @@ export function buildClientInvoiceEmail(input: {
         subject: `Invoice ${input.invoiceNumber} generated`,
         message: `Hi ${name},
 
-Your invoice ${input.invoiceNumber} has been generated. The total due is ${totalStr} and payment is due by ${dueStr} (${CLIENT_INVOICE_DUE_DAYS} days from invoice date).
+Your invoice ${input.invoiceNumber} has been generated. The total due is ${totalStr} and payment is due by ${dueStr} (${CLIENT_INVOICE_DUE_BUSINESS_DAYS} business days from the invoice date).
 
 Please log in to your Prep Services FBA dashboard to view invoice details and arrange payment.${formatTermsBlock()}
 
@@ -84,7 +103,7 @@ Prep Services FBA Team`,
         subject: `Reminder: Invoice ${input.invoiceNumber} due soon`,
         message: `Hi ${name},
 
-This is a friendly reminder that invoice ${input.invoiceNumber} is due on ${dueStr} (1 day remaining).
+This is a friendly reminder that invoice ${input.invoiceNumber} is due on ${dueStr} (due tomorrow / next business day).
 
 Please complete payment by the due date to avoid a $${CLIENT_INVOICE_LATE_FEE_AMOUNT} late fee.
 
@@ -127,11 +146,15 @@ export function getClientInvoiceReminderTargets(invoice: Pick<Invoice, "dueDate"
   reminderDueDayEmailSentAt?: unknown;
   lateFeeEmailSentAt?: unknown;
   lateFeeAmount?: number;
+  enableClientInvoiceEmails?: boolean;
 }): {
   sendPenultimate: boolean;
   sendDueDay: boolean;
   applyLateFee: boolean;
 } {
+  if (!isClientInvoiceEmailAutomationEnabled(invoice as Record<string, unknown>)) {
+    return { sendPenultimate: false, sendDueDay: false, applyLateFee: false };
+  }
   if (invoice.status !== "pending") {
     return { sendPenultimate: false, sendDueDay: false, applyLateFee: false };
   }
@@ -142,7 +165,8 @@ export function getClientInvoiceReminderTargets(invoice: Pick<Invoice, "dueDate"
   }
 
   const today = getTodayDateInputInNJ();
-  const penultimate = addDaysToDateInput(dueDate, -1);
+  // Day-before reminder = previous business day before due (skips weekends).
+  const penultimate = previousBusinessDayDateInput(dueDate);
   const lateFeeAmount = Number(invoice.lateFeeAmount || 0);
 
   return {

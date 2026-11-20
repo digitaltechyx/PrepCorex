@@ -37,6 +37,7 @@ function mapItems(items) {
     quantity: asNumber(item.quantity),
     productName: asString(item.productName),
     packaging: asString(item.packaging),
+    sku: asString(item.sku) || null,
     shipTo: asString(item.shipTo),
     shipDate: asString(item.shipDate) || null,
     unitPrice: asNumber(item.unitPrice),

@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,15 +16,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, RefreshCw, ShoppingBag } from "lucide-react";
+import { Loader2, RefreshCw, Search, ShoppingBag, X } from "lucide-react";
 import type { ShopifyNormalizedOrder } from "@/lib/shopify-order-normalize";
 import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-detail";
+import { ShopifyOrdersCsvDownload } from "@/components/integrations/shopify-orders-csv-download";
+import {
+  isShopifyOrderCancelled,
+  isShopifyOrderPaid,
+  isShopifyOrderRefunded,
+  isShopifyOrderUnfulfilledStatus,
+  isShopifyOrderUnpaid,
+} from "@/lib/shopify-order-status";
 
 type ShopifyConnectionSummary = {
   id: string;
   shop: string;
   shopName: string;
 };
+
+type FulfillmentFilter = "all" | "unfulfilled" | "fulfilled";
+type CancelledFilter = "all" | "cancelled" | "refunded";
+type PaymentFilter = "all" | "paid" | "unpaid";
+
+function startOfDay(isoDate: string): Date | null {
+  if (!isoDate) return null;
+  const d = new Date(`${isoDate}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function endOfDay(isoDate: string): Date | null {
+  if (!isoDate) return null;
+  const d = new Date(`${isoDate}T23:59:59.999`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 function ShopifyOrdersContent() {
   const searchParams = useSearchParams();
@@ -35,6 +61,14 @@ function ShopifyOrdersContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [storeFilter, setStoreFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
+  const [cancelledFilter, setCancelledFilter] = useState<CancelledFilter>("all");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     if (connectionParam) setStoreFilter(connectionParam);
@@ -69,10 +103,6 @@ function ShopifyOrdersContent() {
     try {
       const token = await user.getIdToken();
       const params = new URLSearchParams({ userId: user.uid, source: "live" });
-      if (storeFilter !== "all") {
-        if (storeFilter.includes(".myshopify.com")) params.set("shop", storeFilter);
-        else params.set("connectionId", storeFilter);
-      }
       const res = await fetch(`/api/shopify/orders?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -99,7 +129,7 @@ function ShopifyOrdersContent() {
     } finally {
       setLoading(false);
     }
-  }, [user, toast, storeFilter]);
+  }, [user, toast]);
 
   useEffect(() => {
     if (!user) return;
@@ -123,31 +153,130 @@ function ShopifyOrdersContent() {
   };
 
   const storeOptions = useMemo(() => {
-    const fromConnections = connections.map((c) => ({
+    return connections.map((c) => ({
       key: c.id,
       label: c.shopName || c.shop.replace(".myshopify.com", ""),
+      shop: c.shop,
     }));
-    return fromConnections;
   }, [connections]);
 
   const filteredOrders = useMemo(() => {
-    if (storeFilter === "all") return orders;
-    if (connections.some((c) => c.id === storeFilter)) {
-      return orders.filter((o) => o.connectionId === storeFilter);
-    }
-    const target = normalizeShop(storeFilter);
-    return orders.filter((o) => normalizeShop(o.shop) === target);
-  }, [orders, storeFilter, connections]);
+    const q = search.trim().toLowerCase();
+    const from = startOfDay(dateFrom);
+    const to = endOfDay(dateTo);
 
-  const selectedStoreLabel = useMemo(() => {
-    if (storeFilter === "all") return "All stores";
-    const conn = connections.find((c) => c.id === storeFilter);
-    if (conn) return conn.shopName || conn.shop.replace(".myshopify.com", "");
-    return storeFilter.replace(".myshopify.com", "");
-  }, [storeFilter, connections]);
+    return orders
+      .filter((o) => {
+        if (storeFilter !== "all") {
+          if (connections.some((c) => c.id === storeFilter)) {
+            if (o.connectionId !== storeFilter) return false;
+          } else {
+            const target = normalizeShop(storeFilter);
+            if (normalizeShop(o.shop) !== target) return false;
+          }
+        }
+
+        if (paymentFilter === "paid" && !isShopifyOrderPaid(o)) return false;
+        if (paymentFilter === "unpaid" && !isShopifyOrderUnpaid(o)) return false;
+
+        if (cancelledFilter === "cancelled" && !isShopifyOrderCancelled(o)) return false;
+        if (cancelledFilter === "refunded" && !isShopifyOrderRefunded(o)) return false;
+
+        const fs = o.fulfillmentStatus || "unfulfilled";
+        if (fulfillmentFilter === "unfulfilled" && !isShopifyOrderUnfulfilledStatus(fs)) return false;
+        if (fulfillmentFilter === "fulfilled" && fs !== "fulfilled") return false;
+
+        if (from || to) {
+          if (!o.createdAt) return false;
+          const d = new Date(o.createdAt);
+          if (Number.isNaN(d.getTime())) return false;
+          if (from && d < from) return false;
+          if (to && d > to) return false;
+        }
+
+        if (!q) return true;
+        const hay = [
+          o.name,
+          o.orderNumber,
+          o.id,
+          o.email,
+          o.customerName,
+          o.shopName,
+          o.shop,
+          o.note,
+          o.tags,
+          ...o.trackingNumbers,
+          ...o.lineItems.flatMap((li) => [li.title, li.sku, li.variantTitle]),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a, b) => {
+        const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+        const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+        return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+      });
+  }, [
+    orders,
+    storeFilter,
+    connections,
+    search,
+    fulfillmentFilter,
+    cancelledFilter,
+    paymentFilter,
+    dateFrom,
+    dateTo,
+  ]);
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    fulfillmentFilter !== "all" ||
+    cancelledFilter !== "all" ||
+    paymentFilter !== "all" ||
+    storeFilter !== "all" ||
+    dateFrom !== "" ||
+    dateTo !== "";
+
+  const clearFilters = () => {
+    setSearch("");
+    setFulfillmentFilter("all");
+    setCancelledFilter("all");
+    setPaymentFilter("all");
+    setStoreFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setCurrentPage(1);
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    search,
+    fulfillmentFilter,
+    cancelledFilter,
+    paymentFilter,
+    storeFilter,
+    dateFrom,
+    dateTo,
+  ]);
+
+  const cancelledCount = orders.filter((o) => isShopifyOrderCancelled(o)).length;
+  const refundedCount = orders.filter((o) => isShopifyOrderRefunded(o)).length;
+  const unfulfilledCount = orders.filter(
+    (o) => !isShopifyOrderCancelled(o) && isShopifyOrderUnfulfilledStatus(o.fulfillmentStatus)
+  ).length;
+  const fulfilledCount = orders.filter((o) => o.fulfillmentStatus === "fulfilled").length;
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const pagedOrders = filteredOrders.slice(startIndex, endIndex);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -157,14 +286,103 @@ function ShopifyOrdersContent() {
                 Shopify Orders
               </CardTitle>
               <CardDescription className="mt-1">
-                Full order details from your connected Shopify store(s) — line items, shipping address,
-                totals, and tracking. Click Refresh to pull the latest from Shopify.
+                Full order details from your connected Shopify store(s). Clear statuses show cancelled /
+                refunded so you know what not to ship. Filter and download CSV anytime.
               </CardDescription>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              {storeOptions.length > 1 && (
+              <ShopifyOrdersCsvDownload
+                orders={orders}
+                filePrefix="shopify-orders-client"
+                disabled={loading || orders.length === 0}
+              />
+              <Button
+                onClick={() => void handleRefresh()}
+                disabled={refreshing || !user || loading}
+                variant="outline"
+              >
+                {refreshing || loading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+        <Card>
+          <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
+            <CardDescription className="text-xs">Total</CardDescription>
+            <CardTitle className="text-xl tabular-nums sm:text-2xl">{orders.length}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
+            <CardDescription className="text-xs">Unfulfilled</CardDescription>
+            <CardTitle className="text-xl tabular-nums text-amber-700 sm:text-2xl">
+              {unfulfilledCount}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
+            <CardDescription className="text-xs">Fulfilled</CardDescription>
+            <CardTitle className="text-xl tabular-nums text-emerald-700 sm:text-2xl">
+              {fulfilledCount}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
+            <CardDescription className="text-xs">
+              Showing{hasActiveFilters ? " (filtered)" : ""}
+            </CardDescription>
+            <CardTitle className="text-xl tabular-nums sm:text-2xl">{filteredOrders.length}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-base sm:text-lg">Orders</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Search and filter by store, fulfillment, payment, cancelled, or date.
+              </CardDescription>
+            </div>
+            {hasActiveFilters ? (
+              <Button variant="ghost" size="sm" className="self-start" onClick={clearFilters}>
+                <X className="mr-1 h-4 w-4" />
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="client-shopify-search">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="client-shopify-search"
+                  placeholder="Order #, customer, email, SKU…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            {storeOptions.length > 0 ? (
+              <div className="space-y-1.5">
+                <Label>Store</Label>
                 <Select value={storeFilter} onValueChange={setStoreFilter}>
-                  <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectTrigger>
                     <SelectValue placeholder="Filter by store" />
                   </SelectTrigger>
                   <SelectContent>
@@ -176,35 +394,97 @@ function ShopifyOrdersContent() {
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-              <Button onClick={() => void handleRefresh()} disabled={refreshing || !user || loading} variant="outline">
-                {refreshing || loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                Refresh
-              </Button>
+              </div>
+            ) : null}
+
+            <div className="space-y-1.5">
+              <Label>Fulfillment</Label>
+              <Select
+                value={fulfillmentFilter}
+                onValueChange={(v: FulfillmentFilter) => setFulfillmentFilter(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
+                  <SelectItem value="fulfilled">Fulfilled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Payment</Label>
+              <Select
+                value={paymentFilter}
+                onValueChange={(v: PaymentFilter) => setPaymentFilter(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="unpaid">Unpaid</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Cancelled / Refunded</Label>
+              <Select
+                value={cancelledFilter}
+                onValueChange={(v: CancelledFilter) => setCancelledFilter(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="cancelled">Cancelled ({cancelledCount})</SelectItem>
+                  <SelectItem value="refunded">Refunded ({refundedCount})</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="client-shopify-from">From</Label>
+              <Input
+                id="client-shopify-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="client-shopify-to">To</Label>
+              <Input
+                id="client-shopify-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
             </div>
           </div>
-          {storeFilter !== "all" && (
-            <p className="text-xs text-muted-foreground pt-1">
-              Showing orders for <span className="font-medium text-foreground">{selectedStoreLabel}</span>
-            </p>
-          )}
         </CardHeader>
+
         <CardContent>
           {loading ? (
-            <div className="flex items-center gap-2 text-muted-foreground py-8">
+            <div className="flex items-center gap-2 py-8 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
               Loading orders…
             </div>
           ) : connections.length === 0 ? (
             <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center">
               <p className="text-sm text-muted-foreground">No Shopify store connected.</p>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Connect a store from{" "}
-                <Link href="/dashboard/integrations" className="text-primary underline-offset-2 hover:underline">
+                <Link
+                  href="/dashboard/integrations"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
                   Integrations
                 </Link>{" "}
                 to start receiving orders here.
@@ -212,24 +492,54 @@ function ShopifyOrdersContent() {
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                No Shopify orders yet{storeFilter !== "all" ? " for this store" : ""}.
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                When customers place orders on your Shopify store, they will appear here after you refresh.
+              <p className="text-sm text-muted-foreground">No Shopify orders match these filters.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Refresh from Shopify or clear filters.
               </p>
             </div>
           ) : (
-            <ul className="space-y-4">
-              {filteredOrders.map((order) => (
-                <li
-                  key={`${order.shop}-${order.id}`}
-                  className="rounded-xl border bg-card p-4 shadow-sm"
-                >
-                  <ShopifyOrderDetailBody order={order} />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-4">
+                {pagedOrders.map((order) => (
+                  <li
+                    key={`${order.shop}-${order.id}`}
+                    className="rounded-xl border bg-card p-4 shadow-sm"
+                  >
+                    <ShopifyOrderDetailBody order={order} />
+                  </li>
+                ))}
+              </ul>
+
+              {filteredOrders.length > itemsPerPage ? (
+                <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {startIndex + 1} to {Math.min(endIndex, filteredOrders.length)} of{" "}
+                    {filteredOrders.length} orders
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage <= 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm tabular-nums">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage >= totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </CardContent>
       </Card>
@@ -241,7 +551,7 @@ export default function ShopifyOrdersPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center gap-2 text-muted-foreground p-6">
+        <div className="flex items-center gap-2 p-6 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           Loading…
         </div>

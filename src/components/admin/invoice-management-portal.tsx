@@ -156,7 +156,7 @@ const TAX_RATE = 0.06625;
 
 const COMPANY_INFO = {
   name: "Prep Services FBA",
-  addressLines: ["7000 Atrium Way B05", "Mount Laurel, NJ, 08054"],
+  addressLines: ["7000 Atrium Way C03", "Mount Laurel, NJ, 08054"],
   phone: "+1-347-661-3010",
   email: "info@prepservicesfba.com",
 };
@@ -167,7 +167,7 @@ const INVOICE_TERMS = [
   "Prep Services FBA may pause receiving, prep, storage, and shipments until payment is completed.",
   "All completed labor services are non-refundable.",
   "Client is responsible for product compliance, labeling accuracy, and marketplace requirements.",
-  "Any billing concern must be reported within 48 hours of invoice receipt. Unauthorized chargebacks may result in service suspension.",
+  "Any billing concern must be reported within 5 business days of invoice receipt. Unauthorized chargebacks may result in service suspension.",
 ].join("\n");
 
 const createEmptyItem = (): ExternalInvoiceItem => ({
@@ -239,15 +239,34 @@ const addDaysToDateInput = (value: string, days: number): string => {
   return formatDateInputLocal(next);
 };
 
+const isWeekendDateInput = (value: string): boolean => {
+  const d = parseDateOnlyLocal(value);
+  if (!d) return false;
+  const day = d.getDay();
+  return day === 0 || day === 6;
+};
+
+const addBusinessDaysToDateInput = (value: string, businessDays: number): string => {
+  const steps = Math.trunc(Number(businessDays) || 0);
+  if (!steps) return value;
+  let current = value;
+  let remaining = Math.abs(steps);
+  const dir = steps > 0 ? 1 : -1;
+  while (remaining > 0) {
+    current = addDaysToDateInput(current, dir);
+    if (!isWeekendDateInput(current)) remaining -= 1;
+  }
+  return current;
+};
+
 const createEmptyInvoiceForm = (): Omit<ExternalInvoice, "id"> => {
   const today = new Date();
-  const due = new Date(today);
-  due.setDate(today.getDate() + 2);
+  const invoiceDate = formatDateInputLocal(today);
   return {
     status: "draft",
     invoiceNumber: createInvoiceNumber(),
-    invoiceDate: formatDateInputLocal(today),
-    dueDate: formatDateInputLocal(due),
+    invoiceDate,
+    dueDate: addBusinessDaysToDateInput(invoiceDate, 5),
     clientName: "",
     clientEmail: "",
     clientPhone: "",
@@ -749,7 +768,12 @@ export function InvoiceManagementPortal() {
     discount: getDiscountAmount(invoice),
     lateFee: invoice.lateFee || 0,
     total: getGrandTotalWithLateFee(invoice),
-    terms: invoice.terms,
+    terms: (invoice.terms || "").trim() || INVOICE_TERMS,
+    invoiceNote:
+      "Please make all payments to Prep Services FBA LLC. All prices are F.O.B.",
+    fobPoint: "NEW JERSEY",
+    shippingTerms: "NET",
+    shippedVia: "Standard",
   };
   };
 
@@ -2716,7 +2740,7 @@ Prep Services FBA Team`;
                 {editingInvoiceId ? "Edit Invoice" : "New Invoice"}
               </CardTitle>
               <CardDescription className="text-fuchsia-600/80 dark:text-fuchsia-400/80">
-                Fill out the invoice template and save or send it. Due date defaults to 48 hours.
+                Fill out the invoice template and save or send it. Due date defaults to 5 business days.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

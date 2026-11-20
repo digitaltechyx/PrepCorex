@@ -180,7 +180,7 @@ const INVOICE_TERMS = [
   "Prep Services FBA may pause receiving, prep, storage, and shipments until payment is completed.",
   "All completed labor services are non-refundable.",
   "Client is responsible for product compliance, labeling accuracy, and marketplace requirements.",
-  "Any billing concern must be reported within 48 hours of invoice receipt. Unauthorized chargebacks may result in service suspension.",
+  "Any billing concern must be reported within 5 business days of invoice receipt. Unauthorized chargebacks may result in service suspension.",
 ].join("\n");
 
 const createEmptyItem = (): QuoteLineItem => ({

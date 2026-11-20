@@ -1,6 +1,7 @@
 const admin = require("firebase-admin");
 
-const CLIENT_INVOICE_DUE_DAYS = 5;
+const CLIENT_INVOICE_DUE_BUSINESS_DAYS = 5;
+const CLIENT_INVOICE_DUE_DAYS = CLIENT_INVOICE_DUE_BUSINESS_DAYS;
 const CLIENT_INVOICE_LATE_FEE_AMOUNT = 19;
 const PROCESSING_LOCK_MS = 30 * 60 * 1000;
 
@@ -10,7 +11,7 @@ const CLIENT_INVOICE_TERMS = [
   "Prep Services FBA may pause receiving, prep, storage, and shipments until payment is completed.",
   "All completed labor services are non-refundable.",
   "Client is responsible for product compliance, labeling accuracy, and marketplace requirements.",
-  "Any billing concern must be reported within 48 hours of invoice receipt. Unauthorized chargebacks may result in service suspension.",
+  "Any billing concern must be reported within 5 business days of invoice receipt. Unauthorized chargebacks may result in service suspension.",
 ].join("\n");
 
 function asDate(value) {
@@ -62,6 +63,30 @@ function addDaysToDateInput(value, days) {
   const next = new Date(base);
   next.setDate(next.getDate() + days);
   return formatDateInputLocal(next);
+}
+
+function isWeekendDateInput(value) {
+  const d = parseDateOnlyLocal(value);
+  if (!d) return false;
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+function addBusinessDaysToDateInput(value, businessDays) {
+  const steps = Math.trunc(Number(businessDays) || 0);
+  if (!steps) return value;
+  let current = value;
+  let remaining = Math.abs(steps);
+  const dir = steps > 0 ? 1 : -1;
+  while (remaining > 0) {
+    current = addDaysToDateInput(current, dir);
+    if (!isWeekendDateInput(current)) remaining -= 1;
+  }
+  return current;
+}
+
+function previousBusinessDayDateInput(value) {
+  return addBusinessDaysToDateInput(value, -1);
 }
 
 function formatDateInputForDisplay(value) {
@@ -141,7 +166,7 @@ function buildClientInvoiceEmail(input) {
         subject: `Invoice ${input.invoiceNumber} generated`,
         message: `Hi ${name},
 
-Your invoice ${input.invoiceNumber} has been generated. The total due is ${totalStr} and payment is due by ${dueStr} (${CLIENT_INVOICE_DUE_DAYS} days from invoice date).
+Your invoice ${input.invoiceNumber} has been generated. The total due is ${totalStr} and payment is due by ${dueStr} (${CLIENT_INVOICE_DUE_BUSINESS_DAYS} business days from the invoice date).
 
 Please log in to your Prep Services FBA dashboard to view invoice details and arrange payment.${formatTermsBlock()}
 
@@ -153,7 +178,7 @@ Prep Services FBA Team`,
         subject: `Reminder: Invoice ${input.invoiceNumber} due soon`,
         message: `Hi ${name},
 
-This is a friendly reminder that invoice ${input.invoiceNumber} is due on ${dueStr} (1 day remaining).
+This is a friendly reminder that invoice ${input.invoiceNumber} is due on ${dueStr} (due tomorrow / next business day).
 
 Please complete payment by the due date to avoid a $${CLIENT_INVOICE_LATE_FEE_AMOUNT} late fee.
 
@@ -191,7 +216,15 @@ Prep Services FBA Team`,
   }
 }
 
+/** Only invoices created with enableClientInvoiceEmails:true get automation (future invoices). */
+function isClientInvoiceEmailAutomationEnabled(invoice) {
+  return invoice && invoice.enableClientInvoiceEmails === true;
+}
+
 function getClientInvoiceReminderTargets(invoice) {
+  if (!isClientInvoiceEmailAutomationEnabled(invoice)) {
+    return { sendPenultimate: false, sendDueDay: false, applyLateFee: false };
+  }
   if (invoice.status !== "pending") {
     return { sendPenultimate: false, sendDueDay: false, applyLateFee: false };
   }
@@ -202,7 +235,7 @@ function getClientInvoiceReminderTargets(invoice) {
   }
 
   const today = getTodayDateInputInNJ();
-  const penultimate = addDaysToDateInput(dueDate, -1);
+  const penultimate = previousBusinessDayDateInput(dueDate);
   const lateFeeAmount = Number(invoice.lateFeeAmount || 0);
 
   return {
@@ -286,6 +319,15 @@ async function sendClientInvoiceCreatedEmail(db, transporter, smtpConfig, userId
     "invoiceCreatedEmailSentAt"
   );
   if (!lockedInv) return { sent: false, reason: "locked_or_already_sent" };
+  if (!isClientInvoiceEmailAutomationEnabled(lockedInv)) {
+    await clearInvoiceLock(docRef, "invoiceCreatedProcessingUntil");
+    // Mark so we never retry create-email on legacy invoices.
+    await docRef.update({
+      invoiceCreatedEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { sent: false, reason: "existing_invoice_emails_disabled" };
+  }
   if (lockedInv.status !== "pending") {
     await clearInvoiceLock(docRef, "invoiceCreatedProcessingUntil");
     return { sent: false, reason: "not_pending" };
@@ -513,7 +555,9 @@ function createSmtpTransporter(nodemailer) {
 
 module.exports = {
   CLIENT_INVOICE_DUE_DAYS,
+  CLIENT_INVOICE_DUE_BUSINESS_DAYS,
   CLIENT_INVOICE_LATE_FEE_AMOUNT,
+  addBusinessDaysToDateInput,
   createSmtpTransporter,
   sendClientInvoiceCreatedEmail,
   runClientInvoiceReminders,

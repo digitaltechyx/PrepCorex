@@ -31,6 +31,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ShopifyOrderDetailBody } from "@/components/integrations/shopify-order-detail";
+import { ShopifyOrderStatusBadges } from "@/components/integrations/shopify-order-status-badges";
+import { ShopifyOrdersCsvDownload } from "@/components/integrations/shopify-orders-csv-download";
 import { ShopifyCreateLabelDialog } from "@/components/admin/shopify-create-label-dialog";
 import { ShopifyLabelSourceDialog } from "@/components/admin/shopify-label-source-dialog";
 import { ShopifyQuickFulfillDialog } from "@/components/admin/shopify-quick-fulfill-dialog";
@@ -40,6 +42,13 @@ import {
   loadShopifyLabelFulfillHandoff,
   type ShopifyLabelFulfillHandoff,
 } from "@/lib/shopify-order-buy-label-prefill";
+import {
+  isShopifyOrderCancelled,
+  isShopifyOrderPaid,
+  isShopifyOrderRefunded,
+  isShopifyOrderUnfulfilledStatus,
+  isShopifyOrderUnpaid,
+} from "@/lib/shopify-order-status";
 import {
   ChevronsUpDown,
   Eye,
@@ -54,7 +63,9 @@ import {
   X,
 } from "lucide-react";
 
-type FulfillmentFilter = "all" | "unfulfilled" | "fulfilled" | "partial";
+type FulfillmentFilter = "all" | "unfulfilled" | "fulfilled";
+type CancelledFilter = "all" | "cancelled" | "refunded";
+type PaymentFilter = "all" | "paid" | "unpaid";
 
 function formatWhen(raw?: string | null) {
   if (!raw) return "—";
@@ -80,10 +91,6 @@ function endOfDay(isoDate: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function isUnfulfilled(status: string | null | undefined) {
-  return !status || status === "unfulfilled" || status === "null";
-}
-
 export function ShopifyOrdersPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -100,10 +107,13 @@ export function ShopifyOrdersPanel() {
 
   const [search, setSearch] = useState("");
   const [fulfillmentFilter, setFulfillmentFilter] = useState<FulfillmentFilter>("all");
-  const [financialFilter, setFinancialFilter] = useState("all");
+  const [cancelledFilter, setCancelledFilter] = useState<CancelledFilter>("all");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [shopFilter, setShopFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
@@ -334,14 +344,6 @@ export function ShopifyOrdersPanel() {
     return Array.from(set).sort();
   }, [orders]);
 
-  const financialOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const o of orders) {
-      if (o.financialStatus) set.add(o.financialStatus);
-    }
-    return Array.from(set).sort();
-  }, [orders]);
-
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     const from = startOfDay(dateFrom);
@@ -349,12 +351,16 @@ export function ShopifyOrdersPanel() {
 
     const filtered = orders.filter((o) => {
       if (shopFilter !== "all" && o.shop !== shopFilter) return false;
-      if (financialFilter !== "all" && (o.financialStatus || "") !== financialFilter) return false;
+
+      if (paymentFilter === "paid" && !isShopifyOrderPaid(o)) return false;
+      if (paymentFilter === "unpaid" && !isShopifyOrderUnpaid(o)) return false;
+
+      if (cancelledFilter === "cancelled" && !isShopifyOrderCancelled(o)) return false;
+      if (cancelledFilter === "refunded" && !isShopifyOrderRefunded(o)) return false;
 
       const fs = o.fulfillmentStatus || "unfulfilled";
-      if (fulfillmentFilter === "unfulfilled" && !isUnfulfilled(fs)) return false;
+      if (fulfillmentFilter === "unfulfilled" && !isShopifyOrderUnfulfilledStatus(fs)) return false;
       if (fulfillmentFilter === "fulfilled" && fs !== "fulfilled") return false;
-      if (fulfillmentFilter === "partial" && fs !== "partial") return false;
 
       if (from || to) {
         const raw = o.createdAt;
@@ -393,15 +399,29 @@ export function ShopifyOrdersPanel() {
       const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
       return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
     });
-  }, [orders, search, fulfillmentFilter, financialFilter, shopFilter, dateFrom, dateTo]);
+  }, [
+    orders,
+    search,
+    fulfillmentFilter,
+    cancelledFilter,
+    paymentFilter,
+    shopFilter,
+    dateFrom,
+    dateTo,
+  ]);
 
-  const unfulfilledCount = orders.filter((o) => isUnfulfilled(o.fulfillmentStatus)).length;
+  const unfulfilledCount = orders.filter(
+    (o) => !isShopifyOrderCancelled(o) && isShopifyOrderUnfulfilledStatus(o.fulfillmentStatus)
+  ).length;
   const fulfilledCount = orders.filter((o) => o.fulfillmentStatus === "fulfilled").length;
+  const cancelledCount = orders.filter((o) => isShopifyOrderCancelled(o)).length;
+  const refundedCount = orders.filter((o) => isShopifyOrderRefunded(o)).length;
 
   const hasActiveFilters =
     search.trim() !== "" ||
     fulfillmentFilter !== "all" ||
-    financialFilter !== "all" ||
+    cancelledFilter !== "all" ||
+    paymentFilter !== "all" ||
     shopFilter !== "all" ||
     dateFrom !== "" ||
     dateTo !== "" ||
@@ -410,12 +430,33 @@ export function ShopifyOrdersPanel() {
   const clearFilters = () => {
     setSearch("");
     setFulfillmentFilter("all");
-    setFinancialFilter("all");
+    setCancelledFilter("all");
+    setPaymentFilter("all");
     setShopFilter("all");
     setDateFrom("");
     setDateTo("");
+    setCurrentPage(1);
     if (userFilter !== "all") router.push("/admin/dashboard/shopify-orders?userId=all");
   };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    search,
+    fulfillmentFilter,
+    cancelledFilter,
+    paymentFilter,
+    shopFilter,
+    dateFrom,
+    dateTo,
+    userFilter,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(visible.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const pagedOrders = visible.slice(startIndex, endIndex);
 
   const openFulfillDialog = (order: AdminShopifyOrder) => {
     setLabelFulfillHandoff(null);
@@ -471,15 +512,22 @@ export function ShopifyOrdersPanel() {
             Filter by client, store, status, or date — then fulfill or purchase labels.
           </p>
         </div>
-        <Button
-          className="w-full shrink-0 sm:w-auto"
-          size="sm"
-          onClick={() => void handleSync()}
-          disabled={syncing || loading || !user}
-        >
-          {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Sync from Shopify
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <ShopifyOrdersCsvDownload
+            orders={orders}
+            filePrefix="shopify-orders-admin"
+            disabled={loading || orders.length === 0}
+          />
+          <Button
+            className="w-full shrink-0 sm:w-auto"
+            size="sm"
+            onClick={() => void handleSync()}
+            disabled={syncing || loading || !user}
+          >
+            {syncing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Sync from Shopify
+          </Button>
+        </div>
       </div>
 
       <Card className="min-w-0 overflow-hidden">
@@ -549,19 +597,36 @@ export function ShopifyOrdersPanel() {
       </Card>
 
       <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
-        <Card className="min-w-0 overflow-hidden">
+        <Card
+          className="min-w-0 cursor-pointer overflow-hidden transition-colors hover:bg-muted/40"
+          onClick={() => {
+            setFulfillmentFilter("all");
+            setCancelledFilter("all");
+            setPaymentFilter("all");
+            setShopFilter("all");
+            setSearch("");
+            setDateFrom("");
+            setDateTo("");
+          }}
+        >
           <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
             <CardDescription className="text-[10px] leading-tight sm:text-sm">Total</CardDescription>
             <CardTitle className="text-base tabular-nums sm:text-2xl">{orders.length}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="min-w-0 overflow-hidden">
+        <Card
+          className="min-w-0 cursor-pointer overflow-hidden transition-colors hover:bg-muted/40"
+          onClick={() => setFulfillmentFilter("unfulfilled")}
+        >
           <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
             <CardDescription className="text-[10px] leading-tight sm:text-sm">Unfulfilled</CardDescription>
             <CardTitle className="text-base tabular-nums text-amber-700 sm:text-2xl">{unfulfilledCount}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="min-w-0 overflow-hidden">
+        <Card
+          className="min-w-0 cursor-pointer overflow-hidden transition-colors hover:bg-muted/40"
+          onClick={() => setFulfillmentFilter("fulfilled")}
+        >
           <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
             <CardDescription className="text-[10px] leading-tight sm:text-sm">Fulfilled</CardDescription>
             <CardTitle className="text-base tabular-nums text-emerald-700 sm:text-2xl">{fulfilledCount}</CardTitle>
@@ -569,11 +634,17 @@ export function ShopifyOrdersPanel() {
         </Card>
         <Card className="min-w-0 overflow-hidden">
           <CardHeader className="space-y-0 p-2 sm:p-4 sm:pb-2">
-            <CardDescription className="text-[10px] leading-tight sm:text-sm">Showing</CardDescription>
+            <CardDescription className="text-[10px] leading-tight sm:text-sm">
+              Showing{hasActiveFilters ? " (filtered)" : ""}
+            </CardDescription>
             <CardTitle className="text-base tabular-nums sm:text-2xl">{visible.length}</CardTitle>
           </CardHeader>
         </Card>
       </div>
+      <p className="text-[11px] text-muted-foreground sm:text-xs">
+        Total / Unfulfilled / Fulfilled are all loaded orders. Showing is the list after filters.
+        Click a status card to filter. Use Clear filters or click Total to reset.
+      </p>
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="space-y-3 p-3 sm:space-y-4 sm:p-6">
@@ -619,7 +690,6 @@ export function ShopifyOrdersPanel() {
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
                   <SelectItem value="fulfilled">Fulfilled</SelectItem>
                 </SelectContent>
               </Select>
@@ -627,17 +697,34 @@ export function ShopifyOrdersPanel() {
 
             <div className="space-y-1.5">
               <Label>Payment</Label>
-              <Select value={financialFilter} onValueChange={setFinancialFilter}>
+              <Select
+                value={paymentFilter}
+                onValueChange={(v: PaymentFilter) => setPaymentFilter(v)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
-                  {financialOptions.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s.replace(/_/g, " ")}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="unpaid">Unpaid</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Cancelled / Refunded</Label>
+              <Select
+                value={cancelledFilter}
+                onValueChange={(v: CancelledFilter) => setCancelledFilter(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="cancelled">Cancelled ({cancelledCount})</SelectItem>
+                  <SelectItem value="refunded">Refunded ({refundedCount})</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -685,8 +772,10 @@ export function ShopifyOrdersPanel() {
             </div>
           ) : (
             <div className="space-y-1.5 sm:space-y-3">
-              {visible.map((order) => {
+              {pagedOrders.map((order) => {
                 const fulfilled = order.fulfillmentStatus === "fulfilled";
+                const cancelled = isShopifyOrderCancelled(order);
+                const canProcess = !fulfilled && !cancelled;
                 return (
                   <div
                     key={`${order.ownerUserId}-${order.shop}-${order.id}`}
@@ -696,14 +785,6 @@ export function ShopifyOrdersPanel() {
                       <div className="min-w-0 space-y-0.5 sm:space-y-1">
                         <div className="flex flex-wrap items-center gap-1 sm:gap-2">
                           <p className="text-sm font-semibold sm:text-base">{order.name || `#${order.orderNumber}`}</p>
-                          <Badge variant="outline" className="capitalize text-[10px]">
-                            {order.fulfillmentStatus || "unfulfilled"}
-                          </Badge>
-                          {order.financialStatus ? (
-                            <Badge variant="secondary" className="capitalize text-[10px]">
-                              {order.financialStatus}
-                            </Badge>
-                          ) : null}
                           <Badge variant="outline" className="text-[10px]">
                             {order.ownerName}
                           </Badge>
@@ -711,6 +792,7 @@ export function ShopifyOrdersPanel() {
                             {order.shopName || order.shop.replace(".myshopify.com", "")}
                           </Badge>
                         </div>
+                        <ShopifyOrderStatusBadges order={order} />
                         <p className="truncate text-xs text-muted-foreground sm:text-sm">
                           {order.customerName || order.email || "Customer"}
                           {order.email && order.customerName ? ` · ${order.email}` : ""}
@@ -749,7 +831,7 @@ export function ShopifyOrdersPanel() {
                             <Eye className="mr-1.5 h-3.5 w-3.5" />
                             Details
                           </Button>
-                          {!fulfilled ? (
+                          {canProcess ? (
                             <>
                               <Button
                                 variant="outline"
@@ -777,6 +859,36 @@ export function ShopifyOrdersPanel() {
                   </div>
                 );
               })}
+
+              {visible.length > itemsPerPage ? (
+                <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {startIndex + 1} to {Math.min(endIndex, visible.length)} of {visible.length}{" "}
+                    orders
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage <= 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm tabular-nums">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage >= totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>
@@ -796,7 +908,8 @@ export function ShopifyOrdersPanel() {
             <ShopifyOrderDetailBody
               order={detailsOrder}
               actions={
-                detailsOrder.fulfillmentStatus !== "fulfilled" ? (
+                detailsOrder.fulfillmentStatus !== "fulfilled" &&
+                !isShopifyOrderCancelled(detailsOrder) ? (
                   <>
                     <Button size="sm" variant="outline" onClick={() => openFulfillDialog(detailsOrder)}>
                       <Truck className="h-4 w-4 mr-1" />

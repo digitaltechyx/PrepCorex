@@ -67,16 +67,22 @@ export async function loadAdminShopifyOrdersFromCache(
   if (ownerIds.length === 0) return [];
 
   const profiles = await loadOwnerProfiles(db, ownerIds);
-  const snap = await db.collectionGroup("shopifyOrders").limit(limit).get();
-
   const orders: AdminShopifyOrder[] = [];
-  for (const doc of snap.docs) {
-    const uid = doc.ref.parent.parent?.id;
-    if (!uid || !ownerIds.includes(uid)) continue;
-    const owner = profiles.get(uid);
-    if (!owner) continue;
-    orders.push(attachOwner(shopifyOrderFromFirestore(doc.id, doc.data()), owner));
-  }
+
+  // Load per-client shopifyOrders (not a global collectionGroup + limit).
+  // A collectionGroup().limit() returns an arbitrary global slice first, then
+  // owner filtering drops docs — so one client's orders (or recent ones) can
+  // disappear from Admin → Shopify Orders until a live sync.
+  await Promise.all(
+    ownerIds.map(async (uid) => {
+      const owner = profiles.get(uid);
+      if (!owner) return;
+      const snap = await db.collection("users").doc(uid).collection("shopifyOrders").get();
+      for (const doc of snap.docs) {
+        orders.push(attachOwner(shopifyOrderFromFirestore(doc.id, doc.data()), owner));
+      }
+    })
+  );
 
   orders.sort((a, b) => {
     const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;

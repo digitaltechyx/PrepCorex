@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { quotationInvoiceLogoSrc } from "@/lib/quotation-invoice-logo";
 
 interface QuoteInvoiceParty {
   name: string;
@@ -9,14 +10,19 @@ interface QuoteInvoiceParty {
   country?: string;
 }
 
-interface QuoteInvoiceItem {
+export interface QuoteInvoiceItem {
   description: string;
   quantity: number;
   unitPrice: number;
   amount: number;
+  /** When set (with lineTable "detail"), shown in PRODUCT / DATE / SKU / PACK columns. */
+  productName?: string;
+  shipDate?: string;
+  sku?: string;
+  packaging?: string;
 }
 
-interface QuoteInvoiceData {
+export interface QuoteInvoiceData {
   invoiceNumber: string;
   invoiceDate: string;
   dueDate?: string;
@@ -30,6 +36,22 @@ interface QuoteInvoiceData {
   lateFee?: number;
   total: number;
   terms?: string;
+  invoiceNote?: string;
+  fobPoint?: string;
+  shippingTerms?: string;
+  shippedVia?: string;
+  /**
+   * `detail` = QUANTITY / PRODUCT / DATE / SKU / PACK / UNIT PRICE / AMOUNT
+   * (PrepCorex warehouse invoices). Default `simple` keeps CRM Item Description layout.
+   */
+  lineTable?: "simple" | "detail";
+}
+
+function logoFormatForPdf(src: string): "PNG" | "JPEG" {
+  const path = decodeURIComponent(src.split("?")[0] || "");
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "JPEG";
+  return "PNG";
 }
 
 const loadLogo = async (src: string): Promise<HTMLImageElement | null> => {
@@ -58,12 +80,23 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 14;
   const bottomMargin = 20;
-  const contentMaxY = pageHeight - bottomMargin; // keep content above footer area
+  const contentMaxY = pageHeight - bottomMargin;
   let y = margin;
 
-  const logo = await loadLogo("/quote-logo.png");
-  if (logo) {
-    doc.addImage(logo, "PNG", margin, y, 28, 18);
+  const logo = await loadLogo(quotationInvoiceLogoSrc);
+  let logoHeight = 0;
+  if (logo && logo.naturalWidth > 0 && logo.naturalHeight > 0) {
+    const maxW = 48;
+    const maxH = 14;
+    const ratio = logo.naturalWidth / logo.naturalHeight;
+    let logoW = maxW;
+    let logoH = logoW / ratio;
+    if (logoH > maxH) {
+      logoH = maxH;
+      logoW = logoH * ratio;
+    }
+    doc.addImage(logo, logoFormatForPdf(quotationInvoiceLogoSrc), margin, y, logoW, logoH);
+    logoHeight = logoH;
   }
 
   doc.setFont("helvetica", "bold");
@@ -76,9 +109,9 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   doc.text(`Date: ${data.invoiceDate}`, pageWidth - margin, y + 18, { align: "right" });
   if (data.dueDate) {
     doc.text(`Due Date: ${data.dueDate}`, pageWidth - margin, y + 24, { align: "right" });
-    y += 32;
+    y += Math.max(logoHeight + 6, 32);
   } else {
-    y += 26;
+    y += Math.max(logoHeight + 6, 26);
   }
   doc.setDrawColor(232, 193, 132);
   doc.line(margin, y, pageWidth - margin, y);
@@ -131,60 +164,123 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   }
 
   y += boxHeight + 4;
+  const noteText =
+    (data.invoiceNote || "").trim() ||
+    "Please make all payments to Prep Services FBA LLC. All prices are F.O.B.";
+  const fobPoint = (data.fobPoint || "").trim() || "NEW JERSEY";
+  const shippingTerms = (data.shippingTerms || "").trim() || "NET";
+  const shippedVia = (data.shippedVia || "").trim() || "Standard";
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
-  doc.text(
-    "NOTE: Please make all payments to Prep Services FBA LLC. All prices are F.O.B.",
-    margin,
-    y
-  );
-  y += 6;
+  const noteLines = doc.splitTextToSize(`NOTE: ${noteText}`, pageWidth - margin * 2) as string[];
+  doc.text(noteLines, margin, y);
+  y += noteLines.length * 4.5 + 2;
   doc.setFont("helvetica", "normal");
   doc.text("FOB POINT:", margin, y);
-  doc.text("NEW JERSEY", margin + 32, y);
+  doc.text(fobPoint, margin + 32, y);
   y += 4.5;
   doc.text("TERMS:", margin, y);
-  doc.text("NET", margin + 32, y);
+  doc.text(shippingTerms, margin + 32, y);
   y += 4.5;
   doc.text("SHIPPED VIA:", margin, y);
-  doc.text("Standard", margin + 32, y);
+  doc.text(shippedVia, margin + 32, y);
   y += 6;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("Item Description", margin, y);
-  doc.text("Qty", margin + 92, y);
-  doc.text("Unit Price", margin + 120, y);
-  doc.text("Amount", pageWidth - margin, y, { align: "right" });
-  y += 3;
-  doc.line(margin, y, pageWidth - margin, y);
-  y += 5;
+  const useDetailTable = data.lineTable === "detail";
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  const descriptionWidth = 86; // mm — leave gap before Qty column (Qty starts at margin+92)
-  data.items.forEach((item) => {
-    if (y > contentMaxY) {
-      doc.addPage();
-      y = margin;
-    }
-    const desc = item.description || "—";
-    const lines = doc.splitTextToSize(desc, descriptionWidth);
-    const firstLine = lines[0] ?? "—";
-    doc.text(firstLine, margin, y);
-    doc.text(String(item.quantity), margin + 92, y);
-    doc.text(`$${item.unitPrice.toFixed(2)}`, margin + 120, y);
-    doc.text(`$${item.amount.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
+  if (useDetailTable) {
+    const tableRight = pageWidth - margin;
+    const colQty = margin;
+    const colProduct = margin + 18;
+    const colAmount = tableRight;
+    const colUnitPrice = colAmount - 22;
+    const colPack = colUnitPrice - 28;
+    const colSku = colPack - 24;
+    const colDate = colSku - 24;
+    const productWidth = Math.max(20, colDate - colProduct - 2);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("QUANTITY", colQty, y);
+    doc.text("PRODUCT", colProduct, y);
+    doc.text("DATE", colDate, y);
+    doc.text("SKU", colSku, y);
+    doc.text("PACK", colPack, y);
+    doc.text("UNIT PRICE", colUnitPrice, y, { align: "right" });
+    doc.text("AMOUNT", colAmount, y, { align: "right" });
+    y += 3;
+    doc.line(margin, y, pageWidth - margin, y);
     y += 5;
-    lines.slice(1).forEach((line: string) => {
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    data.items.forEach((item) => {
       if (y > contentMaxY) {
         doc.addPage();
         y = margin;
       }
-      doc.text(line, margin, y);
-      y += 5;
+      const product = String(item.productName || item.description || "—").trim() || "—";
+      const productLines = doc.splitTextToSize(product, productWidth) as string[];
+      const shipDate = String(item.shipDate || "").trim();
+      const sku = String(item.sku || "").trim();
+      const pack = String(item.packaging || "").trim();
+
+      doc.text(String(item.quantity), colQty, y);
+      doc.text(productLines[0] ?? "—", colProduct, y);
+      doc.text(shipDate.substring(0, 12), colDate, y);
+      doc.text(sku.substring(0, 12), colSku, y);
+      doc.text(pack.substring(0, 12), colPack, y);
+      doc.text(`$${item.unitPrice.toFixed(2)}`, colUnitPrice, y, { align: "right" });
+      doc.text(`$${item.amount.toFixed(2)}`, colAmount, y, { align: "right" });
+      y += 4.5;
+      productLines.slice(1).forEach((line: string) => {
+        if (y > contentMaxY) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, colProduct, y);
+        y += 4.5;
+      });
+      y += 1.5;
     });
-    y += 2; // spacing before next item
-  });
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Item Description", margin, y);
+    doc.text("Qty", margin + 92, y);
+    doc.text("Unit Price", margin + 120, y);
+    doc.text("Amount", pageWidth - margin, y, { align: "right" });
+    y += 3;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 5;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const descriptionWidth = 86;
+    data.items.forEach((item) => {
+      if (y > contentMaxY) {
+        doc.addPage();
+        y = margin;
+      }
+      const desc = item.description || "—";
+      const lines = doc.splitTextToSize(desc, descriptionWidth);
+      const firstLine = lines[0] ?? "—";
+      doc.text(firstLine, margin, y);
+      doc.text(String(item.quantity), margin + 92, y);
+      doc.text(`$${item.unitPrice.toFixed(2)}`, margin + 120, y);
+      doc.text(`$${item.amount.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
+      y += 5;
+      lines.slice(1).forEach((line: string) => {
+        if (y > contentMaxY) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += 5;
+      });
+      y += 2;
+    });
+  }
 
   y += 4;
   doc.setFont("helvetica", "bold");
@@ -200,16 +296,15 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   }
   if (data.lateFee != null && data.lateFee > 0) {
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(220, 38, 38); // Red color for late fee
+    doc.setTextColor(220, 38, 38);
     doc.text(`Late Fee: $${data.lateFee.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
-    doc.setTextColor(0, 0, 0); // Reset to black
+    doc.setTextColor(0, 0, 0);
     y += 5;
   }
   y += data.discount != null && data.discount > 0 ? 1 : data.lateFee != null && data.lateFee > 0 ? 1 : 6;
   doc.setFont("helvetica", "bold");
   doc.text(`Grand Total: $${data.total.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
 
-  // Add Terms & Conditions if provided (as bullet points)
   if (data.terms) {
     y += 10;
     if (y > contentMaxY) {
@@ -226,7 +321,7 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
     const termWidth = pageWidth - margin * 2;
     const rawLines = data.terms.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     rawLines.forEach((line: string) => {
-      const bulletLine = bullet + line.replace(/^\d+\.\s*/, ""); // strip leading "1. " etc. if present
+      const bulletLine = bullet + line.replace(/^\d+\.\s*/, "");
       const wrapped = doc.splitTextToSize(bulletLine, termWidth);
       wrapped.forEach((textLine: string) => {
         if (y > contentMaxY) {
@@ -236,11 +331,10 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
         doc.text(textLine, margin, y);
         y += 4;
       });
-      y += 2; // extra space between bullets
+      y += 2;
     });
   }
 
-  // Appreciation line at bottom of invoice
   y += 10;
   if (y > contentMaxY) {
     doc.addPage();
@@ -248,8 +342,10 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   }
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(180, 83, 9); // amber-700
-  doc.text("We appreciate the opportunity to do business with you.", pageWidth / 2, y, { align: "center" });
+  doc.setTextColor(180, 83, 9);
+  doc.text("We appreciate the opportunity to do business with you.", pageWidth / 2, y, {
+    align: "center",
+  });
   doc.setTextColor(0, 0, 0);
 
   return doc.output("blob");

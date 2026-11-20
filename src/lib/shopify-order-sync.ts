@@ -3,6 +3,7 @@ import { shopifyAdminRestUrl } from "@/lib/shopify-api";
 import { getValidShopifyAccessToken, ShopifyReconnectRequired } from "@/lib/shopify-access-token";
 import {
   normalizeShopifyOrder,
+  shopifyOrderFromFirestore,
   shopifyOrderToFirestoreDoc,
   type ShopifyNormalizedOrder,
 } from "@/lib/shopify-order-normalize";
@@ -17,8 +18,13 @@ export type ShopifyConnectionRow = {
   refreshTokenExpiresAt?: { seconds: number; nanoseconds?: number };
 };
 
-const MAX_ORDERS = 500;
-const LOOKBACK_DAYS = 30;
+/** Cap per store per sync. Shopify paginates 250/page. */
+const MAX_ORDERS = 1000;
+/**
+ * How far back to pull from Shopify Admin API.
+ * null = no created_at_min (most recent pages up to MAX_ORDERS, all statuses).
+ */
+const LOOKBACK_DAYS: number | null = null;
 
 function parseNextPageUrl(linkHeader: string | null): string | null {
   if (!linkHeader) return null;
@@ -33,21 +39,24 @@ function parseNextPageUrl(linkHeader: string | null): string | null {
 export async function fetchShopifyOrdersFromApi(
   shop: string,
   accessToken: string,
-  options?: { lookbackDays?: number; maxOrders?: number }
+  options?: { lookbackDays?: number | null; maxOrders?: number }
 ): Promise<Record<string, unknown>[]> {
-  const lookbackDays = options?.lookbackDays ?? LOOKBACK_DAYS;
+  const lookbackDays =
+    options?.lookbackDays !== undefined ? options.lookbackDays : LOOKBACK_DAYS;
   const maxOrders = options?.maxOrders ?? MAX_ORDERS;
-  const createdMin = new Date();
-  createdMin.setDate(createdMin.getDate() - lookbackDays);
+
+  const params = new URLSearchParams({
+    status: "any",
+    limit: "250",
+  });
+  if (lookbackDays != null && lookbackDays > 0) {
+    const createdMin = new Date();
+    createdMin.setDate(createdMin.getDate() - lookbackDays);
+    params.set("created_at_min", createdMin.toISOString());
+  }
 
   const orders: Record<string, unknown>[] = [];
-  let url: string | null =
-    `${shopifyAdminRestUrl(shop, "/orders.json")}?` +
-    new URLSearchParams({
-      status: "any",
-      limit: "250",
-      created_at_min: createdMin.toISOString(),
-    }).toString();
+  let url: string | null = `${shopifyAdminRestUrl(shop, "/orders.json")}?${params.toString()}`;
 
   while (url && orders.length < maxOrders) {
     const res = await fetch(url, {
@@ -68,6 +77,44 @@ export async function fetchShopifyOrdersFromApi(
   }
 
   return orders.slice(0, maxOrders);
+}
+
+/** Load persisted Shopify orders for a client (all history stored in Firestore). */
+export async function loadUserShopifyOrdersFromFirestore(
+  db: Firestore,
+  userId: string,
+  options?: { shop?: string; connectionId?: string; limit?: number }
+): Promise<ShopifyNormalizedOrder[]> {
+  const limit = options?.limit ?? 2000;
+  const col = db.collection("users").doc(userId).collection("shopifyOrders");
+
+  let snap;
+  try {
+    snap = await col.orderBy("created_at", "desc").limit(limit).get();
+  } catch {
+    // Fallback if created_at index/field is missing on some docs.
+    snap = await col.limit(limit).get();
+  }
+
+  let orders = snap.docs.map((d) => shopifyOrderFromFirestore(d.id, d.data()));
+
+  if (options?.shop) {
+    const shopNorm = options.shop.includes(".myshopify.com")
+      ? options.shop.toLowerCase()
+      : `${options.shop.toLowerCase()}.myshopify.com`;
+    orders = orders.filter((o) => o.shop.toLowerCase() === shopNorm);
+  }
+  if (options?.connectionId) {
+    orders = orders.filter((o) => o.connectionId === options.connectionId);
+  }
+
+  orders.sort((a, b) => {
+    const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+    const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+    return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+  });
+
+  return orders;
 }
 
 export async function syncShopifyOrdersForUser(

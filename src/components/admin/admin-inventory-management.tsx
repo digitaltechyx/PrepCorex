@@ -2125,11 +2125,13 @@ export function AdminInventoryManagement({
       for (const line of normalizeShipmentItems(shipped)) {
         const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
         const unitPrice = Number(line.unitPrice ?? shipped.unitPrice ?? 0);
+        const sku = String(line.sku || "").trim();
         items.push({
           quantity: qty,
           productName: line.productName || shipped.productName || "Unknown Product",
           shipDate,
           packaging: `${line.packOf ?? shipped.packOf ?? 1} Nos.`,
+          ...(sku ? { sku } : {}),
           shipTo,
           unitPrice,
           amount: qty * unitPrice,

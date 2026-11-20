@@ -26,6 +26,9 @@ export type CrmDraftLineInput = {
   unitPrice: number;
   compareUnitPrice?: number;
   amount?: number;
+  shipDate?: string;
+  sku?: string;
+  packaging?: string;
   /** Prevents double-append of the same shipped row / service key. */
   sourceKey?: string;
 };
@@ -61,7 +64,7 @@ export function formatShipDateForCrmDescription(value: unknown, fallback?: strin
   return (fallback || "").trim();
 }
 
-/** CRM item descriptions embed ship date (CRM has no separate shipDate column). */
+/** Legacy helper — prefer dedicated shipDate / sku / packaging fields on CRM lines. */
 export function crmLineDescription(parts: {
   name: string;
   shipDate?: string | null;
@@ -100,11 +103,16 @@ export function buildCrmLinesFromShipments(
       const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
       const unitPrice = money(line.unitPrice ?? shipped.unitPrice ?? 0);
       const productName = line.productName || shipped.productName || "Product";
+      const sku = String(line.sku || "").trim();
+      const packaging = `${line.packOf ?? shipped.packOf ?? 1} Nos.`;
       lines.push({
-        description: crmLineDescription({ name: productName, shipDate, shipTo }),
+        description: productName,
         quantity: qty,
         unitPrice,
         amount: money(qty * unitPrice),
+        shipDate,
+        packaging,
+        ...(sku ? { sku } : {}),
         sourceKey: `request:${lineScope}:item:${line.productName || productName}:${qty}`,
       });
     }
@@ -116,14 +124,12 @@ export function buildCrmLinesFromShipments(
         shipped.id ||
         "Label";
       lines.push({
-        description: crmLineDescription({
-          name: `Shipping label · ${orderLabel}`,
-          shipDate,
-          shipTo,
-        }),
+        description: `Shipping label · ${orderLabel}`,
         quantity: 1,
         unitPrice: labelPrice,
         amount: labelPrice,
+        shipDate,
+        packaging: "Label",
         sourceKey: `request:${lineScope}:label`,
       });
     }
@@ -150,6 +156,8 @@ export function buildCrmLinesFromShipments(
       quantity,
       unitPrice,
       amount: money(quantity * unitPrice),
+      shipDate: alreadyHasDate ? undefined : primaryShipDate || undefined,
+      packaging: "Additional service",
       // Scope by outbound so the same service on a later order still appends.
       sourceKey: `request:${scopeId}:svc:${name}:${quantity}:${unitPrice}`,
     });
@@ -189,6 +197,9 @@ export async function appendLinesToCrmOutboundDraft(input: {
     const quantity = Number(line.quantity) || 0;
     const unitPrice = money(line.unitPrice);
     const amount = money(line.amount ?? quantity * unitPrice);
+    const shipDate = String(line.shipDate || "").trim();
+    const sku = String(line.sku || "").trim();
+    const packaging = String(line.packaging || "").trim();
     return {
       id: line.id || newLineId(),
       description: String(line.description).trim(),
@@ -196,6 +207,9 @@ export async function appendLinesToCrmOutboundDraft(input: {
       unitPrice,
       compareUnitPrice: money(line.compareUnitPrice ?? 0),
       amount,
+      ...(shipDate ? { shipDate } : {}),
+      ...(sku ? { sku } : {}),
+      ...(packaging ? { packaging } : {}),
       sourceKey: line.sourceKey || undefined,
     };
   });

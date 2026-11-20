@@ -1,10 +1,10 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import {
   shopifyAddressSummary,
   type ShopifyNormalizedOrder,
 } from "@/lib/shopify-order-normalize";
+import { ShopifyOrderStatusBadges } from "@/components/integrations/shopify-order-status-badges";
 import { format } from "date-fns";
 
 function formatOrderDate(raw: string | null) {
@@ -45,16 +45,7 @@ export function ShopifyOrderDetailBody({
               {order.shopName ? ` · ${order.shopName}` : ""}
             </p>
           </div>
-          <div className="flex flex-wrap gap-1.5 shrink-0">
-            {order.financialStatus ? (
-              <Badge variant="outline" className="capitalize text-[10px]">
-                {order.financialStatus}
-              </Badge>
-            ) : null}
-            <Badge variant="secondary" className="capitalize text-[10px]">
-              {order.fulfillmentStatus || "unfulfilled"}
-            </Badge>
-          </div>
+          <ShopifyOrderStatusBadges order={order} className="shrink-0 text-right" />
         </div>
       ) : null}
 

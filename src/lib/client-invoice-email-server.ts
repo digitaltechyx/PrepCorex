@@ -4,6 +4,7 @@ import {
   buildClientInvoiceEmail,
   buildLateFeeInvoiceUpdate,
   getClientInvoiceReminderTargets,
+  isClientInvoiceEmailAutomationEnabled,
   type ClientInvoiceEmailKind,
 } from "@/lib/client-invoice-lifecycle";
 import { sendServerEmail } from "@/lib/server-smtp";
@@ -31,15 +32,15 @@ export async function sendClientInvoiceEmail(input: {
   kind: ClientInvoiceEmailKind;
   grandTotalOverride?: number;
 }): Promise<{ sent: boolean; reason?: string }> {
-  // Disabled: PrepCorex client invoice emails (created / reminders / late fee) paused.
-  return { sent: false, reason: "invoice_emails_disabled" };
-
   const db = adminDb();
   const ref = db.collection("users").doc(input.userId).collection("invoices").doc(input.invoiceId);
   const snap = await ref.get();
   if (!snap.exists) return { sent: false, reason: "invoice_not_found" };
 
   const invoice = { id: snap.id, ...(snap.data() as InvoiceDoc) };
+  if (!isClientInvoiceEmailAutomationEnabled(invoice as Record<string, unknown>)) {
+    return { sent: false, reason: "existing_invoice_emails_disabled" };
+  }
   const to = resolveClientEmail(invoice);
   if (!to) return { sent: false, reason: "missing_client_email" };
 
@@ -66,6 +67,9 @@ export async function notifyClientInvoiceCreated(input: {
   if (!snap.exists) return { sent: false, reason: "invoice_not_found" };
 
   const invoice = snap.data() as InvoiceDoc;
+  if (!isClientInvoiceEmailAutomationEnabled(invoice as Record<string, unknown>)) {
+    return { sent: false, reason: "existing_invoice_emails_disabled" };
+  }
   if (invoice.status !== "pending") return { sent: false, reason: "not_pending" };
   if (invoice.invoiceCreatedEmailSentAt) return { sent: false, reason: "already_sent" };
 

@@ -316,226 +316,8 @@ async function clearInvoiceLock(docRef, lockField) {
   });
 }
 
-// Run every 1 hour on the hour in New Jersey (America/New_York) time.
-exports.sendInvoiceReminders = functions.pubsub
-  .schedule("every 1 hours")
-  .timeZone(TZ_NEW_JERSEY)
-  .onRun(async () => {
-  // Disabled: PrepCorex / CRM invoice reminder + late-fee emails paused.
-  console.log("[Invoice automation] sendInvoiceReminders disabled — skipping.");
-  return null;
-
-  const db = admin.firestore();
-  const now = Date.now();
-  const runMetrics = {
-    scannedInvoices: 0,
-    reminder24hEligible: 0,
-    reminder24hNoEmail: 0,
-    reminder24hSent: 0,
-    reminder24hFailed: 0,
-    overdueEligible: 0,
-    overdueNoEmail: 0,
-    overdueSent: 0,
-    overdueFailed: 0,
-    finalEligible: 0,
-    finalNoEmail: 0,
-    finalSent: 0,
-    finalFailed: 0,
-  };
-
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpPort = Number(process.env.SMTP_PORT || 587);
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPassword = process.env.SMTP_PASSWORD;
-  const smtpSecure = String(process.env.SMTP_SECURE || "false") === "true";
-  const smtpFrom = process.env.SMTP_FROM || smtpUser;
-  const smtpFromName = process.env.SMTP_FROM_NAME || "Prep Services FBA";
-
-  if (!smtpHost || !smtpUser || !smtpPassword) {
-    console.warn("Invoice reminders: SMTP not configured, skipping.");
-    return null;
-  }
-
-  let transporter;
-  try {
-    transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      requireTLS: !smtpSecure,
-      auth: { user: smtpUser, pass: smtpPassword },
-      tls: { rejectUnauthorized: false },
-    });
-    await transporter.verify();
-  } catch (err) {
-    console.error("Invoice reminders: SMTP verify failed", err);
-    return null;
-  }
-
-  const candidates = [];
-  const sentSnap = await db.collection("external_invoices").where("status", "==", "sent").get();
-  sentSnap.docs.forEach((doc) => candidates.push({ id: doc.id, ...doc.data() }));
-  const partiallyPaidSnap = await db.collection("external_invoices").where("status", "==", "partially_paid").get();
-  partiallyPaidSnap.docs.forEach((doc) => candidates.push({ id: doc.id, ...doc.data() }));
-  const dedupedById = new Map();
-  for (const inv of candidates) dedupedById.set(inv.id, inv);
-  const invoices = Array.from(dedupedById.values()).filter((inv) => !isFullyPaidInvoice(inv));
-  runMetrics.scannedInvoices = invoices.length;
-
-  // 1) 24h reminder (once)
-  for (const inv of invoices) {
-    const sentAt = asDate(inv.sentAt);
-    if (inv.reminderSentAt) continue;
-    if (!sentAt || !Number.isFinite(sentAt.getTime()) || now - sentAt.getTime() < REMINDER_24H_MS) continue;
-    runMetrics.reminder24hEligible += 1;
-    const to = String(inv.clientEmail || "").trim();
-    if (!to) {
-      runMetrics.reminder24hNoEmail += 1;
-      continue;
-    }
-    const docRef = db.collection("external_invoices").doc(inv.id);
-
-    try {
-      const lockedInv = await tryAcquireInvoiceLock(db, docRef, "reminderProcessingUntil", "reminderSentAt");
-      if (!lockedInv) continue;
-      const dueDate = parseDateOnlyLocal(lockedInv.dueDate) || new Date();
-      const dueDateStr = dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-      const subject = `Reminder: Invoice ${lockedInv.invoiceNumber || lockedInv.id} - payment due`;
-      const message = REMINDER_24H_MESSAGE(lockedInv.invoiceNumber || lockedInv.id, dueDateStr);
-      await sendPlainEmail(transporter, smtpFromName, smtpFrom, to, subject, message);
-      await docRef.update({
-        reminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
-        reminderProcessingUntil: admin.firestore.FieldValue.delete(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      await writeEmailLog(db, {
-        to,
-        subject,
-        type: "reminder_24h",
-        invoiceNumber: lockedInv.invoiceNumber || "",
-        clientName: lockedInv.clientName || "",
-      });
-      runMetrics.reminder24hSent += 1;
-      console.log("24h reminder sent:", lockedInv.id, lockedInv.invoiceNumber, to);
-    } catch (err) {
-      runMetrics.reminder24hFailed += 1;
-      console.error("24h reminder send failed:", inv.id, err);
-      try {
-        await clearInvoiceLock(docRef, "reminderProcessingUntil");
-      } catch (_) {}
-    }
-  }
-
-  // Refresh invoice snapshots after reminder updates.
-  const sentSnap2 = await db.collection("external_invoices").where("status", "==", "sent").get();
-  const partiallyPaidSnap2 = await db.collection("external_invoices").where("status", "==", "partially_paid").get();
-  const currentById = new Map();
-  sentSnap2.docs.forEach((doc) => currentById.set(doc.id, { id: doc.id, ...doc.data() }));
-  partiallyPaidSnap2.docs.forEach((doc) => currentById.set(doc.id, { id: doc.id, ...doc.data() }));
-  const currentInvoices = Array.from(currentById.values()).filter((inv) => !isFullyPaidInvoice(inv));
-
-  // 2) First overdue: apply late fee + overdue email (once)
-  for (const inv of currentInvoices) {
-    if (!isOverdueInvoice(inv)) continue;
-    if ((Number(inv.lateFee || 0) > 0) || inv.lateFeeEmailSentAt) continue;
-    runMetrics.overdueEligible += 1;
-    const to = String(inv.clientEmail || "").trim();
-    if (!to) {
-      runMetrics.overdueNoEmail += 1;
-      continue;
-    }
-    const docRef = db.collection("external_invoices").doc(inv.id);
-    try {
-      const lockedInv = await tryAcquireInvoiceLock(db, docRef, "overdueProcessingUntil", "lateFeeEmailSentAt");
-      if (!lockedInv) continue;
-      const todayNJ = getTodayInNJ();
-      const tomorrowNJ = new Date(todayNJ);
-      tomorrowNJ.setUTCDate(tomorrowNJ.getUTCDate() + 1);
-      const invoiceDateStr = formatDateInputLocal(todayNJ);
-      const dueDateStr = formatDateInputLocal(tomorrowNJ);
-      const updatedInv = { ...lockedInv, lateFee: LATE_FEE_AMOUNT, invoiceDate: invoiceDateStr, dueDate: dueDateStr };
-      const amountPaid = Number(lockedInv.amountPaid || 0);
-      const newOutstanding = Math.max(0, Number((getGrandTotalWithLateFee(updatedInv) - amountPaid).toFixed(2)));
-      const subject = `Late Fee Added - Invoice ${lockedInv.invoiceNumber || lockedInv.id}`;
-      await sendPlainEmail(transporter, smtpFromName, smtpFrom, to, subject, OVERDUE_LATE_FEE_MESSAGE);
-      await docRef.update({
-        lateFee: LATE_FEE_AMOUNT,
-        invoiceDate: invoiceDateStr,
-        dueDate: dueDateStr,
-        outstandingBalance: newOutstanding,
-        lateFeeEmailSentAt: admin.firestore.FieldValue.serverTimestamp(),
-        overdueProcessingUntil: admin.firestore.FieldValue.delete(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      await writeEmailLog(db, {
-        to,
-        subject,
-        type: "overdue",
-        invoiceNumber: lockedInv.invoiceNumber || "",
-        clientName: lockedInv.clientName || "",
-      });
-      runMetrics.overdueSent += 1;
-      console.log("Overdue late-fee email sent:", lockedInv.id, lockedInv.invoiceNumber, to);
-    } catch (err) {
-      runMetrics.overdueFailed += 1;
-      console.error("Overdue late-fee email failed:", inv.id, err);
-      try {
-        await clearInvoiceLock(docRef, "overdueProcessingUntil");
-      } catch (_) {}
-    }
-  }
-
-  // Refresh invoice snapshots after overdue updates.
-  const sentSnap3 = await db.collection("external_invoices").where("status", "==", "sent").get();
-  const partiallyPaidSnap3 = await db.collection("external_invoices").where("status", "==", "partially_paid").get();
-  const currentById2 = new Map();
-  sentSnap3.docs.forEach((doc) => currentById2.set(doc.id, { id: doc.id, ...doc.data() }));
-  partiallyPaidSnap3.docs.forEach((doc) => currentById2.set(doc.id, { id: doc.id, ...doc.data() }));
-  const currentInvoices2 = Array.from(currentById2.values()).filter((inv) => !isFullyPaidInvoice(inv));
-
-  // 3) Second overdue: final reminder (once, even if late fee was later removed)
-  for (const inv of currentInvoices2) {
-    if (!isOverdueInvoice(inv)) continue;
-    if (!inv.lateFeeEmailSentAt || inv.secondOverdueReminderSentAt) continue;
-    runMetrics.finalEligible += 1;
-    const to = String(inv.clientEmail || "").trim();
-    if (!to) {
-      runMetrics.finalNoEmail += 1;
-      continue;
-    }
-    const docRef = db.collection("external_invoices").doc(inv.id);
-    try {
-      const lockedInv = await tryAcquireInvoiceLock(db, docRef, "finalReminderProcessingUntil", "secondOverdueReminderSentAt");
-      if (!lockedInv) continue;
-      const subject = `Final Reminder: Unpaid Invoice ${lockedInv.invoiceNumber || lockedInv.id}`;
-      await sendPlainEmail(transporter, smtpFromName, smtpFrom, to, subject, FINAL_REMINDER_MESSAGE);
-      await docRef.update({
-        secondOverdueReminderSentAt: admin.firestore.FieldValue.serverTimestamp(),
-        finalReminderProcessingUntil: admin.firestore.FieldValue.delete(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      await writeEmailLog(db, {
-        to,
-        subject,
-        type: "second_reminder",
-        invoiceNumber: lockedInv.invoiceNumber || "",
-        clientName: lockedInv.clientName || "",
-      });
-      runMetrics.finalSent += 1;
-      console.log("Final reminder sent:", lockedInv.id, lockedInv.invoiceNumber, to);
-    } catch (err) {
-      runMetrics.finalFailed += 1;
-      console.error("Final reminder send failed:", inv.id, err);
-      try {
-        await clearInvoiceLock(docRef, "finalReminderProcessingUntil");
-      } catch (_) {}
-    }
-  }
-
-  console.log("[Invoice automation metrics]", JSON.stringify(runMetrics));
-
-  return null;
-});
+// sendInvoiceReminders (hourly) removed 2026-11-06 — do not re-add without agreement.
+// Delete from GCP: firebase functions:delete sendInvoiceReminders --force
 
 // ---- Client invoices (users/{uid}/invoices): creation email + due-date reminders ----
 const {
@@ -559,12 +341,28 @@ exports.onClientInvoiceCreated = functions.firestore
       console.error("CRM invoice sync mirror failed:", userId, invoiceId, err);
     }
 
-    // Disabled: client invoice created emails paused (CRM sync still runs above).
-    console.log(
-      "[Invoice automation] onClientInvoiceCreated email disabled — sync only:",
-      userId,
-      invoiceId
-    );
+    // Notify client when a new pending invoice appears (one email per invoice).
+    try {
+      const smtp = createSmtpTransporter(nodemailer);
+      if (!smtp) {
+        console.warn(
+          "[Invoice automation] SMTP not configured — skipped created email:",
+          userId,
+          invoiceId
+        );
+        return null;
+      }
+      const result = await sendClientInvoiceCreatedEmail(
+        admin.firestore(),
+        smtp.transporter,
+        smtp.config,
+        userId,
+        invoiceId
+      );
+      console.log("[Invoice automation] created email:", userId, invoiceId, result);
+    } catch (err) {
+      console.error("[Invoice automation] created email failed:", userId, invoiceId, err);
+    }
     return null;
   });
 
@@ -582,30 +380,33 @@ exports.onClientInvoiceUpdated = functions.firestore
     return null;
   });
 
-exports.sendClientInvoiceReminders = functions.pubsub
-  .schedule("every 1 hours")
-  .timeZone(TZ_NEW_JERSEY)
+/**
+ * Daily (not hourly) client invoice reminders + late fee.
+ * Cost note: scans each user’s pending invoices once per day (~9:00 America/New_York).
+ * Do not change to every-minute / every-hour without agreement.
+ */
+exports.sendClientInvoiceReminders = functions
+  .runWith({ timeoutSeconds: 540, memory: "512MB" })
+  .pubsub.schedule("0 9 * * *")
+  .timeZone("America/New_York")
   .onRun(async () => {
-    // Disabled: PrepCorex client invoice reminder / late-fee emails paused.
-    console.log("[Invoice automation] sendClientInvoiceReminders disabled — skipping.");
+    const smtp = createSmtpTransporter(nodemailer);
+    if (!smtp) {
+      console.warn("[Invoice automation] SMTP not configured — skipped reminders");
+      return null;
+    }
+    const metrics = await runClientInvoiceReminders(
+      admin.firestore(),
+      smtp.transporter,
+      smtp.config
+    );
+    console.log("[Invoice automation] daily reminders:", metrics);
     return null;
   });
 
 // ---- Client account inactivity (lock 30d / disable 60d) ----
-const { runClientAccountInactivity } = require("./client-account-inactivity");
-
-exports.processClientAccountInactivity = functions.pubsub
-  .schedule("every 24 hours")
-  .timeZone(TZ_NEW_JERSEY)
-  .onRun(async () => {
-    try {
-      const metrics = await runClientAccountInactivity(admin.firestore());
-      console.log("[Client account inactivity metrics]", JSON.stringify(metrics));
-    } catch (err) {
-      console.error("Client account inactivity failed:", err);
-    }
-    return null;
-  });
+// processClientAccountInactivity not exported (daily full users scan). Delete from GCP if present:
+//   firebase functions:delete processClientAccountInactivity --force
 
 // ---- Admin Notifications: email info@ on each new request create (no cron) ----
 const { registerAdminRequestNotifyTriggers } = require("./admin-request-notify-email");

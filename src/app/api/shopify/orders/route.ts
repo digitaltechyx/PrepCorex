@@ -1,15 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { ShopifyReconnectRequired } from "@/lib/shopify-access-token";
-import { shopifyOrderFromFirestore } from "@/lib/shopify-order-normalize";
-import { syncShopifyOrdersForUser } from "@/lib/shopify-order-sync";
+import type { ShopifyNormalizedOrder } from "@/lib/shopify-order-normalize";
+import {
+  loadUserShopifyOrdersFromFirestore,
+  syncShopifyOrdersForUser,
+} from "@/lib/shopify-order-sync";
 import { authorizeShopifyUserRoute } from "@/lib/shopify-route-auth";
 
 export const dynamic = "force-dynamic";
 
+function mergeOrdersById(
+  cached: ShopifyNormalizedOrder[],
+  live: ShopifyNormalizedOrder[]
+): ShopifyNormalizedOrder[] {
+  const byId = new Map<string, ShopifyNormalizedOrder>();
+  for (const o of cached) {
+    if (o.id) byId.set(o.id, o);
+  }
+  // Live sync wins for overlapping ids (fresher Shopify payload).
+  for (const o of live) {
+    if (o.id) byId.set(o.id, o);
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
+    const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
+    return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
+  });
+}
+
 /**
  * GET /api/shopify/orders?userId=&shop=&connectionId=&source=live|cache
- * Default: live pull from Shopify with full order details (like TikTok), persisted to Firestore.
+ * live: sync from Shopify, then return live + all Firestore history for this client.
+ * cache: Firestore only.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -27,21 +50,11 @@ export async function GET(request: NextRequest) {
 
   try {
     if (source === "cache") {
-      const snapshot = await adminDb()
-        .collection("users")
-        .doc(userId)
-        .collection("shopifyOrders")
-        .orderBy("created_at", "desc")
-        .limit(200)
-        .get();
-      let orders = snapshot.docs.map((d) => shopifyOrderFromFirestore(d.id, d.data()));
-      if (shop) {
-        const shopNorm = shop.includes(".myshopify.com") ? shop.toLowerCase() : `${shop.toLowerCase()}.myshopify.com`;
-        orders = orders.filter((o) => o.shop.toLowerCase() === shopNorm);
-      }
-      if (connectionId) {
-        orders = orders.filter((o) => o.connectionId === connectionId);
-      }
+      const orders = await loadUserShopifyOrdersFromFirestore(adminDb(), userId, {
+        shop,
+        connectionId,
+        limit: 2000,
+      });
       return NextResponse.json({ orders, source: "cache" });
     }
 
@@ -50,10 +63,19 @@ export async function GET(request: NextRequest) {
       connectionId,
       persist: true,
     });
+    const cached = await loadUserShopifyOrdersFromFirestore(adminDb(), userId, {
+      shop,
+      connectionId,
+      limit: 2000,
+    });
+    const orders = mergeOrdersById(cached, result.orders);
+
     return NextResponse.json({
-      orders: result.orders,
+      orders,
       connections: result.connections,
       source: "live",
+      syncedNow: result.orders.length,
+      total: orders.length,
     });
   } catch (err: unknown) {
     if (err instanceof ShopifyReconnectRequired) {
@@ -90,11 +112,19 @@ export async function POST(request: NextRequest) {
       connectionId,
       persist: true,
     });
+    const cached = await loadUserShopifyOrdersFromFirestore(adminDb(), userId, {
+      shop,
+      connectionId,
+      limit: 2000,
+    });
+    const orders = mergeOrdersById(cached, result.orders);
+
     return NextResponse.json({
       ok: true,
       synced: result.orders.length,
-      orders: result.orders,
+      orders,
       connections: result.connections,
+      total: orders.length,
     });
   } catch (err: unknown) {
     if (err instanceof ShopifyReconnectRequired) {

@@ -61,6 +61,7 @@ type ProductLine = {
   productName: string;
   shipDate: string;
   packaging: string;
+  sku?: string;
   shipTo: string;
   unitPrice: number;
   shipmentId?: string;
@@ -99,12 +100,14 @@ function buildProductLinesFromShipments(shipments: ShippedItem[]): ProductLine[]
     for (const line of normalizeShipmentItems(shipped)) {
       const qty = Number(line.shippedQty ?? line.boxesShipped ?? 0);
       const unitPrice = Number(line.unitPrice ?? shipped.unitPrice ?? 0);
+      const sku = String(line.sku || "").trim();
       lines.push({
         id: newId("prod"),
         quantity: qty,
         productName: line.productName || shipped.productName || "Unknown Product",
         shipDate,
         packaging: `${line.packOf ?? shipped.packOf ?? 1} Nos.`,
+        ...(sku ? { sku } : {}),
         shipTo,
         unitPrice,
         shipmentId: shipped.id,
@@ -458,6 +461,7 @@ export function CreateOutboundInvoiceDialog({
           productName: line.productName,
           shipDate: line.shipDate,
           packaging: line.packaging,
+          ...(line.sku ? { sku: line.sku } : {}),
           shipTo: line.shipTo,
           unitPrice: line.unitPrice,
           amount: line.quantity * line.unitPrice,

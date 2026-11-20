@@ -1,6 +1,6 @@
 /**
  * Manual fallback for client invoice reminders.
- * Primary automation runs in Firebase Functions (`sendClientInvoiceReminders`).
+ * Primary automation: Firebase `sendClientInvoiceReminders` (daily 9:00 America/New_York).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
@@ -31,14 +31,6 @@ async function handleRequest(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  // Disabled: PrepCorex client invoice reminder / late-fee emails paused.
-  return NextResponse.json({
-    success: true,
-    actions: 0,
-    results: [],
-    reason: "invoice_emails_disabled",
-  });
 
   try {
     const db = adminDb();
