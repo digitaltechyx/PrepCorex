@@ -54,6 +54,23 @@ export async function sendClientInvoiceEmail(input: {
   });
 
   await sendServerEmail({ to, subject, message });
+
+  try {
+    await db.collection("client_invoice_email_logs").add({
+      to,
+      subject,
+      type: input.kind,
+      invoiceNumber: invoice.invoiceNumber || "",
+      clientName: resolveClientName(invoice),
+      userId: input.userId,
+      invoiceId: input.invoiceId,
+      sentAt: FieldValue.serverTimestamp(),
+      sentBy: "system:client_invoice_email_server",
+    });
+  } catch (logError) {
+    console.error("[client-invoice-email] failed to write email log", logError);
+  }
+
   return { sent: true };
 }
 

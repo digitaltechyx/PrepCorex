@@ -13,7 +13,7 @@ import {
   shippedNeedsCrmDraftServices,
   shippedNeedsOutboundInvoice,
 } from "@/lib/invoice-line-catalog";
-import { formatServiceLabel } from "@/types";
+import { formatServiceLabelWithChannel } from "@/types";
 import {
   formatFbaPackDimsForClient,
   isFbaLabelWorkflowRequest,
@@ -504,6 +504,12 @@ export function ShippedTable({
         buildShippedOrderDetails(payload, {
           status: item.status,
           dateLabel: formatDate(item.date),
+          request: rawRequest,
+          source:
+            String((detailsItem as { source?: string } | null)?.source || "").trim() ||
+            String((item as { source?: string }).source || "").trim() ||
+            String((payload as { source?: string }).source || "").trim() ||
+            undefined,
         }),
         inventory
       )
@@ -1457,7 +1463,13 @@ export function ShippedTable({
                             <br />
                             <span>Pack: {item.packOf}</span>
                             <br />
-                            <span>Service: {formatServiceLabel((item as any).service)}</span>
+                            <span>
+                              Service:{" "}
+                              {formatServiceLabelWithChannel(
+                                (item as any).service,
+                                (item as any).source
+                              )}
+                            </span>
                             <br />
                             <span>Product Type: {(item as any).productType === "Standard"
                               ? "Standard (6x6x6)"
@@ -1544,7 +1556,10 @@ export function ShippedTable({
                       <TableCell className="hidden sm:table-cell">{(item as any).boxesShipped ?? item.shippedQty}</TableCell>
                       <TableCell className="hidden md:table-cell">{item.packOf}</TableCell>
                       <TableCell className="hidden md:table-cell">
-                        {formatServiceLabel((item as any).service)}
+                        {formatServiceLabelWithChannel(
+                          (item as any).service,
+                          (item as any).source
+                        )}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {(item as any).productType === "Standard"

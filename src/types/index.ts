@@ -2503,6 +2503,48 @@ export function formatServiceLabel(service: string | undefined | null): string {
   return service;
 }
 
+/** Marketplace / quick-fulfill channel keys stored on shipped docs. */
+const MARKETPLACE_CHANNEL_LABELS: Record<string, string> = {
+  shopify: "Shopify",
+  ebay: "eBay",
+  amazon: "Amazon",
+  tiktok: "TikTok",
+  etsy: "Etsy",
+  woocommerce: "WooCommerce",
+  veeqo: "Veeqo",
+  shipstation: "ShipStation",
+};
+
+export function formatMarketplaceChannelLabel(
+  source: string | undefined | null
+): string | null {
+  const key = String(source || "")
+    .trim()
+    .toLowerCase();
+  if (!key) return null;
+  if (MARKETPLACE_CHANNEL_LABELS[key]) return MARKETPLACE_CHANNEL_LABELS[key];
+  // Unknown marketplace-like source: title-case the raw value.
+  if (/^[a-z0-9_-]+$/i.test(key) && key !== "manual" && key !== "warehouse") {
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+  return null;
+}
+
+/**
+ * Service label for lists/details. Marketplace quick-fulfill stays DTC/FBM for pricing,
+ * but shows the channel so users don't need remarks: e.g. "DTC/FBM · Shopify".
+ */
+export function formatServiceLabelWithChannel(
+  service: string | undefined | null,
+  source?: string | null
+): string {
+  const base = formatServiceLabel(service);
+  if (!isDtcFbmService(service)) return base;
+  const channel = formatMarketplaceChannelLabel(source);
+  if (!channel) return base;
+  return `${base} · ${channel}`;
+}
+
 export type ShipmentPreference = "box" | "pallet";
 
 /** Client preference for outbound pack unit: box (SPD) or pallet (LTL). */

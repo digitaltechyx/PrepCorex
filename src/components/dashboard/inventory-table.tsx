@@ -1389,8 +1389,8 @@ export function InventoryTable({
       } catch {
         try {
           sessionStorage.removeItem(refreshKey);
-        } catch {
-          /* non-blocking */
+      } catch {
+        /* non-blocking */
         }
       }
     })();
@@ -2457,18 +2457,18 @@ export function InventoryTable({
                           !(item as any).isRequest &&
                           !(item as any).isBatch &&
                           canAddInventorySku(item as InventorySourceRow) ? (
-                            <Button
+                          <Button
                               type="button"
-                              variant="ghost"
+                            variant="ghost"
                               size="icon"
                               className="h-5 w-5 shrink-0"
                               onClick={() =>
                                 handleInventoryMetadataEdit(item as InventoryItem, "sku")
                               }
                               title="Add SKU"
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
                           ) : null}
                         </span>
                         <span className="text-border">·</span>
@@ -2483,7 +2483,7 @@ export function InventoryTable({
                         >
                           {inventoryStatusBadge(item.status).label}
                         </Badge>
-                      </div>
+                        </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
                       <InventoryQuantityCell
@@ -2503,12 +2503,12 @@ export function InventoryTable({
                           qty
                         </span>
                       ) : null}
-                    </div>
+                      </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                          <Button
+                        <Button
                           type="button"
-                            variant="ghost"
+                          variant="ghost"
                           size="icon"
                           className="h-9 w-9 shrink-0"
                           aria-label="Row actions"
@@ -2596,7 +2596,7 @@ export function InventoryTable({
                               <>
                                 {canAddInventorySku(item as InventorySourceRow) ? (
                                   <DropdownMenuItem
-                                    onClick={() =>
+                          onClick={() =>
                                       handleInventoryMetadataEdit(item as InventoryItem, "sku")
                                     }
                                   >

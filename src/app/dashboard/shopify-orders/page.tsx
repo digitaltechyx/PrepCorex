@@ -160,75 +160,102 @@ function ShopifyOrdersContent() {
     }));
   }, [connections]);
 
+  const matchesStore = useCallback(
+    (o: ShopifyNormalizedOrder) => {
+      if (storeFilter === "all") return true;
+      if (connections.some((c) => c.id === storeFilter)) {
+        return o.connectionId === storeFilter;
+      }
+      return normalizeShop(o.shop) === normalizeShop(storeFilter);
+    },
+    [storeFilter, connections]
+  );
+
+  const matchesDate = useCallback(
+    (o: ShopifyNormalizedOrder) => {
+      const from = startOfDay(dateFrom);
+      const to = endOfDay(dateTo);
+      if (!from && !to) return true;
+      if (!o.createdAt) return false;
+      const d = new Date(o.createdAt);
+      if (Number.isNaN(d.getTime())) return false;
+      if (from && d < from) return false;
+      if (to && d > to) return false;
+      return true;
+    },
+    [dateFrom, dateTo]
+  );
+
+  const matchesSearch = useCallback(
+    (o: ShopifyNormalizedOrder) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return true;
+      const hay = [
+        o.name,
+        o.orderNumber,
+        o.id,
+        o.email,
+        o.customerName,
+        o.shopName,
+        o.shop,
+        o.note,
+        o.tags,
+        ...o.trackingNumbers,
+        ...o.lineItems.flatMap((li) => [li.title, li.sku, li.variantTitle]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    },
+    [search]
+  );
+
+  /** Orders in the current store/date/search/payment/cancelled context (before fulfillment card filter). */
+  const scopedOrders = useMemo(() => {
+    return orders.filter((o) => {
+      if (!matchesStore(o) || !matchesDate(o) || !matchesSearch(o)) return false;
+      if (paymentFilter === "paid" && !isShopifyOrderPaid(o)) return false;
+      if (paymentFilter === "unpaid" && !isShopifyOrderUnpaid(o)) return false;
+      if (cancelledFilter === "cancelled" && !isShopifyOrderCancelled(o)) return false;
+      if (cancelledFilter === "refunded" && !isShopifyOrderRefunded(o)) return false;
+      return true;
+    });
+  }, [
+    orders,
+    matchesStore,
+    matchesDate,
+    matchesSearch,
+    paymentFilter,
+    cancelledFilter,
+  ]);
+
   const filteredOrders = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const from = startOfDay(dateFrom);
-    const to = endOfDay(dateTo);
-
-    return orders
+    return scopedOrders
       .filter((o) => {
-        if (storeFilter !== "all") {
-          if (connections.some((c) => c.id === storeFilter)) {
-            if (o.connectionId !== storeFilter) return false;
-          } else {
-            const target = normalizeShop(storeFilter);
-            if (normalizeShop(o.shop) !== target) return false;
-          }
-        }
-
-        if (paymentFilter === "paid" && !isShopifyOrderPaid(o)) return false;
-        if (paymentFilter === "unpaid" && !isShopifyOrderUnpaid(o)) return false;
-
-        if (cancelledFilter === "cancelled" && !isShopifyOrderCancelled(o)) return false;
-        if (cancelledFilter === "refunded" && !isShopifyOrderRefunded(o)) return false;
-
+        const cancelled = isShopifyOrderCancelled(o);
         const fs = o.fulfillmentStatus || "unfulfilled";
-        if (fulfillmentFilter === "unfulfilled" && !isShopifyOrderUnfulfilledStatus(fs)) return false;
-        if (fulfillmentFilter === "fulfilled" && fs !== "fulfilled") return false;
 
-        if (from || to) {
-          if (!o.createdAt) return false;
-          const d = new Date(o.createdAt);
-          if (Number.isNaN(d.getTime())) return false;
-          if (from && d < from) return false;
-          if (to && d > to) return false;
+        // Status cards count non-cancelled only — keep the list aligned when filtering by fulfillment.
+        if (fulfillmentFilter !== "all" && cancelledFilter === "all" && cancelled) {
+          return false;
         }
 
-        if (!q) return true;
-        const hay = [
-          o.name,
-          o.orderNumber,
-          o.id,
-          o.email,
-          o.customerName,
-          o.shopName,
-          o.shop,
-          o.note,
-          o.tags,
-          ...o.trackingNumbers,
-          ...o.lineItems.flatMap((li) => [li.title, li.sku, li.variantTitle]),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(q);
+        if (fulfillmentFilter === "unfulfilled" && !isShopifyOrderUnfulfilledStatus(fs)) {
+          return false;
+        }
+        if (fulfillmentFilter === "fulfilled") {
+          if (String(fs).trim().toLowerCase() !== "fulfilled") return false;
+        }
+
+        return true;
       })
       .sort((a, b) => {
         const aMs = a.createdAt ? Date.parse(a.createdAt) : 0;
         const bMs = b.createdAt ? Date.parse(b.createdAt) : 0;
         return (Number.isNaN(bMs) ? 0 : bMs) - (Number.isNaN(aMs) ? 0 : aMs);
       });
-  }, [
-    orders,
-    storeFilter,
-    connections,
-    search,
-    fulfillmentFilter,
-    cancelledFilter,
-    paymentFilter,
-    dateFrom,
-    dateTo,
-  ]);
+  }, [scopedOrders, fulfillmentFilter, cancelledFilter]);
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -262,12 +289,20 @@ function ShopifyOrdersContent() {
     dateTo,
   ]);
 
-  const cancelledCount = orders.filter((o) => isShopifyOrderCancelled(o)).length;
-  const refundedCount = orders.filter((o) => isShopifyOrderRefunded(o)).length;
-  const unfulfilledCount = orders.filter(
+  // Stat cards follow store/date/search/payment/cancelled scope; fulfillment cards exclude cancelled.
+  const cancelledCount = scopedOrders.filter((o) => isShopifyOrderCancelled(o)).length;
+  const refundedCount = scopedOrders.filter((o) => isShopifyOrderRefunded(o)).length;
+  const unfulfilledCount = scopedOrders.filter(
     (o) => !isShopifyOrderCancelled(o) && isShopifyOrderUnfulfilledStatus(o.fulfillmentStatus)
   ).length;
-  const fulfilledCount = orders.filter((o) => o.fulfillmentStatus === "fulfilled").length;
+  const fulfilledCount = scopedOrders.filter(
+    (o) =>
+      !isShopifyOrderCancelled(o) &&
+      String(o.fulfillmentStatus || "")
+        .trim()
+        .toLowerCase() === "fulfilled"
+  ).length;
+  const totalActiveCount = scopedOrders.filter((o) => !isShopifyOrderCancelled(o)).length;
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / itemsPerPage));
   const safePage = Math.min(currentPage, totalPages);
@@ -314,13 +349,32 @@ function ShopifyOrdersContent() {
       </Card>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-        <Card>
+        <Card
+          className="cursor-pointer transition-colors hover:bg-muted/40"
+          onClick={() => {
+            setFulfillmentFilter("all");
+            setCancelledFilter("all");
+            setPaymentFilter("all");
+            setStoreFilter("all");
+            setSearch("");
+            setDateFrom("");
+            setDateTo("");
+            setCurrentPage(1);
+          }}
+        >
           <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
             <CardDescription className="text-xs">Total</CardDescription>
             <CardTitle className="text-xl tabular-nums sm:text-2xl">{orders.length}</CardTitle>
           </CardHeader>
         </Card>
-        <Card>
+        <Card
+          className="cursor-pointer transition-colors hover:bg-muted/40"
+          onClick={() => {
+            setFulfillmentFilter("unfulfilled");
+            setCancelledFilter("all");
+            setCurrentPage(1);
+          }}
+        >
           <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
             <CardDescription className="text-xs">Unfulfilled</CardDescription>
             <CardTitle className="text-xl tabular-nums text-amber-700 sm:text-2xl">
@@ -328,7 +382,14 @@ function ShopifyOrdersContent() {
             </CardTitle>
           </CardHeader>
         </Card>
-        <Card>
+        <Card
+          className="cursor-pointer transition-colors hover:bg-muted/40"
+          onClick={() => {
+            setFulfillmentFilter("fulfilled");
+            setCancelledFilter("all");
+            setCurrentPage(1);
+          }}
+        >
           <CardHeader className="space-y-0 p-3 sm:p-4 sm:pb-2">
             <CardDescription className="text-xs">Fulfilled</CardDescription>
             <CardTitle className="text-xl tabular-nums text-emerald-700 sm:text-2xl">
@@ -345,6 +406,14 @@ function ShopifyOrdersContent() {
           </CardHeader>
         </Card>
       </div>
+      <p className="text-[11px] text-muted-foreground sm:text-xs">
+        Unfulfilled + Fulfilled = {unfulfilledCount + fulfilledCount} active
+        {cancelledCount > 0 ? ` · ${cancelledCount} cancelled` : ""}
+        {totalActiveCount !== unfulfilledCount + fulfilledCount
+          ? ` · ${Math.max(0, totalActiveCount - unfulfilledCount - fulfilledCount)} other`
+          : ""}
+        . Click a status card to filter. Total resets all filters.
+      </p>
 
       <Card>
         <CardHeader className="space-y-3">

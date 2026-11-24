@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users, Plus, Trash2, Tag } from "lucide-react";
+import { Search, Download, CheckCircle, Clock, X, Eye, Receipt, User, Users, Plus, Trash2, Tag, Mail, AlertTriangle } from "lucide-react";
 import { generateInvoicePDF } from "@/lib/invoice-generator";
 import { computeInvoiceTotals, getAdminAdditionalCharges } from "@/lib/invoice-totals";
 import { useToast } from "@/hooks/use-toast";
@@ -23,9 +23,10 @@ import {
 } from "@/components/ui/table";
 import { type Invoice, type InvoiceAdditionalCharge, type UserProfile, type Commission } from "@/types";
 import { db } from "@/lib/firebase";
-import { collection, query, getDocs, orderBy, doc, updateDoc, where, deleteField } from "firebase/firestore";
+import { collection, query, getDocs, orderBy, limit, doc, updateDoc, where, deleteField } from "firebase/firestore";
 import type { ShippedItem } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useCollection } from "@/hooks/use-collection";
 import { createCommissionForInvoice } from "@/lib/commission-utils";
 import { logAffiliateAuditEvent } from "@/lib/affiliate-audit-trail-client";
 import { DollarSign } from "lucide-react";
@@ -40,13 +41,74 @@ import {
 } from "@/lib/discount-trail";
 import type { DiscountTrailEntry } from "@/types";
 import { getDueDateChangeFieldResets } from "@/lib/client-invoice-lifecycle";
-import { formatDateInputForDisplay, getTodayDateInputInNJ } from "@/lib/nj-date";
+import { addDaysToDateInput, formatDateInputForDisplay, getTodayDateInputInNJ } from "@/lib/nj-date";
+
+/** Pending invoices issued ~2+ months ago (still unpaid). */
+const STALE_PENDING_DAYS = 60;
 
 function isOverduePendingInvoice(invoice: Invoice, todayKey = getTodayDateInputInNJ()): boolean {
   if (invoice.status !== "pending") return false;
   const due = String(invoice.dueDate || "").trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) return false;
   return due < todayKey;
+}
+
+function isStalePendingInvoice(invoice: Invoice, todayKey = getTodayDateInputInNJ()): boolean {
+  if (invoice.status !== "pending") return false;
+  const issued = String(invoice.date || invoice.dueDate || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(issued)) return false;
+  const cutoff = addDaysToDateInput(todayKey, -STALE_PENDING_DAYS);
+  return issued <= cutoff;
+}
+
+type UserFilterTab = "all" | "unpaid" | "paid" | "stale-pending";
+type MainTab = "invoices" | "commissions" | "discount-trail" | "email-log";
+
+type ClientInvoiceEmailLogEntry = {
+  id: string;
+  to?: string;
+  subject?: string;
+  type?: string;
+  invoiceNumber?: string;
+  clientName?: string;
+  userId?: string;
+  invoiceId?: string;
+  sentAt?: unknown;
+  sentBy?: string;
+};
+
+function formatClientEmailLogType(type: string | undefined): string {
+  switch (String(type || "").trim()) {
+    case "created":
+      return "Invoice created";
+    case "reminder_penultimate":
+      return "Pre-due reminder";
+    case "reminder_due_day":
+      return "Due-day reminder";
+    case "late_fee":
+      return "Late fee";
+    default:
+      return type ? type.replace(/_/g, " ") : "Email";
+  }
+}
+
+function formatEmailLogSentAt(value: unknown): string {
+  if (!value) return "—";
+  try {
+    if (typeof value === "object" && value !== null && "toDate" in value && typeof (value as { toDate: () => Date }).toDate === "function") {
+      return (value as { toDate: () => Date }).toDate().toLocaleString();
+    }
+    if (typeof value === "object" && value !== null && "seconds" in value) {
+      const seconds = Number((value as { seconds: number }).seconds);
+      if (Number.isFinite(seconds)) return new Date(seconds * 1000).toLocaleString();
+    }
+    if (value instanceof Date) return value.toLocaleString();
+    const parsed = new Date(String(value));
+    if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString();
+  } catch {
+    /* ignore */
+  }
+  return "—";
 }
 
 interface InvoiceManagementProps {
@@ -58,7 +120,7 @@ interface InvoiceManagementProps {
   initialTab?: "pending" | "paid" | null;
 }
 
-function userFilterTabFromInitial(initialTab: InvoiceManagementProps["initialTab"]): "all" | "unpaid" | "paid" {
+function userFilterTabFromInitial(initialTab: InvoiceManagementProps["initialTab"]): UserFilterTab {
   if (initialTab === "pending") return "unpaid";
   if (initialTab === "paid") return "paid";
   return "all";
@@ -69,6 +131,7 @@ interface UserInvoiceSummary {
   pendingCount: number;
   paidCount: number;
   overdueCount: number;
+  stalePendingCount: number;
   totalAmount: number;
 }
 
@@ -88,7 +151,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [usersPage, setUsersPage] = useState(1);
-  const [userFilterTab, setUserFilterTab] = useState<"all" | "unpaid" | "paid">(() =>
+  const [userFilterTab, setUserFilterTab] = useState<UserFilterTab>(() =>
     userFilterTabFromInitial(initialTab)
   );
   const [activeTab, setActiveTab] = useState<"pending" | "paid">(
@@ -103,12 +166,23 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     }
   }, [initialTab]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [mainTab, setMainTab] = useState<"invoices" | "commissions" | "discount-trail">("invoices");
+  const [mainTab, setMainTab] = useState<MainTab>("invoices");
+  const [emailLogSearch, setEmailLogSearch] = useState("");
   const [commissionTab, setCommissionTab] = useState<"pending" | "paid">("pending");
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [commissionsLoading, setCommissionsLoading] = useState(false);
   const [commissionPage, setCommissionPage] = useState(1);
   const itemsPerPage = 12;
+
+  // Load email logs only while the Email log tab is open (avoids idle Firestore listeners).
+  const emailLogsQuery = useMemo(
+    () => query(collection(db, "client_invoice_email_logs"), orderBy("sentAt", "desc"), limit(300)),
+    []
+  );
+  const { data: emailLogs, loading: emailLogsLoading } = useCollection<ClientInvoiceEmailLogEntry>(
+    mainTab === "email-log" ? "client_invoice_email_logs" : "",
+    emailLogsQuery
+  );
 
   // Manual test generation for storage invoices (admin review)
   const [isStorageTestDialogOpen, setIsStorageTestDialogOpen] = useState(false);
@@ -410,6 +484,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     const pendingCount = invoices.filter(inv => inv.status === 'pending').length;
     const paidCount = invoices.filter(inv => inv.status === 'paid').length;
     const overdueCount = invoices.filter(inv => isOverduePendingInvoice(inv, todayKey)).length;
+    const stalePendingCount = invoices.filter(inv => isStalePendingInvoice(inv, todayKey)).length;
     const totalAmount = invoices
       .filter(inv => inv.status === 'pending')
       .reduce((sum, inv) => sum + inv.grandTotal, 0);
@@ -419,6 +494,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       pendingCount,
       paidCount,
       overdueCount,
+      stalePendingCount,
       totalAmount,
     };
   });
@@ -430,19 +506,50 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       0
     );
     const overdueInvoices = allInvoices.filter((inv) => isOverduePendingInvoice(inv, todayKey)).length;
+    const stalePendingInvoices = allInvoices.filter((inv) => isStalePendingInvoice(inv, todayKey)).length;
     const todaysRevenue = allInvoices
       .filter((inv) => inv.status === "paid" && String(inv.date || "").slice(0, 10) === todayKey)
       .reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0);
     return {
       dueAmount,
       overdueInvoices,
+      stalePendingInvoices,
       todaysRevenue,
     };
-  }, [userSummaries, userInvoices]);
+  }, [userSummaries, userInvoices, todayKey]);
+
+  const filteredEmailLogs = useMemo(() => {
+    const list = emailLogs ?? [];
+    const q = emailLogSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (log) =>
+        (log.to ?? "").toLowerCase().includes(q) ||
+        (log.clientName ?? "").toLowerCase().includes(q) ||
+        (log.invoiceNumber ?? "").toLowerCase().includes(q) ||
+        (log.subject ?? "").toLowerCase().includes(q) ||
+        (log.type ?? "").toLowerCase().includes(q)
+    );
+  }, [emailLogs, emailLogSearch]);
+
+  const emailLogsByRecipient = useMemo(() => {
+    const map = new Map<string, { count: number; logs: ClientInvoiceEmailLogEntry[] }>();
+    filteredEmailLogs.forEach((log) => {
+      const to = log.to || "—";
+      const existing = map.get(to);
+      if (existing) {
+        existing.count += 1;
+        existing.logs.push(log);
+      } else {
+        map.set(to, { count: 1, logs: [log] });
+      }
+    });
+    return Array.from(map.entries()).map(([to, data]) => ({ to, ...data }));
+  }, [filteredEmailLogs]);
 
   // Filter users based on search and invoice status, pin admin first, then sort A-Z
   const filteredUsers = (() => {
-    const filtered = userSummaries.filter(({ user, pendingCount, paidCount }) => {
+    const filtered = userSummaries.filter(({ user, pendingCount, paidCount, stalePendingCount }) => {
       // Search filter
       const matchesSearch = 
         user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -456,6 +563,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       } else if (userFilterTab === "paid") {
         // Only users whose all invoices are settled (no pending + has at least one paid invoice)
         return pendingCount === 0 && paidCount > 0;
+      } else if (userFilterTab === "stale-pending") {
+        return stalePendingCount > 0;
       }
       
       return true; // "all" - show all users
@@ -551,7 +660,14 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
     });
   };
 
-  const filteredPendingInvoices = getFilteredInvoices(selectedUserInvoices.filter(inv => inv.status === 'pending'));
+  const filteredPendingInvoices = getFilteredInvoices(
+    selectedUserInvoices.filter((inv) => {
+      if (inv.status !== "pending") return false;
+      // When browsing via the 2+ months card, only show those stale pending invoices.
+      if (userFilterTab === "stale-pending") return isStalePendingInvoice(inv, todayKey);
+      return true;
+    })
+  );
   const filteredPaidInvoices = getFilteredInvoices(selectedUserInvoices.filter(inv => inv.status === 'paid'));
 
   // Get current tab invoices
@@ -1092,19 +1208,19 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
   return (
     <div className="min-w-0 space-y-3 sm:space-y-6">
-      {/* Main Tabs: Invoices / Discount / Commissions */}
-      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as "invoices" | "commissions" | "discount-trail")} className="w-full">
-        <TabsList className="mb-3 grid h-9 w-full grid-cols-3 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:mb-6 sm:h-12 sm:rounded-xl sm:p-1">
-          <TabsTrigger value="invoices" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+      {/* Main Tabs: Invoices / Discount / Commissions / Email log */}
+      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as MainTab)} className="w-full">
+        <TabsList className="mb-3 grid h-9 w-full grid-cols-4 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:mb-6 sm:h-12 sm:rounded-xl sm:p-1">
+          <TabsTrigger value="invoices" className="gap-1 px-0.5 text-[10px] sm:gap-2 sm:px-3 sm:text-sm">
             <Receipt className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
             Invoices
           </TabsTrigger>
-          <TabsTrigger value="discount-trail" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+          <TabsTrigger value="discount-trail" className="gap-1 px-0.5 text-[10px] sm:gap-2 sm:px-3 sm:text-sm">
             <Tag className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
             <span className="sm:hidden">Discount</span>
             <span className="hidden sm:inline">Discount trail</span>
           </TabsTrigger>
-          <TabsTrigger value="commissions" className="gap-1 px-1 text-[11px] sm:gap-2 sm:px-3 sm:text-sm">
+          <TabsTrigger value="commissions" className="gap-1 px-0.5 text-[10px] sm:gap-2 sm:px-3 sm:text-sm">
             <DollarSign className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
             <span className="truncate">Commissions</span>
             {pendingCommissions.length > 0 && (
@@ -1113,11 +1229,16 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="email-log" className="gap-1 px-0.5 text-[10px] sm:gap-2 sm:px-3 sm:text-sm">
+            <Mail className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+            <span className="sm:hidden">Email</span>
+            <span className="hidden sm:inline">Email log</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="invoices" className="mt-0 space-y-3 sm:space-y-6">
           {/* Invoice Dashboard Stats */}
-          <div className="grid grid-cols-3 gap-1.5 sm:gap-4">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-4">
             <Card
               role="button"
               tabIndex={0}
@@ -1171,6 +1292,40 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   ${invoiceDashboardStats.todaysRevenue.toFixed(2)}
                 </p>
                 <p className="mt-0.5 hidden text-xs text-teal-700 sm:mt-1 sm:block">Paid invoices dated today</p>
+              </CardContent>
+            </Card>
+            <Card
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setUserFilterTab("stale-pending");
+                setActiveTab("pending");
+                setUsersPage(1);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setUserFilterTab("stale-pending");
+                  setActiveTab("pending");
+                  setUsersPage(1);
+                }
+              }}
+              className={`min-w-0 cursor-pointer overflow-hidden rounded-lg border border-amber-200/70 bg-gradient-to-br from-amber-50 to-orange-100/40 shadow-sm transition-all hover:shadow-md sm:rounded-xl sm:border-2 ${
+                userFilterTab === "stale-pending" ? "ring-2 ring-amber-400" : ""
+              }`}
+            >
+              <CardHeader className="space-y-0 p-2 pb-0 sm:p-6 sm:pb-2">
+                <CardTitle className="flex items-center gap-1 text-[10px] font-medium leading-tight text-amber-900 sm:text-sm">
+                  <AlertTriangle className="hidden h-3.5 w-3.5 sm:block" />
+                  2+ Months
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-2 pt-0.5 sm:p-6 sm:pt-0">
+                <p className="text-sm font-bold tabular-nums text-amber-950 sm:text-2xl">
+                  {invoiceDashboardStats.stalePendingInvoices}
+                </p>
+                <p className="mt-0.5 hidden text-xs text-amber-800 sm:mt-1 sm:block">
+                  Pending invoices from 2+ months
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -1244,42 +1399,56 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
 
             {/* Filter Tabs */}
             <Tabs value={userFilterTab} onValueChange={(value) => {
-              setUserFilterTab(value as "all" | "unpaid" | "paid");
+              setUserFilterTab(value as UserFilterTab);
+              if (value === "stale-pending") setActiveTab("pending");
               setUsersPage(1);
             }} className="w-full">
-              <TabsList className="grid h-9 w-full grid-cols-3 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:h-12 sm:rounded-xl sm:p-1">
+              <TabsList className="grid h-9 w-full grid-cols-4 gap-0.5 rounded-lg border bg-slate-100/90 p-0.5 sm:h-12 sm:rounded-xl sm:p-1">
                 <TabsTrigger
                   value="all"
-                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
+                  className="rounded-md px-0.5 text-[10px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-slate-700 data-[state=active]:shadow-sm sm:rounded-lg sm:px-1 sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <div className="flex items-center justify-center gap-0.5 sm:gap-2">
                     <Users className="hidden h-4 w-4 sm:block" />
                     <span>All</span>
-                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
+                    <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-slate-200 px-1 py-0.5 text-[9px] font-semibold text-slate-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.length}
                     </span>
                   </div>
                 </TabsTrigger>
                 <TabsTrigger
                   value="unpaid"
-                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
+                  className="rounded-md px-0.5 text-[10px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm sm:rounded-lg sm:px-1 sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <div className="flex items-center justify-center gap-0.5 sm:gap-2">
                     <Clock className="hidden h-4 w-4 sm:block" />
                     <span>Unpaid</span>
-                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
+                    <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-amber-100 px-1 py-0.5 text-[9px] font-semibold text-amber-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.filter(({ pendingCount }) => pendingCount > 0).length}
                     </span>
                   </div>
                 </TabsTrigger>
                 <TabsTrigger
-                  value="paid"
-                  className="rounded-md px-1 text-[11px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm sm:rounded-lg sm:text-sm"
+                  value="stale-pending"
+                  className="rounded-md px-0.5 text-[10px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-orange-800 data-[state=active]:shadow-sm sm:rounded-lg sm:px-1 sm:text-sm"
                 >
-                  <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <div className="flex items-center justify-center gap-0.5 sm:gap-2">
+                    <AlertTriangle className="hidden h-4 w-4 sm:block" />
+                    <span className="sm:hidden">2+ mo</span>
+                    <span className="hidden sm:inline">2+ months</span>
+                    <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-orange-100 px-1 py-0.5 text-[9px] font-semibold text-orange-800 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
+                      {userSummaries.filter(({ stalePendingCount }) => stalePendingCount > 0).length}
+                    </span>
+                  </div>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="paid"
+                  className="rounded-md px-0.5 text-[10px] font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm sm:rounded-lg sm:px-1 sm:text-sm"
+                >
+                  <div className="flex items-center justify-center gap-0.5 sm:gap-2">
                     <CheckCircle className="hidden h-4 w-4 sm:block" />
                     <span>Paid</span>
-                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
+                    <span className="inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold text-emerald-700 sm:min-w-[1.6rem] sm:px-2 sm:text-[11px]">
                       {userSummaries.filter(({ pendingCount, paidCount }) => pendingCount === 0 && paidCount > 0).length}
                     </span>
                   </div>
@@ -1294,7 +1463,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
       <Card className="min-w-0 border-2 shadow-lg">
         <CardHeader className="p-3 sm:p-6">
           <CardTitle className="text-base sm:text-xl">Users ({filteredUsers.length})</CardTitle>
-          <CardDescription className="text-xs sm:text-sm">Click on a user to view their invoices</CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
+            {userFilterTab === "stale-pending"
+              ? "Users with pending invoices issued 2+ months ago — click a user to review those invoices"
+              : "Click on a user to view their invoices"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
           {loading ? (
@@ -1306,7 +1479,7 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
           ) : filteredUsers.length > 0 ? (
             <>
               <div className="space-y-1.5 md:hidden">
-                {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
+                {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, stalePendingCount, totalAmount }, idx) => (
                   <button
                     key={`${user.uid || user.email || "user"}-${idx}`}
                     type="button"
@@ -1334,6 +1507,11 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                       >
                         Overdue {overdueCount}
                       </Badge>
+                      {stalePendingCount > 0 ? (
+                        <Badge className="bg-amber-100 text-[10px] text-amber-900 hover:bg-amber-100">
+                          2+ mo {stalePendingCount}
+                        </Badge>
+                      ) : null}
                       <Badge variant="default" className="bg-green-100 text-[10px] text-green-800">
                         Paid {paidCount}
                       </Badge>
@@ -1349,12 +1527,13 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                       <TableHead className="min-w-[180px]">Email</TableHead>
                       <TableHead className="min-w-[90px] text-right">Pending</TableHead>
                       <TableHead className="min-w-[90px] text-right">Overdue</TableHead>
+                      <TableHead className="min-w-[90px] text-right">2+ Months</TableHead>
                       <TableHead className="min-w-[80px] text-right">Paid</TableHead>
                       <TableHead className="min-w-[120px] text-right">Pending Amount</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, totalAmount }, idx) => (
+                    {paginatedUsers.map(({ user, pendingCount, paidCount, overdueCount, stalePendingCount, totalAmount }, idx) => (
                       <TableRow
                         key={`${user.uid || user.email || "user"}-${idx}`}
                         className="cursor-pointer transition-colors hover:bg-indigo-50/40"
@@ -1373,6 +1552,18 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                             className={overdueCount > 0 ? "" : "text-muted-foreground"}
                           >
                             {overdueCount}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge
+                            className={
+                              stalePendingCount > 0
+                                ? "bg-amber-100 text-amber-900 hover:bg-amber-100"
+                                : "border text-muted-foreground"
+                            }
+                            variant={stalePendingCount > 0 ? "secondary" : "outline"}
+                          >
+                            {stalePendingCount}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
@@ -1457,12 +1648,19 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
               {selectedUser?.name}'s Invoices
             </DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">
-              View and manage all invoices for {selectedUser?.name}
+              {userFilterTab === "stale-pending"
+                ? `Pending invoices issued 2+ months ago for ${selectedUser?.name}`
+                : `View and manage all invoices for ${selectedUser?.name}`}
             </DialogDescription>
           </DialogHeader>
           
           {selectedUser && (
             <div className="space-y-4 sm:space-y-6 mt-2 sm:mt-4">
+              {userFilterTab === "stale-pending" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:text-sm">
+                  Showing only pending invoices from 2+ months. Clear the <span className="font-medium">2+ months</span> filter to see all invoices.
+                </div>
+              ) : null}
               {/* User Info */}
               <div className="p-3 sm:p-4 bg-muted rounded-lg">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -2641,6 +2839,97 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
                   )}
                 </TabsContent>
               </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="email-log" className="mt-0 space-y-3 sm:space-y-6">
+          <Card className="min-w-0 overflow-hidden border-2 shadow-lg">
+            <CardHeader className="p-3 sm:p-6">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Mail className="h-4 w-4 sm:h-5 sm:w-5" />
+                Email log
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Client invoice emails (created, reminders, late fee) — latest 300.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by email, client, invoice, or subject..."
+                  value={emailLogSearch}
+                  onChange={(e) => setEmailLogSearch(e.target.value)}
+                  className="h-10 pl-10 sm:h-11"
+                />
+              </div>
+
+              {emailLogsLoading && !emailLogs?.length ? (
+                <p className="text-sm text-muted-foreground">Loading email log…</p>
+              ) : filteredEmailLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No client invoice email logs yet.</p>
+              ) : (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Emails shown</span>
+                      <div className="text-xl font-semibold">{filteredEmailLogs.length}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Recipients</span>
+                      <div className="text-xl font-semibold">{emailLogsByRecipient.length}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="p-2 text-left font-medium">To</th>
+                          <th className="p-2 text-left font-medium">Client</th>
+                          <th className="p-2 text-left font-medium">Type</th>
+                          <th className="p-2 text-left font-medium">Invoice / Subject</th>
+                          <th className="p-2 text-left font-medium">Sent</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredEmailLogs.map((log) => (
+                          <tr key={log.id} className="border-b last:border-0 hover:bg-muted/30">
+                            <td className="p-2">{log.to || "—"}</td>
+                            <td className="p-2">{log.clientName || "—"}</td>
+                            <td className="p-2">
+                              <Badge variant="secondary" className="text-xs">
+                                {formatClientEmailLogType(log.type)}
+                              </Badge>
+                            </td>
+                            <td className="max-w-[220px] truncate p-2" title={log.subject || log.invoiceNumber}>
+                              {log.invoiceNumber || log.subject || "—"}
+                            </td>
+                            <td className="p-2 text-muted-foreground">{formatEmailLogSentAt(log.sentAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Emails per recipient
+                    </p>
+                    <ul className="space-y-1.5 text-sm">
+                      {emailLogsByRecipient
+                        .sort((a, b) => b.count - a.count)
+                        .map(({ to, count }) => (
+                          <li key={to} className="flex items-center justify-between gap-2">
+                            <span className="truncate">{to}</span>
+                            <Badge variant="outline">{count}</Badge>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

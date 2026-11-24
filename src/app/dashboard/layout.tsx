@@ -9,6 +9,7 @@ import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { ClientFeatureGate } from "@/components/dashboard/client-feature-gate";
 import { ClientAccountRestrictedOverlay } from "@/components/dashboard/client-account-restricted-overlay";
+import { ClientInvoiceLateFeeNotice } from "@/components/dashboard/client-invoice-late-fee-notice";
 import { LexiClientChat } from "@/components/dashboard/lexi/lexi-client-chat";
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
@@ -230,7 +231,8 @@ export default function DashboardLayout({
             <DashboardHeader onProfileClick={handleProfileClick} />
           <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
           <main className="flex flex-1 flex-col gap-3 overflow-auto overflow-x-hidden p-3 sm:gap-6 sm:p-6 lg:p-8 w-full min-w-0 max-w-full">
-            <div className="w-full min-w-0 max-w-full">
+            <div className="w-full min-w-0 max-w-full space-y-3 sm:space-y-4">
+              <ClientInvoiceLateFeeNotice />
               <ClientFeatureGate>{children}</ClientFeatureGate>
             </div>
           </main>

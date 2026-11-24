@@ -20,6 +20,11 @@ export type ShippedOrderDetails = {
   productType?: string;
   status?: string;
   remarks?: string;
+  /** Courier tracking from warehouse dispatch or marketplace fulfill. */
+  courierTracking?: string;
+  trackingCompany?: string;
+  /** Marketplace channel on quick-fulfill shipped docs (shopify, ebay, amazon, …). */
+  source?: string;
   lines: ShippedOrderDetailLine[];
   totalBoxes: number;
   totalUnits: number;
@@ -219,10 +224,32 @@ function lineMoney(item: NormalizedShipmentItem & { totalPrice?: unknown }): {
   return { unitPrice, lineTotal: unitPrice * boxes };
 }
 
+/** Resolve courier tracking from a shipped doc and/or linked outbound request. */
+export function resolveShippedCourierTracking(input: {
+  shipment?: ShippedItem | null;
+  request?: Pick<ShipmentRequest, "warehouseCourierTracking"> | null;
+}): { courierTracking?: string; trackingCompany?: string } {
+  const fromRequest = String(input.request?.warehouseCourierTracking || "").trim();
+  const fromShipped = String(input.shipment?.trackingNumber || "").trim();
+  const company = String(input.shipment?.trackingCompany || "").trim();
+  const courierTracking = fromRequest || fromShipped || undefined;
+  return {
+    ...(courierTracking ? { courierTracking } : {}),
+    ...(company ? { trackingCompany: company } : {}),
+  };
+}
+
 /** Build line items + totals for the shipped-order details dialog. */
 export function buildShippedOrderDetails(
   shipment: ShippedItem,
-  options?: { status?: string; dateLabel?: string }
+  options?: {
+    status?: string;
+    dateLabel?: string;
+    courierTracking?: string;
+    trackingCompany?: string;
+    source?: string;
+    request?: Pick<ShipmentRequest, "warehouseCourierTracking"> | null;
+  }
 ): ShippedOrderDetails {
   const summary = getShipmentSummary(shipment);
   const lines: ShippedOrderDetailLine[] = summary.items.map((item) => {
@@ -235,6 +262,16 @@ export function buildShippedOrderDetails(
   });
   const productsTotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
   const add = additionalServicesBreakdown(shipment.additionalServices);
+  const tracking = resolveShippedCourierTracking({
+    shipment,
+    request: options?.request,
+  });
+  const courierTracking =
+    String(options?.courierTracking || "").trim() || tracking.courierTracking;
+  const trackingCompany =
+    String(options?.trackingCompany || "").trim() || tracking.trackingCompany;
+  const source =
+    String(options?.source || shipment.source || "").trim() || undefined;
   return {
     title: summary.title,
     dateLabel: options?.dateLabel,
@@ -243,6 +280,9 @@ export function buildShippedOrderDetails(
     productType: shipment.productType,
     status: options?.status,
     remarks: shipment.remarks,
+    ...(courierTracking ? { courierTracking } : {}),
+    ...(trackingCompany ? { trackingCompany } : {}),
+    ...(source ? { source } : {}),
     lines,
     totalBoxes: summary.totalBoxes,
     totalUnits: summary.totalUnits,
@@ -501,6 +541,7 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
 
   const first = items[0];
   const additionalServices = resolveOutboundAdditionalServicesPayload(req);
+  const courierTracking = String(req.warehouseCourierTracking || "").trim();
   return {
     id: req.id || "request",
     productName: first?.productName,
@@ -515,6 +556,8 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
     shippedQty: first?.shippedQty,
     packOf: first?.packOf,
     unitPrice: first?.unitPrice,
+    ...(courierTracking ? { trackingNumber: courierTracking } : {}),
+    shipmentRequestId: req.id || undefined,
     ...(additionalServices
       ? { additionalServices: additionalServices as ShippedItem["additionalServices"] }
       : {}),

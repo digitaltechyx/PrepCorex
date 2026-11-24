@@ -344,7 +344,7 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
     setFromContainer(false);
     if (m === "loose" && t === "container") {
       setFromContainer(true);
-      setType(null);
+    setType(null);
       setPhase("pick-container-contents");
       return;
     }
@@ -404,8 +404,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
       setType(null);
       return;
     }
-    setPhase("hub");
-    setType(null);
+      setPhase("hub");
+      setType(null);
     setFromContainer(false);
   }
 
@@ -572,22 +572,22 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                         description="Closed carton · CTN label"
                         onClick={() => selectReceiveType("crossdock", "carton")}
                       />
-                      <TypePickerCard
-                        color="indigo"
+              <TypePickerCard
+                color="indigo"
                         icon={<Boxes className="h-6 w-6" />}
                         title="Pallet"
                         description="Closed pallet · PLT label"
                         onClick={() => selectReceiveType("crossdock", "pallet")}
-                      />
-                      <TypePickerCard
-                        color="emerald"
+              />
+              <TypePickerCard
+                color="emerald"
                         icon={<PackageOpen className="h-6 w-6" />}
                         title="Package / polybag"
                         description="Closed package · PKG label"
                         onClick={() => selectReceiveType("crossdock", "loose")}
                       />
-                      <TypePickerCard
-                        color="orange"
+                <TypePickerCard
+                  color="orange"
                         icon={<Truck className="h-6 w-6" />}
                         title="Container"
                         description="Container · CTR label"
@@ -622,21 +622,21 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                       <TypePickerCard
                         color="orange"
                         icon={<Package className="h-6 w-6" />}
-                        title="Carton"
+                  title="Carton"
                         description="Count products and SKU quantities"
                         onClick={() => selectReceiveType("loose", "carton")}
-                      />
-                      <TypePickerCard
-                        color="indigo"
+                />
+                <TypePickerCard
+                  color="indigo"
                         icon={<Boxes className="h-6 w-6" />}
-                        title="Pallet"
+                  title="Pallet"
                         description="Count cartons and products"
                         onClick={() => selectReceiveType("loose", "pallet")}
-                      />
-                      <TypePickerCard
-                        color="emerald"
+                />
+                <TypePickerCard
+                  color="emerald"
                         icon={<PackageOpen className="h-6 w-6" />}
-                        title="Package / polybag"
+                  title="Package / polybag"
                         description="Count package contents"
                         onClick={() => selectReceiveType("loose", "loose")}
                       />
@@ -646,8 +646,8 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                         title="Container"
                         description="Choose and count its contents"
                         onClick={() => selectReceiveType("loose", "container")}
-                      />
-                    </div>
+                />
+              </div>
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
@@ -714,19 +714,19 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                   onRecordingChange={setCameraRecordingActive}
                 />
               ) : null}
-              <ReceiveForm
+            <ReceiveForm
                 key={`receive-${module}-${type}-${fromContainer ? "ctr" : "std"}-${restoreKey}-${selectedInbounds.map((r) => r.id).join(",") || "none"}`}
-                warehouse={warehouse}
-                type={type}
-                receiveModule={module}
-                receiveMode={module === "loose" ? "unpackaged" : "crossdock"}
+              warehouse={warehouse}
+              type={type}
+              receiveModule={module}
+              receiveMode={module === "loose" ? "unpackaged" : "crossdock"}
                 inboundRequests={selectedInbounds}
-                dockTracking={dockTracking}
-                clients={clients}
+              dockTracking={dockTracking}
+              clients={clients}
                 fromContainer={fromContainer}
                 cameraRecordingActive={cameraRecordingActive}
                 onInboundRequestsChange={setSelectedInbounds}
-                onBack={backFromForm}
+              onBack={backFromForm}
                 onSwitchToOpenReceive={
                   module === "crossdock"
                     ? () => {
@@ -738,16 +738,16 @@ export function WarehouseOpsReceiving({ warehouse }: Props) {
                       }
                     : undefined
                 }
-                initialSnapshot={formRestore}
-                onSnapshotConsumed={() => setFormRestore(null)}
-                onRestoreForm={(snap) => {
-                  setFormRestore(snap);
-                  setModule(moduleFromSnapshot(snap));
-                  setType(snap.type);
-                  setPhase("form");
-                  setRestoreKey((k) => k + 1);
-                }}
-              />
+              initialSnapshot={formRestore}
+              onSnapshotConsumed={() => setFormRestore(null)}
+              onRestoreForm={(snap) => {
+                setFormRestore(snap);
+                setModule(moduleFromSnapshot(snap));
+                setType(snap.type);
+                setPhase("form");
+                setRestoreKey((k) => k + 1);
+              }}
+            />
             </div>
           ) : null}
         </TabsContent>
@@ -979,12 +979,12 @@ function ReceiveForm({
     let cancelled = false;
 
     async function loadLastBatch() {
-      const stored = readStoredLastBatch(warehouse.id);
+    const stored = readStoredLastBatch(warehouse.id);
       if (!stored) {
         if (!cancelled) setLastBatch(null);
         return;
       }
-      const palletOnly = !stored.cartonIds?.length && !!stored.palletId;
+    const palletOnly = !stored.cartonIds?.length && !!stored.palletId;
       if (!stored.cartonIds?.length && !stored.palletId) {
         clearStoredLastBatch(warehouse.id);
         if (!cancelled) setLastBatch(null);
@@ -1236,22 +1236,22 @@ function ReceiveForm({
         if (c.id !== cartonId) return c;
         const sharedLot = sharedLotFromCarton(c.lines);
         return {
-          ...c,
-          lines: [
-            ...c.lines,
-            {
-              ...newLine(),
-              sku: link.sku,
-              productTitle: link.productTitle,
-              goodQty: link.goodQty,
-              expiry: link.expiry,
+              ...c,
+              lines: [
+                ...c.lines,
+                {
+                  ...newLine(),
+                  sku: link.sku,
+                  productTitle: link.productTitle,
+                  goodQty: link.goodQty,
+                  expiry: link.expiry,
               lot: sharedLot,
-              inventoryRequestId: link.inventoryRequestId,
-              clientId: link.clientId,
-              clientLabel: link.clientLabel,
+                  inventoryRequestId: link.inventoryRequestId,
+                  clientId: link.clientId,
+                  clientLabel: link.clientLabel,
               ...measurementsFromRequestRow(row),
-            },
-          ],
+                },
+              ],
         };
       })
     );
@@ -1451,15 +1451,15 @@ function ReceiveForm({
     const updated = await Promise.all(
       inboundRequests.map((row) =>
         reloadInboundRequestRow({
-          warehouse,
-          clients: clientsForReload,
+      warehouse,
+      clients: clientsForReload,
           clientUserId: row.clientUserId,
           requestId: row.id,
         })
       )
     );
     onInboundRequestsChange?.(updated.filter((r): r is InboundRequestRow => r != null));
-    inboundPrefillKeyRef.current = null;
+      inboundPrefillKeyRef.current = null;
   }
 
   function clientDisplayName(clientId: string): string {
@@ -2932,12 +2932,12 @@ function ReceiveForm({
                 </AlertDialog>
               ) : null}
               {showContinueToPutaway ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/warehouse-ops/putaway">
-                    Continue to putaway
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Link>
-                </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/warehouse-ops/putaway">
+                  Continue to putaway
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Link>
+              </Button>
               ) : null}
             </div>
           </CardContent>

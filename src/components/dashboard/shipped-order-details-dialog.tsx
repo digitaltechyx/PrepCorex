@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatServiceLabel, type InventoryItem } from "@/types";
+import { formatServiceLabelWithChannel, type InventoryItem } from "@/types";
 import type { ShippedOrderDetails } from "@/lib/shipment-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
@@ -171,7 +171,7 @@ export function ShippedOrderDetailsDialog({
               ) : null}
               {details.service ? (
                 <span className="text-muted-foreground self-center">
-                  {formatServiceLabel(details.service)}
+                  {formatServiceLabelWithChannel(details.service, details.source)}
                 </span>
               ) : null}
               {details.productType ? (
@@ -183,6 +183,20 @@ export function ShippedOrderDetailsDialog({
               <div className="rounded-md border bg-muted/30 p-3 text-xs">
                 <div className="font-medium text-sm mb-1">Ship to</div>
                 <p className="whitespace-pre-wrap text-muted-foreground">{details.shipTo}</p>
+              </div>
+            ) : null}
+
+            {details.courierTracking ? (
+              <div className="rounded-md border border-emerald-200/80 bg-emerald-50/70 p-3 text-xs dark:border-emerald-900 dark:bg-emerald-950/30">
+                <div className="font-medium text-sm mb-1 text-emerald-900 dark:text-emerald-100">
+                  Tracking number
+                </div>
+                <p className="font-mono text-sm font-medium text-foreground break-all">
+                  {details.courierTracking}
+                </p>
+                {details.trackingCompany ? (
+                  <p className="mt-1 text-muted-foreground">Carrier: {details.trackingCompany}</p>
+                ) : null}
               </div>
             ) : null}
 
