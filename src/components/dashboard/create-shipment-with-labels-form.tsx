@@ -167,6 +167,9 @@ const shipmentGroupSchema = z.object({
     required_error: "Select SPD or LTL shipment preference.",
   }),
   remarks: z.string().optional(),
+  /** Whole-request additional services (in addition to per-line services). */
+  requestSelectedAdditionalServices: z.array(z.string()).optional(),
+  requestAdditionalServiceQuantities: z.record(z.coerce.number().int().nonnegative()).optional(),
   service: z.enum(["FBA/WFS/TFS", "DTC/FBM", "Carton Forwarding", "Pallet Forwarding"]).optional(),
 }).superRefine((data, ctx) => {
   if (data.shipmentType === "product") {
@@ -761,6 +764,8 @@ export function CreateShipmentWithLabelsForm({
       date: new Date(),
       shipmentPreference: undefined,
       remarks: undefined,
+      requestSelectedAdditionalServices: [],
+      requestAdditionalServiceQuantities: {},
       service: "FBA/WFS/TFS",
     });
   };
@@ -1239,8 +1244,27 @@ export function CreateShipmentWithLabelsForm({
           const labelUrl = labelUrls.join(",");
           const mappedShipments = mapShipmentsForFirestore(shipmentsSlice);
           const prepIds = prepInboundIdsFromShipments(mappedShipments);
+          const requestServiceKeys = Array.isArray(group.requestSelectedAdditionalServices)
+            ? group.requestSelectedAdditionalServices.filter(Boolean)
+            : [];
+          const requestQtyMap: Record<string, number> = {};
+          requestServiceKeys.forEach((key) => {
+            const raw = Number(group.requestAdditionalServiceQuantities?.[key]);
+            requestQtyMap[key] = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+          });
           const pricedAdditionalServices = applyCatalogPricesToAdditionalServices(
-            resolveOutboundAdditionalServicesPayload({ shipments: mappedShipments }),
+            resolveOutboundAdditionalServicesPayload({
+              shipments: mappedShipments,
+              requestSelectedAdditionalServices: requestServiceKeys,
+              requestAdditionalServiceQuantities: requestQtyMap,
+              ...(requestQtyMap.bubbleWrap ? { bubbleWrapFeet: requestQtyMap.bubbleWrap } : {}),
+              ...(requestQtyMap.stickerRemoval
+                ? { stickerRemovalItems: requestQtyMap.stickerRemoval }
+                : {}),
+              ...(requestQtyMap.warningLabels
+                ? { warningLabels: requestQtyMap.warningLabels }
+                : {}),
+            }),
             (key) => unitPriceForServiceKey(key, additionalServicesCatalog)
           );
           const requestData: Record<string, unknown> = {
@@ -1255,6 +1279,16 @@ export function CreateShipmentWithLabelsForm({
             requestedBy: ownerId,
             requestedAt,
           };
+          if (requestServiceKeys.length > 0) {
+            requestData.requestSelectedAdditionalServices = requestServiceKeys;
+            requestData.requestAdditionalServiceQuantities = requestQtyMap;
+            requestData.selectedAdditionalServices = requestServiceKeys;
+            requestData.additionalServiceQuantities = requestQtyMap;
+            if (requestQtyMap.bubbleWrap) requestData.bubbleWrapFeet = requestQtyMap.bubbleWrap;
+            if (requestQtyMap.stickerRemoval)
+              requestData.stickerRemovalItems = requestQtyMap.stickerRemoval;
+            if (requestQtyMap.warningLabels) requestData.warningLabels = requestQtyMap.warningLabels;
+          }
           if (pricedAdditionalServices) {
             requestData.adminAdditionalServices = pricedAdditionalServices;
             requestData.additionalServices = pricedAdditionalServices;
@@ -2598,6 +2632,92 @@ export function CreateShipmentWithLabelsForm({
                       )}
                     />
                           </div>
+
+                          {/* Whole-request additional services (in addition to per-line) */}
+                          <FormField
+                            control={form.control}
+                            name={`shipmentGroups.${groupIndex}.requestSelectedAdditionalServices`}
+                            render={({ field }) => {
+                              const selected = Array.isArray(field.value) ? field.value : [];
+                              const qtyMap =
+                                form.watch(
+                                  `shipmentGroups.${groupIndex}.requestAdditionalServiceQuantities`
+                                ) || {};
+                              return (
+                                <FormItem className="mt-2 space-y-2 rounded-md border border-amber-200/70 bg-amber-50/30 p-2">
+                                  <FormLabel className="text-[11px] font-medium text-amber-950">
+                                    Additional services for whole request (optional)
+                                  </FormLabel>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Applies once to this outbound. You can still add services on
+                                    individual product lines above.
+                                  </p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {additionalServicesCatalog.map((svc) => {
+                                      const checked = selected.includes(svc.key);
+                                      return (
+                                        <label
+                                          key={svc.key}
+                                          className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-[11px]"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            className="h-3.5 w-3.5"
+                                            checked={checked}
+                                            onChange={(e) => {
+                                              const next = e.target.checked
+                                                ? Array.from(new Set([...selected, svc.key]))
+                                                : selected.filter((k) => k !== svc.key);
+                                              field.onChange(next);
+                                              const nextQty = { ...(qtyMap || {}) } as Record<
+                                                string,
+                                                number
+                                              >;
+                                              if (e.target.checked) {
+                                                nextQty[svc.key] = Math.max(
+                                                  1,
+                                                  Number(nextQty[svc.key]) || 1
+                                                );
+                                              } else {
+                                                delete nextQty[svc.key];
+                                              }
+                                              form.setValue(
+                                                `shipmentGroups.${groupIndex}.requestAdditionalServiceQuantities`,
+                                                nextQty
+                                              );
+                                            }}
+                                          />
+                                          <span>{svc.name}</span>
+                                          {checked ? (
+                                            <Input
+                                              type="number"
+                                              min={1}
+                                              className="h-6 w-14 text-[11px]"
+                                              value={Number(qtyMap?.[svc.key]) || 1}
+                                              onChange={(e) => {
+                                                const n = Math.max(
+                                                  1,
+                                                  Math.floor(Number(e.target.value) || 1)
+                                                );
+                                                form.setValue(
+                                                  `shipmentGroups.${groupIndex}.requestAdditionalServiceQuantities`,
+                                                  {
+                                                    ...(qtyMap || {}),
+                                                    [svc.key]: n,
+                                                  }
+                                                );
+                                              }}
+                                            />
+                                          ) : null}
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                  <FormMessage />
+                                </FormItem>
+                              );
+                            }}
+                          />
 
                           <div className="rounded-md border bg-muted/20 px-2 py-1.5">
                             <div className="flex flex-wrap items-center gap-1.5">

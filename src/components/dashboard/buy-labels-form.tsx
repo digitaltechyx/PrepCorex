@@ -28,7 +28,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag, Wallet, Pencil } from "lucide-react";
+import { Loader2, ShoppingCart, MapPin, Package, CreditCard, Plus, Trash2, Upload, ChevronsUpDown, Check, X, Search, ShoppingBag, Wallet, Pencil, Copy } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
 import type { BuyLabelShopifyPrefillLine } from "@/lib/shopify-order-buy-label-prefill";
@@ -1408,6 +1408,30 @@ export function BuyLabelsForm({
       clearEditingCartState();
       resetFormForNextLabel();
     }
+  };
+
+  /** Clone a cart line with the same addresses/parcel/rate so the user doesn't re-enter details. */
+  const handleDuplicateCartItem = (item: LabelCartItem) => {
+    const clone: LabelCartItem = {
+      ...item,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      fromAddress: { ...item.fromAddress },
+      toAddress: { ...item.toAddress },
+      parcel: { ...item.parcel },
+      selectedRate: { ...item.selectedRate },
+      packageProducts: item.packageProducts?.map((p) => ({ ...p })),
+    };
+    setCartItems((prev) => {
+      const idx = prev.findIndex((row) => row.id === item.id);
+      if (idx < 0) return [...prev, clone];
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+    toast({
+      title: "Label duplicated",
+      description: "Same details added as a new cart line. Edit if needed, then checkout.",
+    });
   };
 
   const handleAddToCart = () => {
@@ -2940,6 +2964,7 @@ export function BuyLabelsForm({
                             className="h-7 px-2"
                             disabled={Boolean(editingCartItemId) && !isEditing}
                             onClick={() => handleStartEditCartItem(item)}
+                            title="Edit"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             <span className="sr-only">Edit</span>
@@ -2948,8 +2973,21 @@ export function BuyLabelsForm({
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="h-7 px-2"
+                            disabled={Boolean(editingCartItemId)}
+                            onClick={() => handleDuplicateCartItem(item)}
+                            title="Duplicate — same details as a new cart line"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            <span className="sr-only">Duplicate</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
                             className="h-7 px-2 text-destructive hover:text-destructive"
                             onClick={() => handleRemoveCartItem(item.id)}
+                            title="Remove"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             <span className="sr-only">Remove</span>

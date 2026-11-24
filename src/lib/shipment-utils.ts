@@ -171,6 +171,43 @@ export function getShipmentSummary(shipment: ShippedItem) {
   };
 }
 
+const LEGACY_SERVICE_LABELS: Record<string, string> = {
+  bubbleWrap: "Bubble wrap",
+  stickerRemoval: "Sticker removal",
+  warningLabels: "Warning labels",
+  polybag: "Polybag",
+  bubbleMailer: "Bubble mailer",
+  boxSmall: "Box (Small)",
+  boxLarge: "Box (Large)",
+};
+
+function formatExtraServiceLabel(key: string): string {
+  const known = LEGACY_SERVICE_LABELS[key];
+  if (known) return known;
+  if (key.startsWith("mycat_")) return key.slice("mycat_".length).replace(/_/g, " ") || key;
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/** True when a priced additional-services blob has any billable qty (legacy or extras). */
+export function hasOutboundAdditionalServicesContent(
+  add: ShippedItem["additionalServices"] | null | undefined
+): boolean {
+  if (!add) return false;
+  if (Array.isArray(add)) return add.length > 0;
+  if (typeof add !== "object") return false;
+  if (coerceNumber(add.bubbleWrapFeet) > 0) return true;
+  if (coerceNumber(add.stickerRemovalItems) > 0) return true;
+  if (coerceNumber(add.warningLabels) > 0) return true;
+  const extras = add.extraServiceQuantities;
+  if (extras && typeof extras === "object") {
+    return Object.values(extras).some((qty) => coerceNumber(qty) > 0);
+  }
+  return coerceNumber(add.total) > 0;
+}
+
 function additionalServicesBreakdown(add: ShippedItem["additionalServices"] | null | undefined): {
   lines: string[];
   total: number;
@@ -198,12 +235,31 @@ function additionalServicesBreakdown(add: ShippedItem["additionalServices"] | nu
         (add.pricePerLabel ? ` × $${coerceNumber(add.pricePerLabel).toFixed(2)}` : "")
     );
   }
+  const extras =
+    add.extraServiceQuantities && typeof add.extraServiceQuantities === "object"
+      ? add.extraServiceQuantities
+      : {};
+  const extraPrices =
+    add.extraServiceUnitPrices && typeof add.extraServiceUnitPrices === "object"
+      ? add.extraServiceUnitPrices
+      : {};
+  Object.entries(extras).forEach(([key, rawQty]) => {
+    const qty = coerceNumber(rawQty);
+    if (qty <= 0) return;
+    const unit = coerceNumber(extraPrices[key]);
+    lines.push(
+      `${formatExtraServiceLabel(key)}: ${qty}` + (unit > 0 ? ` × $${unit.toFixed(2)}` : "")
+    );
+  });
   let total = coerceNumber(add.total);
   if (total <= 0) {
     total =
       bubble * coerceNumber(add.pricePerFoot) +
       sticker * coerceNumber(add.pricePerItem) +
       warning * coerceNumber(add.pricePerLabel);
+    Object.entries(extras).forEach(([key, rawQty]) => {
+      total += coerceNumber(rawQty) * coerceNumber(extraPrices[key]);
+    });
   }
   return { lines, total };
 }
@@ -419,9 +475,16 @@ export function resolveOutboundAdditionalServicesPayload(
     else extras[key] = (extras[key] || 0) + n;
   };
 
-  const requestLevelSelected = Array.isArray(root.selectedAdditionalServices)
-    ? (root.selectedAdditionalServices as unknown[]).map((k) => String(k || "").trim()).filter(Boolean)
-    : [];
+  // Prefer explicit whole-request selection fields when present (coexists with per-line).
+  const requestLevelSelected = (
+    Array.isArray(root.requestSelectedAdditionalServices)
+      ? (root.requestSelectedAdditionalServices as unknown[])
+      : Array.isArray(root.selectedAdditionalServices)
+        ? (root.selectedAdditionalServices as unknown[])
+        : []
+  )
+    .map((k) => String(k || "").trim())
+    .filter(Boolean);
   // Request-level selected flags without explicit qty already counted via bubbleWrapFeet fields.
   requestLevelSelected.forEach((key) => {
     if (key === "bubbleWrap" && bubble <= 0) bubble = 1;
@@ -433,11 +496,16 @@ export function resolveOutboundAdditionalServicesPayload(
   });
 
   const requestQtyMap =
-    root.additionalServiceQuantities &&
+    (root.requestAdditionalServiceQuantities &&
+    typeof root.requestAdditionalServiceQuantities === "object" &&
+    !Array.isArray(root.requestAdditionalServiceQuantities)
+      ? (root.requestAdditionalServiceQuantities as Record<string, unknown>)
+      : null) ||
+    (root.additionalServiceQuantities &&
     typeof root.additionalServiceQuantities === "object" &&
     !Array.isArray(root.additionalServiceQuantities)
       ? (root.additionalServiceQuantities as Record<string, unknown>)
-      : null;
+      : null);
   if (requestQtyMap) {
     Object.entries(requestQtyMap).forEach(([key, qty]) => addKeyQty(key, qty as number));
   }

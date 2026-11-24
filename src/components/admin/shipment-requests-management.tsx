@@ -55,7 +55,7 @@ import {
   editOutboundLineAtWarehouse,
 } from "@/lib/warehouse-outbound-ops";
 import { format } from "date-fns";
-import { Check, X, Eye, Loader2, FileText, Pencil, Plus, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, X, Eye, Loader2, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
 import { BoxSuggestionCard } from "@/components/inventory/box-suggestion-card";
@@ -68,6 +68,9 @@ import {
   loadShippedForRequest,
 } from "@/components/admin/create-outbound-invoice-dialog";
 import {
+  addInvoiceCatalogLine,
+  catalogLineLabel,
+  listInvoiceCatalogLines,
   shipmentRequestNeedsCrmDraftServices,
   shipmentRequestNeedsOutboundInvoice,
 } from "@/lib/invoice-line-catalog";
@@ -123,11 +126,14 @@ function serviceKeysFromShipmentLine(shipment: any): string[] {
   return Array.from(keys);
 }
 
-function serviceKeysFromRequestLevel(request: any): string[] {
+/** Explicit whole-request selection only (does not read priced aggregate — avoids double-count with lines). */
+function serviceKeysFromRequestLevelSelection(request: any): string[] {
   const keys = new Set<string>();
-  const selected = Array.isArray(request?.selectedAdditionalServices)
-    ? request.selectedAdditionalServices
-    : [];
+  const selected = Array.isArray(request?.requestSelectedAdditionalServices)
+    ? request.requestSelectedAdditionalServices
+    : Array.isArray(request?.selectedAdditionalServices)
+      ? request.selectedAdditionalServices
+      : [];
   selected.forEach((k: unknown) => {
     const key = String(k || "").trim();
     if (key) keys.add(key);
@@ -136,13 +142,22 @@ function serviceKeysFromRequestLevel(request: any): string[] {
   if (positiveServiceQty(request?.stickerRemovalItems) > 0) keys.add("stickerRemoval");
   if (positiveServiceQty(request?.warningLabels) > 0) keys.add("warningLabels");
   const qtyMap =
-    request?.additionalServiceQuantities &&
+    (request?.requestAdditionalServiceQuantities &&
+    typeof request.requestAdditionalServiceQuantities === "object"
+      ? (request.requestAdditionalServiceQuantities as Record<string, unknown>)
+      : null) ||
+    (request?.additionalServiceQuantities &&
     typeof request.additionalServiceQuantities === "object"
       ? (request.additionalServiceQuantities as Record<string, unknown>)
-      : {};
+      : {});
   Object.entries(qtyMap).forEach(([key, qty]) => {
     if (String(key || "").trim() && positiveServiceQty(qty) > 0) keys.add(key);
   });
+  return Array.from(keys);
+}
+
+function serviceKeysFromRequestLevel(request: any): string[] {
+  const keys = new Set<string>(serviceKeysFromRequestLevelSelection(request));
   const stored = request?.adminAdditionalServices || request?.additionalServices;
   if (stored && typeof stored === "object") {
     if (positiveServiceQty(stored.bubbleWrapFeet) > 0) keys.add("bubbleWrap");
@@ -1586,12 +1601,17 @@ function ReviewShipmentDialog({
     return new Date(); // Default to today
   });
   
-  // Support both per-shipment format (selectedAdditionalServices array in each shipment) and old format (request-level)
+  // Per-line services can coexist with whole-request services (both counted).
   const hasPerShipmentServices = request.shipments.some(
     (shipment: any) => serviceKeysFromShipmentLine(shipment).length > 0
   );
 
-  const requestLevelServices = serviceKeysFromRequestLevel(request);
+  const explicitRequestLevelServices = serviceKeysFromRequestLevelSelection(request);
+  // When lines already carry services, do not seed whole-request keys from the priced aggregate
+  // (that aggregate includes line totals and would double-count).
+  const requestLevelServices = hasPerShipmentServices
+    ? explicitRequestLevelServices
+    : serviceKeysFromRequestLevel(request);
   const storedServicesSeed =
     ((request as any).adminAdditionalServices as Record<string, unknown> | undefined) ||
     ((request as any).additionalServices as Record<string, unknown> | undefined) ||
@@ -1603,7 +1623,7 @@ function ReviewShipmentDialog({
     const initial: Record<number, PerShipmentAdditionalQty> = {};
     request.shipments.forEach((shipment: any, index: number) => {
       const keys = serviceKeysFromShipmentLine(shipment);
-      if (hasPerShipmentServices && keys.length > 0) {
+      if (keys.length > 0) {
         const qtyMap =
           shipment.additionalServiceQuantities &&
           typeof shipment.additionalServiceQuantities === "object"
@@ -1632,16 +1652,12 @@ function ReviewShipmentDialog({
     return initial;
   });
 
-  /** Mutable service key lists so admin can add/remove beyond client selection. */
+  /** Mutable per-line service keys so admin can add/remove beyond client selection. */
   const [activeServiceKeysByIndex, setActiveServiceKeysByIndex] = useState<Record<number, string[]>>(
     () => {
       const initial: Record<number, string[]> = {};
       request.shipments.forEach((shipment: any, index: number) => {
-        if (hasPerShipmentServices) {
-          initial[index] = serviceKeysFromShipmentLine(shipment);
-        } else {
-          initial[index] = index === 0 ? [...requestLevelServices] : [];
-        }
+        initial[index] = serviceKeysFromShipmentLine(shipment);
       });
       return initial;
     }
@@ -1649,64 +1665,83 @@ function ReviewShipmentDialog({
   const [addServiceKeyByIndex, setAddServiceKeyByIndex] = useState<Record<number, string>>({});
   const [servicesSaving, setServicesSaving] = useState(false);
 
-  // Old format / confirmed request-level quantities (prefer admin-confirmed, else client)
-  const [adminBubbleWrapFeet, setAdminBubbleWrapFeet] = useState(
-    positiveServiceQty(storedServicesSeed.bubbleWrapFeet) ||
+  // Whole-request quantities (coexist with per-line)
+  const [adminBubbleWrapFeet, setAdminBubbleWrapFeet] = useState(() => {
+    if (hasPerShipmentServices) {
+      return positiveServiceQty((request as any).bubbleWrapFeet) || 0;
+    }
+    return (
+      positiveServiceQty(storedServicesSeed.bubbleWrapFeet) ||
       positiveServiceQty((request as any).bubbleWrapFeet) ||
       0
-  );
-  const [adminStickerRemovalItems, setAdminStickerRemovalItems] = useState(
-    positiveServiceQty(storedServicesSeed.stickerRemovalItems) ||
+    );
+  });
+  const [adminStickerRemovalItems, setAdminStickerRemovalItems] = useState(() => {
+    if (hasPerShipmentServices) {
+      return positiveServiceQty((request as any).stickerRemovalItems) || 0;
+    }
+    return (
+      positiveServiceQty(storedServicesSeed.stickerRemovalItems) ||
       positiveServiceQty((request as any).stickerRemovalItems) ||
       0
-  );
-  const [adminWarningLabels, setAdminWarningLabels] = useState(
-    positiveServiceQty(storedServicesSeed.warningLabels) ||
+    );
+  });
+  const [adminWarningLabels, setAdminWarningLabels] = useState(() => {
+    if (hasPerShipmentServices) {
+      return positiveServiceQty((request as any).warningLabels) || 0;
+    }
+    return (
+      positiveServiceQty(storedServicesSeed.warningLabels) ||
       positiveServiceQty((request as any).warningLabels) ||
       0
-  );
+    );
+  });
   const [adminExtraServiceQty, setAdminExtraServiceQty] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
-    const storedExtras =
-      storedServicesSeed.extraServiceQuantities &&
-      typeof storedServicesSeed.extraServiceQuantities === "object"
-        ? (storedServicesSeed.extraServiceQuantities as Record<string, number>)
-        : {};
-    Object.entries(storedExtras).forEach(([k, qty]) => {
-      if (!isLegacyAdditionalServiceKey(k)) init[k] = positiveServiceQty(qty);
+    const requestQtyMap =
+      ((request as any).requestAdditionalServiceQuantities &&
+      typeof (request as any).requestAdditionalServiceQuantities === "object"
+        ? ((request as any).requestAdditionalServiceQuantities as Record<string, number>)
+        : null) ||
+      ((request as any).additionalServiceQuantities &&
+      typeof (request as any).additionalServiceQuantities === "object"
+        ? ((request as any).additionalServiceQuantities as Record<string, number>)
+        : {});
+    requestLevelServices.forEach((k) => {
+      if (isLegacyAdditionalServiceKey(k)) return;
+      const raw = Number(requestQtyMap[k]);
+      init[k] = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
     });
     if (!hasPerShipmentServices) {
-      const requestQtyMap =
-        (request as any).additionalServiceQuantities &&
-        typeof (request as any).additionalServiceQuantities === "object"
-          ? ((request as any).additionalServiceQuantities as Record<string, number>)
+      const storedExtras =
+        storedServicesSeed.extraServiceQuantities &&
+        typeof storedServicesSeed.extraServiceQuantities === "object"
+          ? (storedServicesSeed.extraServiceQuantities as Record<string, number>)
           : {};
-      requestLevelServices.forEach((k) => {
-        if (isLegacyAdditionalServiceKey(k)) return;
-        if (init[k] != null) return;
-        const raw = Number(requestQtyMap[k]);
-        init[k] = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+      Object.entries(storedExtras).forEach(([k, qty]) => {
+        if (!isLegacyAdditionalServiceKey(k)) init[k] = positiveServiceQty(qty) || init[k] || 0;
       });
     }
     return init;
   });
-  /** Request-level active keys used after confirm (and old-format pending). */
-  const [requestActiveServiceKeys, setRequestActiveServiceKeys] = useState<string[]>(() =>
-    Array.from(
-      new Set([
-        ...requestLevelServices,
-        ...Object.keys(
-          (storedServicesSeed.extraServiceQuantities as Record<string, number> | undefined) || {}
-        ).filter((k) => positiveServiceQty((storedServicesSeed.extraServiceQuantities as any)?.[k]) > 0),
-        ...(positiveServiceQty(storedServicesSeed.bubbleWrapFeet) > 0 ? ["bubbleWrap"] : []),
-        ...(positiveServiceQty(storedServicesSeed.stickerRemovalItems) > 0
-          ? ["stickerRemoval"]
-          : []),
-        ...(positiveServiceQty(storedServicesSeed.warningLabels) > 0 ? ["warningLabels"] : []),
-      ])
-    )
-  );
+  /** Whole-request active keys (in addition to any per-line services). */
+  const [requestActiveServiceKeys, setRequestActiveServiceKeys] = useState<string[]>(() => [
+    ...requestLevelServices,
+  ]);
   const [requestAddServiceKey, setRequestAddServiceKey] = useState("");
+  const [customServiceNames, setCustomServiceNames] = useState<Record<string, string>>({});
+  const [myCatalog, setMyCatalog] = useState<
+    Array<{ id: string; label: string; description: string; quantity: number; unitPrice: number }>
+  >([]);
+  const [myCatalogDialogOpen, setMyCatalogDialogOpen] = useState(false);
+  const [myCatalogSaving, setMyCatalogSaving] = useState(false);
+  const [newCatalogName, setNewCatalogName] = useState("");
+  const [newCatalogQty, setNewCatalogQty] = useState("1");
+  const [newCatalogPrice, setNewCatalogPrice] = useState("0");
+  /** After creating a catalog entry, apply it to this scope. */
+  const [catalogApplyTarget, setCatalogApplyTarget] = useState<
+    { scope: "line"; index: number } | { scope: "request" } | null
+  >(null);
   /** Admin-overridable unit prices keyed by service key (seed catalog / prior confirm). */
   const [adminServiceUnitPrices, setAdminServiceUnitPrices] = useState<Record<string, number>>(
     () => {
@@ -1989,6 +2024,153 @@ function ReviewShipmentDialog({
     [latestAdditionalPricing]
   );
 
+  const reloadMyCatalog = async () => {
+    const uid = user?.uid;
+    if (!uid) return [] as typeof myCatalog;
+    try {
+      const rows = await listInvoiceCatalogLines(uid);
+      const mapped = rows.map((row) => ({
+        id: row.id,
+        label: catalogLineLabel(row),
+        description: row.description || "",
+        quantity: Number(row.quantity) || 1,
+        unitPrice: Number(row.unitPrice) || 0,
+      }));
+      setMyCatalog(mapped);
+      return mapped;
+    } catch (err) {
+      console.warn("[additional-services] my catalog load failed", err);
+      return [] as typeof myCatalog;
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    void reloadMyCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when admin uid changes
+  }, [user?.uid]);
+
+  const openNewCatalogEntry = (
+    target: { scope: "line"; index: number } | { scope: "request" }
+  ) => {
+    setCatalogApplyTarget(target);
+    setNewCatalogName("");
+    setNewCatalogQty("1");
+    setNewCatalogPrice("0");
+    setMyCatalogDialogOpen(true);
+  };
+
+  const applyMycatKeyToLine = (
+    index: number,
+    key: string,
+    row: { label: string; description: string; quantity: number; unitPrice: number }
+  ) => {
+    setCustomServiceNames((prev) => ({
+      ...prev,
+      [key]: row.label || row.description || key,
+    }));
+    setAdminServiceUnitPrices((prev) => ({
+      ...prev,
+      [key]: Number(row.unitPrice) || 0,
+    }));
+    setActiveServiceKeysByIndex((prev) => ({
+      ...prev,
+      [index]: Array.from(new Set([...(prev[index] || []), key])),
+    }));
+    setPerShipmentQuantities((prev) => {
+      const cur = prev[index] || emptyPerShipmentQty();
+      return {
+        ...prev,
+        [index]: {
+          ...cur,
+          extra: {
+            ...(cur.extra || {}),
+            [key]: Math.max(1, Number(row.quantity) || 1),
+          },
+        },
+      };
+    });
+  };
+
+  const applyMycatKeyToRequest = (
+    key: string,
+    row: { label: string; description: string; quantity: number; unitPrice: number }
+  ) => {
+    setCustomServiceNames((prev) => ({
+      ...prev,
+      [key]: row.label || row.description || key,
+    }));
+    setAdminServiceUnitPrices((prev) => ({
+      ...prev,
+      [key]: Number(row.unitPrice) || 0,
+    }));
+    setAdminExtraServiceQty((prev) => ({
+      ...prev,
+      [key]: Math.max(1, Number(row.quantity) || 1),
+    }));
+    setRequestActiveServiceKeys((prev) => Array.from(new Set([...prev, key])));
+  };
+
+  const saveNewCatalogEntry = async () => {
+    const uid = user?.uid;
+    const name = newCatalogName.trim();
+    if (!uid) {
+      toast({
+        variant: "destructive",
+        title: "Sign in required",
+        description: "Could not save catalog entry.",
+      });
+      return;
+    }
+    if (!name) {
+      toast({
+        variant: "destructive",
+        title: "Name required",
+        description: "Enter a service name for your catalog.",
+      });
+      return;
+    }
+    setMyCatalogSaving(true);
+    try {
+      const qty = Math.max(1, Math.floor(Number(newCatalogQty) || 1));
+      const price = Math.max(0, Number(newCatalogPrice) || 0);
+      const id = await addInvoiceCatalogLine(uid, {
+        label: name,
+        description: name,
+        quantity: qty,
+        unitPrice: price,
+      });
+      const rows = await reloadMyCatalog();
+      const row = rows.find((r) => r.id === id) || {
+        id,
+        label: name,
+        description: name,
+        quantity: qty,
+        unitPrice: price,
+      };
+      const key = `mycat_${id}`;
+      if (catalogApplyTarget?.scope === "line") {
+        applyMycatKeyToLine(catalogApplyTarget.index, key, row);
+      } else if (catalogApplyTarget?.scope === "request") {
+        applyMycatKeyToRequest(key, row);
+      }
+      setMyCatalogDialogOpen(false);
+      setCatalogApplyTarget(null);
+      toast({
+        title: "Saved to my catalog",
+        description: `${name} was added and applied.`,
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not save catalog entry",
+        description: err instanceof Error ? err.message : "Try again",
+      });
+    } finally {
+      setMyCatalogSaving(false);
+    }
+  };
+
   const effectiveServiceUnitPrice = (key: string): number => {
     const override = adminServiceUnitPrices[key];
     if (override != null && Number.isFinite(override) && override >= 0) return override;
@@ -2007,26 +2189,24 @@ function ReviewShipmentDialog({
   const pricePerItem = effectiveServiceUnitPrice("stickerRemoval");
   const pricePerLabel = effectiveServiceUnitPrice("warningLabels");
 
-  // Calculate totals: per-shipment (new format) or request-level (old format).
-  // Only sum active (non-removed) service keys so remove updates the total immediately.
+  // Totals = per-line services + whole-request services (both can apply).
   let additionalServicesTotal = 0;
-  if (hasPerShipmentServices) {
-    request.shipments.forEach((_: any, index: number) => {
-      const keys = activeServiceKeysByIndex[index] || [];
-      const q = perShipmentQuantities[index] || emptyPerShipmentQty();
-      const filtered: PerShipmentAdditionalQty = {
-        bubbleWrapFeet: keys.includes("bubbleWrap") ? q.bubbleWrapFeet || 0 : 0,
-        stickerRemovalItems: keys.includes("stickerRemoval") ? q.stickerRemovalItems || 0 : 0,
-        warningLabels: keys.includes("warningLabels") ? q.warningLabels || 0 : 0,
-        extra: {},
-      };
-      keys.forEach((k) => {
-        if (isLegacyAdditionalServiceKey(k)) return;
-        filtered.extra[k] = Number(q.extra?.[k]) || 0;
-      });
-      additionalServicesTotal += subtotalAdditionalForLine(filtered, effectiveServiceUnitPrice);
+  request.shipments.forEach((_: any, index: number) => {
+    const keys = activeServiceKeysByIndex[index] || [];
+    const q = perShipmentQuantities[index] || emptyPerShipmentQty();
+    const filtered: PerShipmentAdditionalQty = {
+      bubbleWrapFeet: keys.includes("bubbleWrap") ? q.bubbleWrapFeet || 0 : 0,
+      stickerRemovalItems: keys.includes("stickerRemoval") ? q.stickerRemovalItems || 0 : 0,
+      warningLabels: keys.includes("warningLabels") ? q.warningLabels || 0 : 0,
+      extra: {},
+    };
+    keys.forEach((k) => {
+      if (isLegacyAdditionalServiceKey(k)) return;
+      filtered.extra[k] = Number(q.extra?.[k]) || 0;
     });
-  } else {
+    additionalServicesTotal += subtotalAdditionalForLine(filtered, effectiveServiceUnitPrice);
+  });
+  {
     const keys = requestActiveServiceKeys;
     if (keys.includes("bubbleWrap")) {
       additionalServicesTotal += (adminBubbleWrapFeet || 0) * pricePerFoot;
@@ -2184,28 +2364,28 @@ function ReviewShipmentDialog({
     let sticker = 0;
     let warning = 0;
 
-    if (hasPerShipmentServices) {
-      request.shipments.forEach((_: any, index: number) => {
-        const keys = activeServiceKeysByIndex[index] || [];
-        const q = perShipmentQuantities[index] || emptyPerShipmentQty();
-        if (keys.includes("bubbleWrap")) bubble += Number(q.bubbleWrapFeet) || 0;
-        if (keys.includes("stickerRemoval")) sticker += Number(q.stickerRemovalItems) || 0;
-        if (keys.includes("warningLabels")) warning += Number(q.warningLabels) || 0;
-        Object.entries(q.extra || {}).forEach(([k, v]) => {
-          if (!keys.includes(k)) return;
-          extraAgg[k] = (extraAgg[k] || 0) + (Number(v) || 0);
-        });
-      });
-    } else {
-      const keys = requestActiveServiceKeys;
-      if (keys.includes("bubbleWrap")) bubble = adminBubbleWrapFeet;
-      if (keys.includes("stickerRemoval")) sticker = adminStickerRemovalItems;
-      if (keys.includes("warningLabels")) warning = adminWarningLabels;
-      Object.entries(adminExtraServiceQty).forEach(([k, v]) => {
+    // Per-line
+    request.shipments.forEach((_: any, index: number) => {
+      const keys = activeServiceKeysByIndex[index] || [];
+      const q = perShipmentQuantities[index] || emptyPerShipmentQty();
+      if (keys.includes("bubbleWrap")) bubble += Number(q.bubbleWrapFeet) || 0;
+      if (keys.includes("stickerRemoval")) sticker += Number(q.stickerRemovalItems) || 0;
+      if (keys.includes("warningLabels")) warning += Number(q.warningLabels) || 0;
+      Object.entries(q.extra || {}).forEach(([k, v]) => {
         if (!keys.includes(k)) return;
-        extraAgg[k] = Number(v) || 0;
+        extraAgg[k] = (extraAgg[k] || 0) + (Number(v) || 0);
       });
-    }
+    });
+
+    // Whole-request
+    const reqKeys = requestActiveServiceKeys;
+    if (reqKeys.includes("bubbleWrap")) bubble += Number(adminBubbleWrapFeet) || 0;
+    if (reqKeys.includes("stickerRemoval")) sticker += Number(adminStickerRemovalItems) || 0;
+    if (reqKeys.includes("warningLabels")) warning += Number(adminWarningLabels) || 0;
+    Object.entries(adminExtraServiceQty).forEach(([k, v]) => {
+      if (!reqKeys.includes(k)) return;
+      extraAgg[k] = (extraAgg[k] || 0) + (Number(v) || 0);
+    });
 
     const effectiveFoot = effectiveServiceUnitPrice("bubbleWrap");
     const effectiveItem = effectiveServiceUnitPrice("stickerRemoval");
@@ -2220,13 +2400,20 @@ function ReviewShipmentDialog({
       total += (Number(qty) || 0) * (extraUnitPrices[k] || 0);
     });
 
-    const selectedKeys = hasPerShipmentServices
-      ? Array.from(
-          new Set(
-            Object.values(activeServiceKeysByIndex).flatMap((keys) => keys || [])
-          )
-        )
-      : [...requestActiveServiceKeys];
+    const selectedKeys = Array.from(
+      new Set([
+        ...Object.values(activeServiceKeysByIndex).flatMap((keys) => keys || []),
+        ...requestActiveServiceKeys,
+      ])
+    );
+
+    const requestQtyMap: Record<string, number> = {};
+    requestActiveServiceKeys.forEach((key) => {
+      if (key === "bubbleWrap") requestQtyMap[key] = Number(adminBubbleWrapFeet) || 0;
+      else if (key === "stickerRemoval") requestQtyMap[key] = Number(adminStickerRemovalItems) || 0;
+      else if (key === "warningLabels") requestQtyMap[key] = Number(adminWarningLabels) || 0;
+      else requestQtyMap[key] = Number(adminExtraServiceQty[key]) || 0;
+    });
 
     const payload: Record<string, unknown> = {
       bubbleWrapFeet: bubble,
@@ -2241,7 +2428,13 @@ function ReviewShipmentDialog({
       payload.extraServiceQuantities = extraAgg;
       payload.extraServiceUnitPrices = extraUnitPrices;
     }
-    return { payload, selectedKeys, total };
+    return {
+      payload,
+      selectedKeys,
+      requestSelectedKeys: [...requestActiveServiceKeys],
+      requestQtyMap,
+      total,
+    };
   };
 
   const handleConfirmClick = () => {
@@ -2353,13 +2546,11 @@ function ReviewShipmentDialog({
       })),
     } as any;
 
-    const { payload, selectedKeys } = buildAdditionalServicesPayload();
-    // Persist per-line client/admin service keys + qtys so reopen still shows what was confirmed.
+    const { payload, selectedKeys, requestSelectedKeys, requestQtyMap } =
+      buildAdditionalServicesPayload();
+    // Persist per-line + whole-request services so reopen shows both scopes.
     const shipmentsWithServices = (requestForConfirm.shipments || []).map(
       (shipment: any, index: number) => {
-        if (!hasPerShipmentServices) {
-          return shipment;
-        }
         const keys = activeServiceKeysByIndex[index] || [];
         const q = perShipmentQuantities[index] || emptyPerShipmentQty();
         const qtyMap: Record<string, number> = {};
@@ -2380,13 +2571,12 @@ function ReviewShipmentDialog({
       ...(requestForConfirm as any),
       shipments: shipmentsWithServices,
       selectedAdditionalServices: selectedKeys,
-      ...(hasPerShipmentServices
-        ? {}
-        : {
-            bubbleWrapFeet: Number(payload.bubbleWrapFeet) || 0,
-            stickerRemovalItems: Number(payload.stickerRemovalItems) || 0,
-            warningLabels: Number(payload.warningLabels) || 0,
-          }),
+      requestSelectedAdditionalServices: requestSelectedKeys,
+      requestAdditionalServiceQuantities: requestQtyMap,
+      additionalServiceQuantities: requestQtyMap,
+      bubbleWrapFeet: Number(requestQtyMap.bubbleWrap) || 0,
+      stickerRemovalItems: Number(requestQtyMap.stickerRemoval) || 0,
+      warningLabels: Number(requestQtyMap.warningLabels) || 0,
     } as any;
 
     onConfirm(requestWithServices, adminRemarks, shippingDate, {
@@ -2420,9 +2610,9 @@ function ReviewShipmentDialog({
     if (!requestId || !clientUserId) return;
     setServicesSaving(true);
     try {
-      const { payload, selectedKeys } = buildAdditionalServicesPayload();
+      const { payload, selectedKeys, requestSelectedKeys, requestQtyMap } =
+        buildAdditionalServicesPayload();
       const shipmentsUpdate = (request.shipments || []).map((shipment: any, index: number) => {
-        if (!hasPerShipmentServices) return shipment;
         const keys = activeServiceKeysByIndex[index] || [];
         const q = perShipmentQuantities[index] || emptyPerShipmentQty();
         const qtyMap: Record<string, number> = {};
@@ -2443,10 +2633,13 @@ function ReviewShipmentDialog({
         adminAdditionalServices: payload,
         additionalServices: payload,
         selectedAdditionalServices: selectedKeys,
-        ...(hasPerShipmentServices ? { shipments: shipmentsUpdate } : {}),
-        bubbleWrapFeet: payload.bubbleWrapFeet,
-        stickerRemovalItems: payload.stickerRemovalItems,
-        warningLabels: payload.warningLabels,
+        requestSelectedAdditionalServices: requestSelectedKeys,
+        requestAdditionalServiceQuantities: requestQtyMap,
+        additionalServiceQuantities: requestQtyMap,
+        shipments: shipmentsUpdate,
+        bubbleWrapFeet: Number(requestQtyMap.bubbleWrap) || 0,
+        stickerRemovalItems: Number(requestQtyMap.stickerRemoval) || 0,
+        warningLabels: Number(requestQtyMap.warningLabels) || 0,
       });
 
       // Keep shipped order docs in sync when already dispatched.
@@ -2762,20 +2955,15 @@ function ReviewShipmentDialog({
                     : false;
                 const locationBreakdown = getLocationBreakdownForProduct(product);
                 
-                // Client-selected keys (for labels) + admin-editable active keys
-                const clientSelectedServices = hasPerShipmentServices
-                  ? serviceKeysFromShipmentLine(shipment)
-                  : index === 0
-                    ? requestLevelServices
-                    : [];
-                const shipmentSelectedServices = hasPerShipmentServices
-                  ? activeServiceKeysByIndex[index] || clientSelectedServices
-                  : index === 0
-                    ? requestActiveServiceKeys
-                    : [];
+                // Client-selected keys (for labels) + admin-editable per-line keys
+                const clientSelectedServices = serviceKeysFromShipmentLine(shipment);
+                const shipmentSelectedServices =
+                  activeServiceKeysByIndex[index] || clientSelectedServices;
 
                 const catalogName = (key: string) =>
-                  serviceCatalog.find((r) => r.key === key)?.name ?? key;
+                  customServiceNames[key] ||
+                  serviceCatalog.find((r) => r.key === key)?.name ||
+                  key;
                 const catalogRow = (key: string) => serviceCatalog.find((r) => r.key === key);
                 const clientQtyHint = (key: string) => {
                   const lineQtyMap =
@@ -2801,13 +2989,11 @@ function ReviewShipmentDialog({
                   return 0;
                 };
 
-                const showServicesEditor =
-                  (!readOnly || request.status === "confirmed") &&
-                  (hasPerShipmentServices || index === 0);
+                // Always allow per-line add/edit; whole-request block is rendered once below.
+                const showServicesEditor = !readOnly || request.status === "confirmed";
 
                 const quantities = perShipmentQuantities[index] || emptyPerShipmentQty();
-                const shipmentTotal = hasPerShipmentServices
-                  ? (() => {
+                const shipmentTotal = (() => {
                       const keys = shipmentSelectedServices;
                       const filtered: PerShipmentAdditionalQty = {
                         bubbleWrapFeet: keys.includes("bubbleWrap")
@@ -2826,10 +3012,7 @@ function ReviewShipmentDialog({
                         filtered.extra[k] = Number(quantities.extra?.[k]) || 0;
                       });
                       return subtotalAdditionalForLine(filtered, effectiveServiceUnitPrice);
-                    })()
-                  : index === 0
-                    ? additionalServicesTotal
-                    : 0;
+                    })();
 
                 // Calculate unit price and packOfPrice from pricing rules
                 let unitPrice = shipment.unitPrice || 0; // Fallback to stored value
@@ -3244,44 +3427,27 @@ function ReviewShipmentDialog({
                             const unit = unitPriceForServiceKey(serviceKey, serviceCatalog);
                             const clientSelected = clientSelectedServices.includes(serviceKey);
                             const removeService = () => {
-                              if (hasPerShipmentServices) {
-                                setActiveServiceKeysByIndex((prev) => ({
+                              setActiveServiceKeysByIndex((prev) => ({
+                                ...prev,
+                                [index]: (prev[index] || []).filter((k) => k !== serviceKey),
+                              }));
+                              setPerShipmentQuantities((prev) => {
+                                const cur = prev[index] || emptyPerShipmentQty();
+                                const extra = { ...(cur.extra || {}) };
+                                delete extra[serviceKey];
+                                return {
                                   ...prev,
-                                  [index]: (prev[index] || []).filter((k) => k !== serviceKey),
-                                }));
-                                setPerShipmentQuantities((prev) => {
-                                  const cur = prev[index] || emptyPerShipmentQty();
-                                  const extra = { ...(cur.extra || {}) };
-                                  delete extra[serviceKey];
-                                  return {
-                                    ...prev,
-                                    [index]: {
-                                      bubbleWrapFeet:
-                                        serviceKey === "bubbleWrap" ? 0 : cur.bubbleWrapFeet,
-                                      stickerRemovalItems:
-                                        serviceKey === "stickerRemoval" ? 0 : cur.stickerRemovalItems,
-                                      warningLabels:
-                                        serviceKey === "warningLabels" ? 0 : cur.warningLabels,
-                                      extra,
-                                    },
-                                  };
-                                });
-                              } else if (index === 0) {
-                                setRequestActiveServiceKeys((prev) =>
-                                  prev.filter((k) => k !== serviceKey)
-                                );
-                                if (serviceKey === "bubbleWrap") setAdminBubbleWrapFeet(0);
-                                else if (serviceKey === "stickerRemoval")
-                                  setAdminStickerRemovalItems(0);
-                                else if (serviceKey === "warningLabels") setAdminWarningLabels(0);
-                                else {
-                                  setAdminExtraServiceQty((prev) => {
-                                    const next = { ...prev };
-                                    delete next[serviceKey];
-                                    return next;
-                                  });
-                                }
-                              }
+                                  [index]: {
+                                    bubbleWrapFeet:
+                                      serviceKey === "bubbleWrap" ? 0 : cur.bubbleWrapFeet,
+                                    stickerRemovalItems:
+                                      serviceKey === "stickerRemoval" ? 0 : cur.stickerRemovalItems,
+                                    warningLabels:
+                                      serviceKey === "warningLabels" ? 0 : cur.warningLabels,
+                                    extra,
+                                  },
+                                };
+                              });
                             };
 
                             const qtyInput = (
@@ -3356,109 +3522,77 @@ function ReviewShipmentDialog({
 
                             if (serviceKey === "bubbleWrap") {
                               return qtyInput(
-                                hasPerShipmentServices
-                                  ? quantities.bubbleWrapFeet
-                                  : index === 0
-                                    ? adminBubbleWrapFeet
-                                    : 0,
+                                quantities.bubbleWrapFeet,
                                 (v) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities((prev) => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...(prev[index] || emptyPerShipmentQty()),
-                                        bubbleWrapFeet: v,
-                                      },
-                                    }));
-                                  } else if (index === 0) setAdminBubbleWrapFeet(v);
+                                  setPerShipmentQuantities((prev) => ({
+                                    ...prev,
+                                    [index]: {
+                                      ...(prev[index] || emptyPerShipmentQty()),
+                                      bubbleWrapFeet: v,
+                                    },
+                                  }));
                                 },
                                 "Bubble Wrap (feet)"
                               );
                             }
                             if (serviceKey === "stickerRemoval") {
                               return qtyInput(
-                                hasPerShipmentServices
-                                  ? quantities.stickerRemovalItems
-                                  : index === 0
-                                    ? adminStickerRemovalItems
-                                    : 0,
+                                quantities.stickerRemovalItems,
                                 (v) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities((prev) => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...(prev[index] || emptyPerShipmentQty()),
-                                        stickerRemovalItems: v,
-                                      },
-                                    }));
-                                  } else if (index === 0) setAdminStickerRemovalItems(v);
+                                  setPerShipmentQuantities((prev) => ({
+                                    ...prev,
+                                    [index]: {
+                                      ...(prev[index] || emptyPerShipmentQty()),
+                                      stickerRemovalItems: v,
+                                    },
+                                  }));
                                 },
                                 "Sticker Removal (items)"
                               );
                             }
                             if (serviceKey === "warningLabels") {
                               return qtyInput(
-                                hasPerShipmentServices
-                                  ? quantities.warningLabels
-                                  : index === 0
-                                    ? adminWarningLabels
-                                    : 0,
+                                quantities.warningLabels,
                                 (v) => {
-                                  if (hasPerShipmentServices) {
-                                    setPerShipmentQuantities((prev) => ({
-                                      ...prev,
-                                      [index]: {
-                                        ...(prev[index] || emptyPerShipmentQty()),
-                                        warningLabels: v,
-                                      },
-                                    }));
-                                  } else if (index === 0) setAdminWarningLabels(v);
+                                  setPerShipmentQuantities((prev) => ({
+                                    ...prev,
+                                    [index]: {
+                                      ...(prev[index] || emptyPerShipmentQty()),
+                                      warningLabels: v,
+                                    },
+                                  }));
                                 },
                                 "Warning Labels (count)"
                               );
                             }
 
                             return qtyInput(
-                              hasPerShipmentServices
-                                ? quantities.extra[serviceKey] ?? 0
-                                : index === 0
-                                  ? adminExtraServiceQty[serviceKey] ?? 0
-                                  : 0,
+                              quantities.extra[serviceKey] ?? 0,
                               (v) => {
-                                if (hasPerShipmentServices) {
-                                  setPerShipmentQuantities((prev) => ({
-                                    ...prev,
-                                    [index]: {
-                                      ...(prev[index] || emptyPerShipmentQty()),
-                                      extra: {
-                                        ...(prev[index]?.extra || {}),
-                                        [serviceKey]: v,
-                                      },
+                                setPerShipmentQuantities((prev) => ({
+                                  ...prev,
+                                  [index]: {
+                                    ...(prev[index] || emptyPerShipmentQty()),
+                                    extra: {
+                                      ...(prev[index]?.extra || {}),
+                                      [serviceKey]: v,
                                     },
-                                  }));
-                                } else if (index === 0) {
-                                  setAdminExtraServiceQty((prev) => ({ ...prev, [serviceKey]: v }));
-                                }
+                                  },
+                                }));
                               },
-                              `${row?.name ?? serviceKey} (qty)`
+                              `${customServiceNames[serviceKey] || row?.name || serviceKey} (qty)`
                             );
                           })}
                         </div>
                         <div className="flex flex-wrap items-end gap-2 border-t pt-2">
                           <div className="min-w-[160px] flex-1 space-y-1">
-                            <label className="text-xs text-muted-foreground">Add service</label>
+                            <label className="text-xs text-muted-foreground">
+                              Add service (pricing or my catalog)
+                            </label>
                             <Select
-                              value={
-                                hasPerShipmentServices
-                                  ? addServiceKeyByIndex[index] || ""
-                                  : requestAddServiceKey
-                              }
+                              value={addServiceKeyByIndex[index] || ""}
                               onValueChange={(v) => {
-                                if (hasPerShipmentServices) {
-                                  setAddServiceKeyByIndex((prev) => ({ ...prev, [index]: v }));
-                                } else {
-                                  setRequestAddServiceKey(v);
-                                }
+                                setAddServiceKeyByIndex((prev) => ({ ...prev, [index]: v }));
                               }}
                             >
                               <SelectTrigger className="h-8">
@@ -3469,7 +3603,14 @@ function ReviewShipmentDialog({
                                   .filter((svc) => !shipmentSelectedServices.includes(svc.key))
                                   .map((svc) => (
                                     <SelectItem key={svc.key} value={svc.key}>
-                                      {svc.name}
+                                      {svc.name} · ${Number(svc.price || 0).toFixed(2)}
+                                    </SelectItem>
+                                  ))}
+                                {myCatalog
+                                  .filter((row) => !shipmentSelectedServices.includes(`mycat_${row.id}`))
+                                  .map((row) => (
+                                    <SelectItem key={`mycat_${row.id}`} value={`mycat_${row.id}`}>
+                                      My catalog: {row.label} · ${Number(row.unitPrice || 0).toFixed(2)}
                                     </SelectItem>
                                   ))}
                               </SelectContent>
@@ -3481,81 +3622,94 @@ function ReviewShipmentDialog({
                             variant="outline"
                             className="h-8"
                             onClick={() => {
-                              const key = hasPerShipmentServices
-                                ? addServiceKeyByIndex[index]
-                                : requestAddServiceKey;
+                              const key = addServiceKeyByIndex[index];
                               if (!key) return;
-                              setAdminServiceUnitPrices((prev) => {
-                                if (prev[key] != null && Number.isFinite(prev[key])) return prev;
-                                return {
-                                  ...prev,
-                                  [key]: unitPriceForServiceKey(key, serviceCatalog),
-                                };
-                              });
-                              if (hasPerShipmentServices) {
-                                setActiveServiceKeysByIndex((prev) => ({
-                                  ...prev,
-                                  [index]: Array.from(new Set([...(prev[index] || []), key])),
-                                }));
-                                setPerShipmentQuantities((prev) => {
-                                  const cur = prev[index] || emptyPerShipmentQty();
-                                  if (key === "bubbleWrap") {
-                                    return {
-                                      ...prev,
-                                      [index]: { ...cur, bubbleWrapFeet: Math.max(1, cur.bubbleWrapFeet || 0) },
-                                    };
-                                  }
-                                  if (key === "stickerRemoval") {
-                                    return {
-                                      ...prev,
-                                      [index]: {
-                                        ...cur,
-                                        stickerRemovalItems: Math.max(1, cur.stickerRemovalItems || 0),
-                                      },
-                                    };
-                                  }
-                                  if (key === "warningLabels") {
-                                    return {
-                                      ...prev,
-                                      [index]: {
-                                        ...cur,
-                                        warningLabels: Math.max(1, cur.warningLabels || 0),
-                                      },
-                                    };
-                                  }
+                              if (key.startsWith("mycat_")) {
+                                const catId = key.slice("mycat_".length);
+                                const row = myCatalog.find((r) => r.id === catId);
+                                if (row) {
+                                  setCustomServiceNames((prev) => ({
+                                    ...prev,
+                                    [key]: row.label || row.description || key,
+                                  }));
+                                  setAdminServiceUnitPrices((prev) => ({
+                                    ...prev,
+                                    [key]: Number(row.unitPrice) || 0,
+                                  }));
+                                }
+                              } else {
+                                setAdminServiceUnitPrices((prev) => {
+                                  if (prev[key] != null && Number.isFinite(prev[key])) return prev;
+                                  return {
+                                    ...prev,
+                                    [key]: unitPriceForServiceKey(key, serviceCatalog),
+                                  };
+                                });
+                              }
+                              setActiveServiceKeysByIndex((prev) => ({
+                                ...prev,
+                                [index]: Array.from(new Set([...(prev[index] || []), key])),
+                              }));
+                              setPerShipmentQuantities((prev) => {
+                                const cur = prev[index] || emptyPerShipmentQty();
+                                const myQty =
+                                  key.startsWith("mycat_")
+                                    ? Math.max(
+                                        1,
+                                        Number(myCatalog.find((r) => r.id === key.slice(6))?.quantity) || 1
+                                      )
+                                    : 1;
+                                if (key === "bubbleWrap") {
+                                  return {
+                                    ...prev,
+                                    [index]: { ...cur, bubbleWrapFeet: Math.max(1, cur.bubbleWrapFeet || 0) },
+                                  };
+                                }
+                                if (key === "stickerRemoval") {
                                   return {
                                     ...prev,
                                     [index]: {
                                       ...cur,
-                                      extra: {
-                                        ...(cur.extra || {}),
-                                        [key]: Math.max(1, Number(cur.extra?.[key]) || 0),
-                                      },
+                                      stickerRemovalItems: Math.max(1, cur.stickerRemovalItems || 0),
                                     },
                                   };
-                                });
-                                setAddServiceKeyByIndex((prev) => ({ ...prev, [index]: "" }));
-                              } else {
-                                setRequestActiveServiceKeys((prev) =>
-                                  Array.from(new Set([...prev, key]))
-                                );
-                                if (key === "bubbleWrap")
-                                  setAdminBubbleWrapFeet((v) => Math.max(1, v || 0));
-                                else if (key === "stickerRemoval")
-                                  setAdminStickerRemovalItems((v) => Math.max(1, v || 0));
-                                else if (key === "warningLabels")
-                                  setAdminWarningLabels((v) => Math.max(1, v || 0));
-                                else
-                                  setAdminExtraServiceQty((prev) => ({
+                                }
+                                if (key === "warningLabels") {
+                                  return {
                                     ...prev,
-                                    [key]: Math.max(1, Number(prev[key]) || 0),
-                                  }));
-                                setRequestAddServiceKey("");
-                              }
+                                    [index]: {
+                                      ...cur,
+                                      warningLabels: Math.max(1, cur.warningLabels || 0),
+                                    },
+                                  };
+                                }
+                                return {
+                                  ...prev,
+                                  [index]: {
+                                    ...cur,
+                                    extra: {
+                                      ...(cur.extra || {}),
+                                      [key]: Math.max(myQty, Number(cur.extra?.[key]) || 0),
+                                    },
+                                  },
+                                };
+                              });
+                              setAddServiceKeyByIndex((prev) => ({ ...prev, [index]: "" }));
                             }}
                           >
                             <Plus className="mr-1 h-3.5 w-3.5" />
                             Add
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8"
+                            title="Service not listed? Save a new My catalog entry and add it here"
+                            onClick={() => openNewCatalogEntry({ scope: "line", index })}
+                          >
+                            <BookmarkPlus className="mr-1 h-3.5 w-3.5" />
+                            New catalog
                           </Button>
                         </div>
                         {shipmentTotal > 0 && (
@@ -3774,11 +3928,199 @@ function ReviewShipmentDialog({
             </div>
           </div>
 
+          {/* Whole-request additional services (coexists with per-line services above) */}
+          {(!readOnly || request.status === "confirmed") ? (
+            <div className="border rounded-lg p-3 bg-amber-50/40 border-amber-200/70 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-xs font-medium text-amber-950">
+                  Additional services for whole request
+                </label>
+                <span className="text-[11px] text-muted-foreground">
+                  Applied once for this outbound (in addition to per-line services)
+                </span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                {requestActiveServiceKeys.map((serviceKey) => {
+                  const row = serviceCatalog.find((r) => r.key === serviceKey);
+                  const unit = effectiveServiceUnitPrice(serviceKey);
+                  const name =
+                    customServiceNames[serviceKey] || row?.name || serviceKey;
+                  const qty =
+                    serviceKey === "bubbleWrap"
+                      ? adminBubbleWrapFeet
+                      : serviceKey === "stickerRemoval"
+                        ? adminStickerRemovalItems
+                        : serviceKey === "warningLabels"
+                          ? adminWarningLabels
+                          : adminExtraServiceQty[serviceKey] || 0;
+                  const setQty = (v: number) => {
+                    if (serviceKey === "bubbleWrap") setAdminBubbleWrapFeet(v);
+                    else if (serviceKey === "stickerRemoval") setAdminStickerRemovalItems(v);
+                    else if (serviceKey === "warningLabels") setAdminWarningLabels(v);
+                    else setAdminExtraServiceQty((prev) => ({ ...prev, [serviceKey]: v }));
+                  };
+                  return (
+                    <div
+                      key={`req-svc-${serviceKey}`}
+                      className="space-y-1 rounded-md border bg-background/70 p-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <label className="text-xs text-muted-foreground">{name}</label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-1.5 text-xs text-destructive"
+                          onClick={() => {
+                            setRequestActiveServiceKeys((prev) =>
+                              prev.filter((k) => k !== serviceKey)
+                            );
+                            if (serviceKey === "bubbleWrap") setAdminBubbleWrapFeet(0);
+                            else if (serviceKey === "stickerRemoval")
+                              setAdminStickerRemovalItems(0);
+                            else if (serviceKey === "warningLabels") setAdminWarningLabels(0);
+                            else {
+                              setAdminExtraServiceQty((prev) => {
+                                const next = { ...prev };
+                                delete next[serviceKey];
+                                return next;
+                              });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-muted-foreground">Qty</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-8"
+                            value={qty}
+                            onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="text-[10px] text-muted-foreground">Unit $</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="h-8"
+                            value={unit}
+                            onChange={(e) =>
+                              setServiceUnitPrice(serviceKey, parseFloat(e.target.value))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Line ${(qty * unit).toFixed(2)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap items-end gap-2 border-t pt-2">
+                <div className="min-w-[180px] flex-1 space-y-1">
+                  <label className="text-xs text-muted-foreground">
+                    Add for whole request (pricing or my catalog)
+                  </label>
+                  <Select value={requestAddServiceKey} onValueChange={setRequestAddServiceKey}>
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="Choose from catalog" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {serviceCatalog
+                        .filter((svc) => !requestActiveServiceKeys.includes(svc.key))
+                        .map((svc) => (
+                          <SelectItem key={svc.key} value={svc.key}>
+                            {svc.name} · ${Number(svc.price || 0).toFixed(2)}
+                          </SelectItem>
+                        ))}
+                      {myCatalog
+                        .filter((row) => !requestActiveServiceKeys.includes(`mycat_${row.id}`))
+                        .map((row) => (
+                          <SelectItem key={`mycat_${row.id}`} value={`mycat_${row.id}`}>
+                            My catalog: {row.label} · ${Number(row.unitPrice || 0).toFixed(2)}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => {
+                    const key = requestAddServiceKey;
+                    if (!key) return;
+                    if (key.startsWith("mycat_")) {
+                      const catId = key.slice("mycat_".length);
+                      const row = myCatalog.find((r) => r.id === catId);
+                      if (row) {
+                        setCustomServiceNames((prev) => ({
+                          ...prev,
+                          [key]: row.label || row.description || key,
+                        }));
+                        setAdminServiceUnitPrices((prev) => ({
+                          ...prev,
+                          [key]: Number(row.unitPrice) || 0,
+                        }));
+                        setAdminExtraServiceQty((prev) => ({
+                          ...prev,
+                          [key]: Math.max(1, Number(row.quantity) || 1),
+                        }));
+                      }
+                    } else {
+                      setAdminServiceUnitPrices((prev) => {
+                        if (prev[key] != null && Number.isFinite(prev[key])) return prev;
+                        return {
+                          ...prev,
+                          [key]: unitPriceForServiceKey(key, serviceCatalog),
+                        };
+                      });
+                      if (key === "bubbleWrap") setAdminBubbleWrapFeet((v) => Math.max(1, v || 0));
+                      else if (key === "stickerRemoval")
+                        setAdminStickerRemovalItems((v) => Math.max(1, v || 0));
+                      else if (key === "warningLabels")
+                        setAdminWarningLabels((v) => Math.max(1, v || 0));
+                      else
+                        setAdminExtraServiceQty((prev) => ({
+                          ...prev,
+                          [key]: Math.max(1, Number(prev[key]) || 0),
+                        }));
+                    }
+                    setRequestActiveServiceKeys((prev) => Array.from(new Set([...prev, key])));
+                    setRequestAddServiceKey("");
+                  }}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Add
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-8"
+                  title="Service not listed? Save a new My catalog entry and add it for the whole request"
+                  onClick={() => openNewCatalogEntry({ scope: "request" })}
+                >
+                  <BookmarkPlus className="mr-1 h-3.5 w-3.5" />
+                  New catalog
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {request.status === "confirmed" ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/20 bg-primary/5 p-3">
               <p className="text-xs text-muted-foreground">
-                Add, edit qty, or remove additional services above, then save. Client-selected
-                services stay visible with their quantities.
+                Edit per-line or whole-request additional services above, then save. Client-selected
+                line services stay visible with their quantities.
               </p>
               <Button
                 type="button"
@@ -4153,6 +4495,82 @@ function ReviewShipmentDialog({
           )}
         </div>
       </DialogContent>
+
+      <Dialog
+        open={myCatalogDialogOpen}
+        onOpenChange={(open) => {
+          setMyCatalogDialogOpen(open);
+          if (!open) setCatalogApplyTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New My catalog entry</DialogTitle>
+            <DialogDescription>
+              Service not in pricing or your catalog? Save it here. It will be added to this
+              {catalogApplyTarget?.scope === "request" ? " whole request" : " product line"} and
+              kept in your personal catalog for next time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Service name</label>
+              <Input
+                value={newCatalogName}
+                onChange={(e) => setNewCatalogName(e.target.value)}
+                placeholder="e.g. Extra packing tape"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Qty</label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={newCatalogQty}
+                  onChange={(e) => setNewCatalogQty(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Unit price ($)</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={newCatalogPrice}
+                  onChange={(e) => setNewCatalogPrice(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={myCatalogSaving}
+                onClick={() => {
+                  setMyCatalogDialogOpen(false);
+                  setCatalogApplyTarget(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={myCatalogSaving}
+                onClick={() => void saveNewCatalogEntry()}
+              >
+                {myCatalogSaving ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <BookmarkPlus className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Save & add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

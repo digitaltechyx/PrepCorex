@@ -295,6 +295,23 @@ export function CreateOutboundInvoiceDialog({
     );
   };
 
+  const applyPricingServiceToLine = (lineId: string, serviceKey: string) => {
+    const row = DEFAULT_ADDITIONAL_SERVICES.find((s) => s.key === serviceKey);
+    if (!row) return;
+    setServiceLines((prev) =>
+      prev.map((line) =>
+        line.id === lineId
+          ? {
+              ...line,
+              description: row.name,
+              quantity: Math.max(1, Number(line.quantity) || 1),
+              unitPrice: Number(row.price) || 0,
+            }
+          : line
+      )
+    );
+  };
+
   const saveServiceToCatalog = async (line: ServiceLine) => {
     if (!catalogOwnerUid) return;
     const description = line.description.trim();
@@ -709,6 +726,7 @@ export function CreateOutboundInvoiceDialog({
                 <h3 className="text-sm font-semibold">Additional services</h3>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => setCatalogOpen(true)}>
+                    <BookmarkPlus className="mr-1 h-3.5 w-3.5" />
                     My catalog ({catalog.length})
                   </Button>
                   <Button
@@ -739,32 +757,54 @@ export function CreateOutboundInvoiceDialog({
                       key={line.id}
                       className="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-12 sm:items-end"
                     >
-                      <div className="sm:col-span-4">
-                        <Label className="text-xs">Fill from my catalog</Label>
-                        <Select
-                          value=""
-                          onValueChange={(catalogId) => applyCatalogToService(line.id, catalogId)}
-                          disabled={catalogLoading || catalog.length === 0}
-                        >
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={
-                                catalogLoading
-                                  ? "Loading catalog…"
-                                  : catalog.length === 0
-                                    ? "No saved lines yet"
-                                    : "Fill from my catalog"
-                              }
-                            />
-                          </SelectTrigger>
-                          <SelectContent className="z-[100]">
-                            {catalog.map((row) => (
-                              <SelectItem key={row.id} value={row.id}>
-                                {catalogLineLabel(row)} · ${Number(row.unitPrice || 0).toFixed(2)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <div className="sm:col-span-4 space-y-2">
+                        <div>
+                          <Label className="text-xs">Fill from pricing services</Label>
+                          <Select
+                            value=""
+                            onValueChange={(serviceKey) =>
+                              applyPricingServiceToLine(line.id, serviceKey)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pricing additional services" />
+                            </SelectTrigger>
+                            <SelectContent className="z-[100]">
+                              {DEFAULT_ADDITIONAL_SERVICES.map((row) => (
+                                <SelectItem key={row.key} value={row.key}>
+                                  {row.name} · ${Number(row.price || 0).toFixed(2)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Or my catalog</Label>
+                          <Select
+                            value=""
+                            onValueChange={(catalogId) => applyCatalogToService(line.id, catalogId)}
+                            disabled={catalogLoading || catalog.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  catalogLoading
+                                    ? "Loading catalog…"
+                                    : catalog.length === 0
+                                      ? "No saved lines yet"
+                                      : "Fill from my catalog"
+                                }
+                              />
+                            </SelectTrigger>
+                            <SelectContent className="z-[100]">
+                              {catalog.map((row) => (
+                                <SelectItem key={row.id} value={row.id}>
+                                  {catalogLineLabel(row)} · ${Number(row.unitPrice || 0).toFixed(2)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div className="sm:col-span-3">
                         <Label className="text-xs">Service</Label>

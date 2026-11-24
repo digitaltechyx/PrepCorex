@@ -24,6 +24,7 @@ import {
   buildShippedOrderDetails,
   enrichShippedOrderDetailsFromInventory,
   shippedItemFromShipmentRequest,
+  hasOutboundAdditionalServicesContent,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
 import { doc, updateDoc, Timestamp, runTransaction } from "firebase/firestore";
@@ -1478,14 +1479,7 @@ export function ShippedTable({
                               : (item as any).productType || "N/A"}</span>
                             {(() => {
                               const additionalServices = (item as any).additionalServices;
-                              const hasServices = additionalServices && (
-                                (Array.isArray(additionalServices) && additionalServices.length > 0) ||
-                                (typeof additionalServices === 'object' && (
-                                  additionalServices.bubbleWrapFeet > 0 ||
-                                  additionalServices.stickerRemovalItems > 0 ||
-                                  additionalServices.warningLabels > 0
-                                ))
-                              );
+                              const hasServices = hasOutboundAdditionalServicesContent(additionalServices);
                               return hasServices ? (
                                 <>
                                   <br />
@@ -1597,14 +1591,7 @@ export function ShippedTable({
                       <TableCell className="hidden lg:table-cell">
                         {(() => {
                           const additionalServices = (item as any).additionalServices;
-                          const hasServices = additionalServices && (
-                            (Array.isArray(additionalServices) && additionalServices.length > 0) ||
-                            (typeof additionalServices === 'object' && (
-                              additionalServices.bubbleWrapFeet > 0 ||
-                              additionalServices.stickerRemovalItems > 0 ||
-                              additionalServices.warningLabels > 0
-                            ))
-                          );
+                          const hasServices = hasOutboundAdditionalServicesContent(additionalServices);
                           return hasServices ? (
                             <Button
                               variant="ghost"
@@ -1903,7 +1890,7 @@ export function ShippedTable({
                       <p className="text-sm text-muted-foreground">No additional services selected</p>
                     )
                   ) : (
-                    // Old object format
+                    // Priced object format (legacy + extras)
                     <>
                       {selectedAdditionalServices.bubbleWrapFeet > 0 && (
                         <div className="text-sm">
@@ -1923,9 +1910,32 @@ export function ShippedTable({
                           <span className="ml-2">{selectedAdditionalServices.warningLabels} labels</span>
                         </div>
                       )}
-                      {(!selectedAdditionalServices.bubbleWrapFeet || selectedAdditionalServices.bubbleWrapFeet === 0) &&
-                       (!selectedAdditionalServices.stickerRemovalItems || selectedAdditionalServices.stickerRemovalItems === 0) &&
-                       (!selectedAdditionalServices.warningLabels || selectedAdditionalServices.warningLabels === 0) && (
+                      {selectedAdditionalServices.extraServiceQuantities &&
+                        Object.entries(
+                          selectedAdditionalServices.extraServiceQuantities as Record<string, number>
+                        ).map(([key, qty]) => {
+                          const n = Number(qty) || 0;
+                          if (n <= 0) return null;
+                          const unit = Number(
+                            selectedAdditionalServices.extraServiceUnitPrices?.[key]
+                          );
+                          const label = key
+                            .replace(/^mycat_/, "")
+                            .replace(/([a-z])([A-Z])/g, "$1 $2")
+                            .replace(/[_-]+/g, " ");
+                          return (
+                            <div key={key} className="text-sm">
+                              <span className="font-medium">• {label}:</span>
+                              <span className="ml-2">
+                                {n}
+                                {Number.isFinite(unit) && unit > 0
+                                  ? ` × $${unit.toFixed(2)}`
+                                  : ""}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      {!hasOutboundAdditionalServicesContent(selectedAdditionalServices) && (
                         <p className="text-sm text-muted-foreground">No additional services selected</p>
                       )}
                     </>
