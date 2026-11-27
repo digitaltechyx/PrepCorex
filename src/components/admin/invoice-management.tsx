@@ -1044,6 +1044,8 @@ export function InvoiceManagement({ users, initialTab }: InvoiceManagementProps)
         orderNumber: invoice.orderNumber,
         soldTo: invoice.soldTo,
         fbm: invoice.fbm,
+        userId: invoice.userId || selectedUser?.uid,
+        clientUserId: invoice.userId || selectedUser?.uid,
         items: invoice.items,
         isContainerHandling: (invoice as any).isContainerHandling,
         type: (invoice as any).type,

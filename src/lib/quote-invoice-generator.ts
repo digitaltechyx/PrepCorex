@@ -20,6 +20,8 @@ export interface QuoteInvoiceItem {
   shipDate?: string;
   sku?: string;
   packaging?: string;
+  /** Clickable PrepCorex order deep link (PRODUCT / Item Description). */
+  descriptionUrl?: string;
 }
 
 export interface QuoteInvoiceData {
@@ -226,7 +228,15 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
       const pack = String(item.packaging || "").trim();
 
       doc.text(String(item.quantity), colQty, y);
-      doc.text(productLines[0] ?? "—", colProduct, y);
+      const productFirst = productLines[0] ?? "—";
+      const productLink = String(item.descriptionUrl || "").trim();
+      if (productLink) {
+        doc.setTextColor(37, 99, 235);
+        doc.textWithLink(productFirst, colProduct, y, { url: productLink });
+        doc.setTextColor(0, 0, 0);
+      } else {
+        doc.text(productFirst, colProduct, y);
+      }
       doc.text(shipDate.substring(0, 12), colDate, y);
       doc.text(sku.substring(0, 12), colSku, y);
       doc.text(pack.substring(0, 12), colPack, y);
@@ -265,7 +275,14 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
       const desc = item.description || "—";
       const lines = doc.splitTextToSize(desc, descriptionWidth);
       const firstLine = lines[0] ?? "—";
-      doc.text(firstLine, margin, y);
+      const linkUrl = String(item.descriptionUrl || "").trim();
+      if (linkUrl) {
+        doc.setTextColor(37, 99, 235);
+        doc.textWithLink(firstLine, margin, y, { url: linkUrl });
+        doc.setTextColor(0, 0, 0);
+      } else {
+        doc.text(firstLine, margin, y);
+      }
       doc.text(String(item.quantity), margin + 92, y);
       doc.text(`$${item.unitPrice.toFixed(2)}`, margin + 120, y);
       doc.text(`$${item.amount.toFixed(2)}`, pageWidth - margin, y, { align: "right" });

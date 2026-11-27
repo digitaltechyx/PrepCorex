@@ -1,6 +1,7 @@
 import type { QuoteInvoiceData, QuoteInvoiceItem } from "@/lib/quote-invoice-generator";
 import { generateQuoteInvoicePdfBlob } from "@/lib/quote-invoice-generator";
 import { parseCrmStyleInvoiceLine } from "@/lib/invoice-line-parse";
+import { buildPrepcorexOrderOpenUrl } from "@/lib/prepcorex-order-open";
 
 interface User {
   name: string;
@@ -36,8 +37,13 @@ interface InvoiceData {
     sku?: string;
     description?: string;
     date?: string;
+    orderNumber?: string;
+    orderUrl?: string;
+    descriptionUrl?: string;
   }>;
+  /** PrepCorex client uid — used to build order deep links on the PDF. */
   userId?: string;
+  clientUserId?: string;
   status?: "pending" | "paid";
   subtotal?: number;
   grandTotal?: number;
@@ -127,7 +133,16 @@ function formatStorageDate(dateValue: string): string {
   return dateValue;
 }
 
-function normalizeDetailLine(item: InvoiceData["items"][number], isStorage: boolean): QuoteInvoiceItem {
+function extractOutboundOrderId(productName: string): string {
+  const m = /^Order\s+([A-Za-z0-9_-]+)/i.exec(String(productName || "").trim());
+  return m?.[1]?.trim() || "";
+}
+
+function normalizeDetailLine(
+  item: InvoiceData["items"][number],
+  isStorage: boolean,
+  clientUserId?: string
+): QuoteInvoiceItem {
   const raw = String(item.productName || item.description || "").trim();
   const parsed = parseCrmStyleInvoiceLine(raw);
 
@@ -149,6 +164,15 @@ function normalizeDetailLine(item: InvoiceData["items"][number], isStorage: bool
   const unitPrice = Number(item.unitPrice || 0);
   const amount = Number(item.amount || 0);
 
+  const orderId =
+    String(item.orderNumber || "").trim() || extractOutboundOrderId(productName);
+  const clientUid = String(clientUserId || "").trim();
+  const descriptionUrl =
+    (orderId && clientUid
+      ? buildPrepcorexOrderOpenUrl(clientUid, orderId)
+      : "") ||
+    String(item.descriptionUrl || item.orderUrl || "").trim();
+
   return {
     description: productName,
     productName,
@@ -158,6 +182,7 @@ function normalizeDetailLine(item: InvoiceData["items"][number], isStorage: bool
     quantity,
     unitPrice,
     amount,
+    ...(descriptionUrl ? { descriptionUrl } : {}),
   };
 }
 
@@ -167,8 +192,9 @@ function mapInvoiceDataToQuote(data: InvoiceData): QuoteInvoiceData {
   }
 
   const isStorageInvoice = data.type === "storage";
+  const clientUid = String(data.clientUserId || data.userId || "").trim();
   const items: QuoteInvoiceItem[] = data.items.map((item) =>
-    normalizeDetailLine(item, isStorageInvoice)
+    normalizeDetailLine(item, isStorageInvoice, clientUid)
   );
 
   const descriptionHay = items.map((i) => i.productName || i.description).join("\n").toLowerCase();

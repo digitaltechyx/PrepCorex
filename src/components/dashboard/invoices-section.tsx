@@ -177,6 +177,8 @@ export function InvoicesSection({
         orderNumber: invoice.orderNumber,
         soldTo: invoice.soldTo,
         fbm: invoice.fbm,
+        userId: userProfile?.uid || (invoice as { userId?: string }).userId,
+        clientUserId: userProfile?.uid || (invoice as { userId?: string }).userId,
         items: invoice.items,
         isContainerHandling: (invoice as any).isContainerHandling,
         type: (invoice as any).type,
