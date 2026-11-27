@@ -185,18 +185,100 @@ function formatExtraServiceLabel(key: string): string {
   const known = LEGACY_SERVICE_LABELS[key];
   if (known) return known;
   if (key.startsWith("mycat_")) return key.slice("mycat_".length).replace(/_/g, " ") || key;
+  // Admin CRM invoice lines stored as inv_{index}_{description}
+  if (key.startsWith("inv_")) {
+    const rest = key.replace(/^inv_\d+_/, "").trim();
+    if (rest) return rest;
+  }
   return key
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 
+export type AdminInvoiceServiceLine = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+/** Normalize admin CRM / invoice service lines for client display + totals. */
+export function normalizeAdminInvoiceServiceLines(
+  raw: unknown
+): AdminInvoiceServiceLine[] {
+  if (!Array.isArray(raw)) return [];
+  const lines: AdminInvoiceServiceLine[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const description = String(row.description || row.name || "").trim();
+    const quantity = coerceNumber(row.quantity);
+    const unitPrice = coerceNumber(row.unitPrice);
+    if (!description || quantity <= 0) continue;
+    lines.push({ description, quantity, unitPrice });
+  }
+  return lines;
+}
+
+export function adminInvoiceServicesTotal(lines: AdminInvoiceServiceLine[]): number {
+  return Math.round(
+    lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) * 100
+  ) / 100;
+}
+
+/**
+ * Convert admin CRM service lines into the priced additionalServices shape
+ * clients already see on Shipped Orders.
+ */
+export function adminInvoiceServicesToAdditionalServicesPayload(
+  lines: AdminInvoiceServiceLine[]
+): OutboundAdditionalServicesPayload | undefined {
+  const usable = normalizeAdminInvoiceServiceLines(lines);
+  if (usable.length === 0) return undefined;
+  const extraServiceQuantities: Record<string, number> = {};
+  const extraServiceUnitPrices: Record<string, number> = {};
+  let total = 0;
+  usable.forEach((line, index) => {
+    const key = `inv_${index}_${line.description}`.slice(0, 120);
+    extraServiceQuantities[key] = line.quantity;
+    extraServiceUnitPrices[key] = line.unitPrice;
+    total += line.quantity * line.unitPrice;
+  });
+  return {
+    extraServiceQuantities,
+    extraServiceUnitPrices,
+    total: Math.round(total * 100) / 100,
+  };
+}
+
+/** Prefer billed CRM service lines when present; otherwise existing additional services. */
+export function resolveClientVisibleAdditionalServices(
+  source: {
+    additionalServices?: unknown;
+    selectedAdditionalServices?: unknown;
+    adminInvoiceServices?: unknown;
+  } | null | undefined
+): ShippedItem["additionalServices"] | AdminInvoiceServiceLine[] | undefined {
+  if (!source) return undefined;
+  const billed = normalizeAdminInvoiceServiceLines(source.adminInvoiceServices);
+  if (billed.length > 0) return billed;
+  const fromAdd =
+    resolveOutboundAdditionalServicesPayload(source) ||
+    (source.additionalServices as ShippedItem["additionalServices"] | undefined) ||
+    (source.selectedAdditionalServices as ShippedItem["additionalServices"] | undefined);
+  return fromAdd || undefined;
+}
+
 /** True when a priced additional-services blob has any billable qty (legacy or extras). */
 export function hasOutboundAdditionalServicesContent(
-  add: ShippedItem["additionalServices"] | null | undefined
+  add: ShippedItem["additionalServices"] | AdminInvoiceServiceLine[] | null | undefined
 ): boolean {
   if (!add) return false;
-  if (Array.isArray(add)) return add.length > 0;
+  if (Array.isArray(add)) {
+    if (add.length === 0) return false;
+    if (typeof add[0] === "string") return true;
+    return normalizeAdminInvoiceServiceLines(add).length > 0;
+  }
   if (typeof add !== "object") return false;
   if (coerceNumber(add.bubbleWrapFeet) > 0) return true;
   if (coerceNumber(add.stickerRemovalItems) > 0) return true;
@@ -317,7 +399,20 @@ export function buildShippedOrderDetails(
     };
   });
   const productsTotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
-  const add = additionalServicesBreakdown(shipment.additionalServices);
+  const billedLines = normalizeAdminInvoiceServiceLines(
+    (shipment as { adminInvoiceServices?: unknown }).adminInvoiceServices
+  );
+  const add =
+    billedLines.length > 0
+      ? {
+          lines: billedLines.map(
+            (line) =>
+              `${line.description}: ${line.quantity}` +
+              (line.unitPrice > 0 ? ` × $${line.unitPrice.toFixed(2)}` : "")
+          ),
+          total: adminInvoiceServicesTotal(billedLines),
+        }
+      : additionalServicesBreakdown(shipment.additionalServices);
   const tracking = resolveShippedCourierTracking({
     shipment,
     request: options?.request,
@@ -443,8 +538,69 @@ function normalizeOutboundAdditionalServices(
 }
 
 /**
+ * Merge additional-services payloads for CRM/invoice seeding.
+ * Uses max qty per service so shipped + request copies of the same selection
+ * do not double-count, while still keeping every distinct service.
+ */
+export function mergeOutboundAdditionalServicesPayloads(
+  payloads: Array<OutboundAdditionalServicesPayload | null | undefined>
+): OutboundAdditionalServicesPayload | undefined {
+  let bubble = 0;
+  let sticker = 0;
+  let warning = 0;
+  let pricePerFoot = 0;
+  let pricePerItem = 0;
+  let pricePerLabel = 0;
+  const extras: Record<string, number> = {};
+  const extraPrices: Record<string, number> = {};
+
+  for (const add of payloads) {
+    if (!add) continue;
+    const b = positiveInt(add.bubbleWrapFeet);
+    const s = positiveInt(add.stickerRemovalItems);
+    const w = positiveInt(add.warningLabels);
+    if (b > 0) {
+      bubble = Math.max(bubble, b);
+      if (!(pricePerFoot > 0)) pricePerFoot = coerceNumber(add.pricePerFoot);
+    }
+    if (s > 0) {
+      sticker = Math.max(sticker, s);
+      if (!(pricePerItem > 0)) pricePerItem = coerceNumber(add.pricePerItem);
+    }
+    if (w > 0) {
+      warning = Math.max(warning, w);
+      if (!(pricePerLabel > 0)) pricePerLabel = coerceNumber(add.pricePerLabel);
+    }
+    const extraQty = add.extraServiceQuantities || {};
+    const extraUnit = add.extraServiceUnitPrices || {};
+    Object.entries(extraQty).forEach(([key, qty]) => {
+      const n = positiveInt(qty);
+      if (!key || n <= 0) return;
+      extras[key] = Math.max(extras[key] || 0, n);
+      if (!(extraPrices[key] > 0)) extraPrices[key] = coerceNumber(extraUnit[key]);
+    });
+  }
+
+  const payload: OutboundAdditionalServicesPayload = {
+    ...(bubble > 0 ? { bubbleWrapFeet: bubble, pricePerFoot } : {}),
+    ...(sticker > 0 ? { stickerRemovalItems: sticker, pricePerItem } : {}),
+    ...(warning > 0 ? { warningLabels: warning, pricePerLabel } : {}),
+    ...(Object.keys(extras).length > 0 ? { extraServiceQuantities: extras } : {}),
+    ...(Object.keys(extraPrices).length > 0 ? { extraServiceUnitPrices: extraPrices } : {}),
+  };
+  let total =
+    bubble * pricePerFoot + sticker * pricePerItem + warning * pricePerLabel;
+  Object.entries(extras).forEach(([key, qty]) => {
+    total += positiveInt(qty) * coerceNumber(extraPrices[key]);
+  });
+  if (total > 0) payload.total = Math.round(total * 100) / 100;
+  return hasOutboundAdditionalServices(payload) ? payload : undefined;
+}
+
+/**
  * Resolve additional services for invoice / CRM draft seeding.
- * Prefers admin-approved payload, then client request-level qty, then per-line qty maps.
+ * Merges priced additionalServices / adminAdditionalServices with request-level
+ * and per-line qty maps so nothing selected on the outbound is dropped.
  */
 export function resolveOutboundAdditionalServicesPayload(
   source: unknown
@@ -459,7 +615,6 @@ export function resolveOutboundAdditionalServicesPayload(
     normalizeOutboundAdditionalServices(
       (root.adminAdditionalServices as Record<string, unknown> | undefined) || undefined
     );
-  if (approved) return approved;
 
   let bubble = positiveInt(root.bubbleWrapFeet);
   let sticker = positiveInt(root.stickerRemovalItems);
@@ -529,13 +684,17 @@ export function resolveOutboundAdditionalServicesPayload(
     });
   });
 
-  const payload: OutboundAdditionalServicesPayload = {
+  const fromSelections: OutboundAdditionalServicesPayload = {
     ...(bubble > 0 ? { bubbleWrapFeet: bubble } : {}),
     ...(sticker > 0 ? { stickerRemovalItems: sticker } : {}),
     ...(warning > 0 ? { warningLabels: warning } : {}),
     ...(Object.keys(extras).length > 0 ? { extraServiceQuantities: extras } : {}),
   };
-  return hasOutboundAdditionalServices(payload) ? payload : undefined;
+  const fromSelectionsOrUndef = hasOutboundAdditionalServices(fromSelections)
+    ? fromSelections
+    : undefined;
+  // Merge priced blob with selection maps so request/per-line extras are never dropped.
+  return mergeOutboundAdditionalServicesPayloads([approved, fromSelectionsOrUndef]);
 }
 
 /** Attach catalog unit prices + total onto an additional-services payload. */

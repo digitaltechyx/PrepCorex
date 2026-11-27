@@ -25,6 +25,9 @@ import {
   enrichShippedOrderDetailsFromInventory,
   shippedItemFromShipmentRequest,
   hasOutboundAdditionalServicesContent,
+  normalizeAdminInvoiceServiceLines,
+  resolveClientVisibleAdditionalServices,
+  adminInvoiceServicesTotal,
   type ShippedOrderDetails,
 } from "@/lib/shipment-utils";
 import { doc, updateDoc, Timestamp, runTransaction } from "firebase/firestore";
@@ -657,9 +660,6 @@ export function ShippedTable({
       const productNames: string[] = [];
       const editNotices: string[] = [];
       let isPrepOutbound = Boolean((req as { isPrepOutbound?: boolean }).isPrepOutbound);
-      let additionalServices =
-        (req as { additionalServices?: unknown }).additionalServices ??
-        (req as { selectedAdditionalServices?: unknown }).selectedAdditionalServices;
 
       for (const shipment of lines) {
         const boxes = Math.max(0, Math.floor(Number(shipment.quantity) || 0));
@@ -684,11 +684,13 @@ export function ShippedTable({
         ) {
           isPrepOutbound = true;
         }
-        if ((shipment as { selectedAdditionalServices?: unknown }).selectedAdditionalServices) {
-          additionalServices =
-            (shipment as { selectedAdditionalServices?: unknown }).selectedAdditionalServices;
-        }
       }
+
+      const additionalServices = resolveClientVisibleAdditionalServices(req as {
+        additionalServices?: unknown;
+        selectedAdditionalServices?: unknown;
+        adminInvoiceServices?: unknown;
+      });
 
       const uniqueNames = Array.from(
         new Set(productNames.map((n) => n.trim()).filter(Boolean))
@@ -728,6 +730,9 @@ export function ShippedTable({
         isPrepOutbound,
         createdAt: req.requestedAt,
         additionalServices,
+        adminInvoiceServices: normalizeAdminInvoiceServiceLines(
+          (req as { adminInvoiceServices?: unknown }).adminInvoiceServices
+        ),
         // Client may edit/cancel only before admin approval (status pending).
         canCancelRequest: String(req.status || "pending").trim().toLowerCase() === "pending",
         canEditRequest: String(req.status || "pending").trim().toLowerCase() === "pending",
@@ -891,9 +896,24 @@ export function ShippedTable({
         packOf: packSizes.size === 1 ? [...packSizes][0]! : "Mixed",
         status: "Shipped" as const,
         isRequest: false,
-        additionalServices:
-          primary.additionalServices ||
-          (primary as { selectedAdditionalServices?: unknown }).selectedAdditionalServices,
+        additionalServices: resolveClientVisibleAdditionalServices({
+          additionalServices: primary.additionalServices,
+          selectedAdditionalServices: (primary as { selectedAdditionalServices?: unknown })
+            .selectedAdditionalServices,
+          adminInvoiceServices:
+            (primary as { adminInvoiceServices?: unknown }).adminInvoiceServices ||
+            (linkedRequest as { adminInvoiceServices?: unknown } | null)?.adminInvoiceServices,
+        }),
+        adminInvoiceServices:
+          normalizeAdminInvoiceServiceLines(
+            (primary as { adminInvoiceServices?: unknown }).adminInvoiceServices
+          ).length > 0
+            ? normalizeAdminInvoiceServiceLines(
+                (primary as { adminInvoiceServices?: unknown }).adminInvoiceServices
+              )
+            : normalizeAdminInvoiceServiceLines(
+                (linkedRequest as { adminInvoiceServices?: unknown } | null)?.adminInvoiceServices
+              ),
       };
     };
 
@@ -1909,19 +1929,47 @@ export function ShippedTable({
               {selectedAdditionalServices ? (
                 <div className="space-y-3">
                   {Array.isArray(selectedAdditionalServices) ? (
-                    // New array format
                     selectedAdditionalServices.length > 0 ? (
-                      selectedAdditionalServices.map((service: string, index: number) => (
-                        <div key={index} className="text-sm">
-                          <span className="font-medium">• </span>
-                          <span className="capitalize">
-                            {service === "bubbleWrap" ? "Bubble Wrap" :
-                             service === "stickerRemoval" ? "Sticker Removal" :
-                             service === "warningLabels" ? "Warning Labels" :
-                             service}
-                          </span>
-                        </div>
-                      ))
+                      (() => {
+                        const billed = normalizeAdminInvoiceServiceLines(selectedAdditionalServices);
+                        if (billed.length > 0) {
+                          const total = adminInvoiceServicesTotal(billed);
+                          return (
+                            <>
+                              {billed.map((service, index) => (
+                                <div key={`${service.description}-${index}`} className="text-sm">
+                                  <span className="font-medium">• {service.description}:</span>
+                                  <span className="ml-2">
+                                    {service.quantity}
+                                    {service.unitPrice > 0
+                                      ? ` × $${service.unitPrice.toFixed(2)} = $${(
+                                          service.quantity * service.unitPrice
+                                        ).toFixed(2)}`
+                                      : ""}
+                                  </span>
+                                </div>
+                              ))}
+                              <div className="border-t pt-2 text-sm font-semibold">
+                                Services total: ${total.toFixed(2)}
+                              </div>
+                            </>
+                          );
+                        }
+                        return selectedAdditionalServices.map((service: string, index: number) => (
+                          <div key={index} className="text-sm">
+                            <span className="font-medium">• </span>
+                            <span className="capitalize">
+                              {service === "bubbleWrap"
+                                ? "Bubble Wrap"
+                                : service === "stickerRemoval"
+                                  ? "Sticker Removal"
+                                  : service === "warningLabels"
+                                    ? "Warning Labels"
+                                    : service}
+                            </span>
+                          </div>
+                        ));
+                      })()
                     ) : (
                       <p className="text-sm text-muted-foreground">No additional services selected</p>
                     )

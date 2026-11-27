@@ -268,6 +268,7 @@ export function ShipmentRequestsManagement({
         // Ensure shipped rows still expose client/admin services (incl. extras) for invoice seed.
         const {
           applyCatalogPricesToAdditionalServices,
+          mergeOutboundAdditionalServicesPayloads,
           resolveOutboundAdditionalServicesPayload,
         } = await import("@/lib/shipment-utils");
         const { catalogFromPricingDoc, unitPriceForServiceKey } = await import(
@@ -276,17 +277,31 @@ export function ShipmentRequestsManagement({
         const catalog = catalogFromPricingDoc(
           (effectiveAdditionalServicesPricing?.[0] as any) || null
         );
+        const requestServices = resolveOutboundAdditionalServicesPayload(request);
         setInvoiceShipments(
           shippedRows.map((row) => {
-            const resolved =
-              resolveOutboundAdditionalServicesPayload(row) ||
-              resolveOutboundAdditionalServicesPayload(request);
+            // Merge shipped + request so client extras on the request are never dropped.
+            const resolved = mergeOutboundAdditionalServicesPayloads([
+              resolveOutboundAdditionalServicesPayload(row),
+              requestServices,
+            ]);
             const priced = applyCatalogPricesToAdditionalServices(resolved, (key) =>
               unitPriceForServiceKey(key, catalog)
             );
             return priced
-              ? { ...row, additionalServices: priced as any }
-              : row;
+              ? {
+                  ...row,
+                  additionalServices: priced as any,
+                  adminInvoiceServices:
+                    (row as { adminInvoiceServices?: unknown }).adminInvoiceServices ||
+                    (request as { adminInvoiceServices?: unknown }).adminInvoiceServices,
+                }
+              : {
+                  ...row,
+                  adminInvoiceServices:
+                    (row as { adminInvoiceServices?: unknown }).adminInvoiceServices ||
+                    (request as { adminInvoiceServices?: unknown }).adminInvoiceServices,
+                };
           })
         );
       } else {
@@ -312,6 +327,8 @@ export function ShipmentRequestsManagement({
           {
             ...fromRequest,
             ...(pricedServices ? { additionalServices: pricedServices as any } : {}),
+            adminInvoiceServices: (request as { adminInvoiceServices?: unknown })
+              .adminInvoiceServices,
             id: `request-${request.id}`,
             shipmentRequestId: request.id,
           } as typeof shippedRows[number],

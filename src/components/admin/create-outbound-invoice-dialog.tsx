@@ -19,6 +19,9 @@ import { useToast } from "@/hooks/use-toast";
 import { applyClientInvoiceLifecycleFields } from "@/lib/client-invoice-lifecycle";
 import { generateInvoiceNumber } from "@/lib/invoice-utils";
 import {
+  adminInvoiceServicesToAdditionalServicesPayload,
+  mergeOutboundAdditionalServicesPayloads,
+  normalizeAdminInvoiceServiceLines,
   normalizeShipmentItems,
   resolveOutboundAdditionalServicesPayload,
   type OutboundAdditionalServicesPayload,
@@ -135,13 +138,21 @@ function buildProductLinesFromShipments(shipments: ShippedItem[]): ProductLine[]
 }
 
 function serviceLabelForKey(key: string): string {
-  return (
-    DEFAULT_ADDITIONAL_SERVICES.find((row) => row.key === key)?.name ||
-    key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())
-  );
+  const known = DEFAULT_ADDITIONAL_SERVICES.find((row) => row.key === key)?.name;
+  if (known) return known;
+  if (key.startsWith("mycat_")) {
+    return key.slice("mycat_".length).replace(/_/g, " ") || key;
+  }
+  if (key.startsWith("inv_")) {
+    return key.replace(/^inv_\d+_/, "").trim() || key;
+  }
+  return key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 }
 
-function buildInitialServiceLines(shipments: ShippedItem[]): ServiceLine[] {
+function buildInitialServiceLines(
+  shipments: ShippedItem[],
+  request?: Record<string, unknown> | null
+): ServiceLine[] {
   const lines: ServiceLine[] = [];
   const mergedQty: Record<string, number> = {};
   const mergedPrice: Record<string, number> = {};
@@ -152,17 +163,17 @@ function buildInitialServiceLines(shipments: ShippedItem[]): ServiceLine[] {
     const sticker = Number(add.stickerRemovalItems || 0);
     const warn = Number(add.warningLabels || 0);
     if (bubble > 0) {
-      mergedQty.bubbleWrap = (mergedQty.bubbleWrap || 0) + bubble;
+      mergedQty.bubbleWrap = Math.max(mergedQty.bubbleWrap || 0, bubble);
       if (!(mergedPrice.bubbleWrap > 0)) mergedPrice.bubbleWrap = Number(add.pricePerFoot || 0);
     }
     if (sticker > 0) {
-      mergedQty.stickerRemoval = (mergedQty.stickerRemoval || 0) + sticker;
+      mergedQty.stickerRemoval = Math.max(mergedQty.stickerRemoval || 0, sticker);
       if (!(mergedPrice.stickerRemoval > 0)) {
         mergedPrice.stickerRemoval = Number(add.pricePerItem || 0);
       }
     }
     if (warn > 0) {
-      mergedQty.warningLabels = (mergedQty.warningLabels || 0) + warn;
+      mergedQty.warningLabels = Math.max(mergedQty.warningLabels || 0, warn);
       if (!(mergedPrice.warningLabels > 0)) {
         mergedPrice.warningLabels = Number(add.pricePerLabel || 0);
       }
@@ -173,17 +184,22 @@ function buildInitialServiceLines(shipments: ShippedItem[]): ServiceLine[] {
       if (isLegacyAdditionalServiceKey(key)) return;
       const n = Math.floor(Number(qty) || 0);
       if (!key || n <= 0) return;
-      mergedQty[key] = (mergedQty[key] || 0) + n;
+      mergedQty[key] = Math.max(mergedQty[key] || 0, n);
       if (!(mergedPrice[key] > 0)) mergedPrice[key] = Number(extraPrices[key] || 0);
     });
   };
 
+  const payloads: Array<OutboundAdditionalServicesPayload | undefined> = [];
   for (const shipped of shipments) {
-    absorb(
+    payloads.push(
       resolveOutboundAdditionalServicesPayload(shipped) ||
         (shipped.additionalServices as OutboundAdditionalServicesPayload | undefined)
     );
   }
+  if (request) {
+    payloads.push(resolveOutboundAdditionalServicesPayload(request));
+  }
+  absorb(mergeOutboundAdditionalServicesPayloads(payloads));
 
   const pushOrder = ["bubbleWrap", "stickerRemoval", "warningLabels"];
   const keys = [
@@ -196,6 +212,30 @@ function buildInitialServiceLines(shipments: ShippedItem[]): ServiceLine[] {
       description: serviceLabelForKey(key),
       quantity: mergedQty[key],
       unitPrice: Number(mergedPrice[key] || 0),
+    });
+  }
+
+  // Previously saved CRM billed lines (description/qty/price) — fill any missing.
+  const billed = normalizeAdminInvoiceServiceLines(
+    (request as { adminInvoiceServices?: unknown } | null)?.adminInvoiceServices
+  );
+  for (const shipped of shipments) {
+    billed.push(
+      ...normalizeAdminInvoiceServiceLines(
+        (shipped as { adminInvoiceServices?: unknown }).adminInvoiceServices
+      )
+    );
+  }
+  const existingDesc = new Set(lines.map((l) => l.description.trim().toLowerCase()));
+  for (const line of billed) {
+    const key = line.description.trim().toLowerCase();
+    if (!key || existingDesc.has(key)) continue;
+    existingDesc.add(key);
+    lines.push({
+      id: newId("svc"),
+      description: line.description,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
     });
   }
   return lines;
@@ -247,8 +287,28 @@ export function CreateOutboundInvoiceDialog({
   useEffect(() => {
     if (!open) return;
     setProductLines(buildProductLinesFromShipments(shipments));
-    setServiceLines(buildInitialServiceLines(shipments));
-  }, [open, shipments]);
+    // Seed every PrepCorex outbound service (request + shipped + prior CRM billed lines).
+    void (async () => {
+      let requestData: Record<string, unknown> | null = null;
+      const reqId = String(
+        shipmentRequestId ||
+          shipments.map((s) => s.shipmentRequestId).find((id) => Boolean(id)) ||
+          ""
+      ).trim();
+      if (reqId && clientUser?.uid) {
+        try {
+          const { getDoc, doc: fsDoc } = await import("firebase/firestore");
+          const snap = await getDoc(
+            fsDoc(db, `users/${clientUser.uid}/shipmentRequests`, reqId)
+          );
+          if (snap.exists()) requestData = snap.data() as Record<string, unknown>;
+        } catch (err) {
+          console.warn("[crm-draft] could not load request services for seed", err);
+        }
+      }
+      setServiceLines(buildInitialServiceLines(shipments, requestData));
+    })();
+  }, [open, shipments, shipmentRequestId, clientUser?.uid]);
 
   const reloadCatalog = async () => {
     if (!catalogOwnerUid) return;
@@ -378,27 +438,15 @@ export function CreateOutboundInvoiceDialog({
           markShipmentsLinkedToCrmDraft,
         } = await import("@/lib/crm-outbound-draft-invoice");
 
-        // Persist additional services onto real shipped docs for audit / re-open.
+        // Persist billed services onto shipped + request so the client can see the same total.
         // Skip synthetic pre-dispatch rows (id request-…).
-        if (usableServices.length > 0) {
-          const batch = writeBatch(db);
-          let writes = 0;
-          for (const shipped of shipments) {
-            if (!shipped.id || String(shipped.id).startsWith("request-")) continue;
-            batch.update(doc(db, `users/${clientUser.uid}/shipped`, shipped.id), {
-              adminInvoiceServices: usableServices.map((s) => ({
-                description: s.description.trim(),
-                quantity: s.quantity,
-                unitPrice: s.unitPrice,
-              })),
-              updatedAt: serverTimestamp(),
-            });
-            writes += 1;
-          }
-          if (writes > 0) await batch.commit();
-        }
-
-        // Build from edited dialog lines so ship date lands in CRM Item Description.
+        const billedServices = usableServices.map((s) => ({
+          description: s.description.trim(),
+          quantity: s.quantity,
+          unitPrice: s.unitPrice,
+        }));
+        const clientVisibleServices =
+          adminInvoiceServicesToAdditionalServicesPayload(billedServices);
         const primaryShipDate =
           productLines.map((l) => l.shipDate).find((d) => Boolean(String(d || "").trim())) ||
           format(new Date(), "dd/MM/yyyy");
@@ -413,6 +461,31 @@ export function CreateOutboundInvoiceDialog({
           shipmentRequestId ||
           shipments.map((s) => s.shipmentRequestId).find((id) => Boolean(id)) ||
           null;
+
+        if (billedServices.length > 0) {
+          const batch = writeBatch(db);
+          let writes = 0;
+          const servicePayload = {
+            adminInvoiceServices: billedServices,
+            ...(clientVisibleServices
+              ? { additionalServices: clientVisibleServices }
+              : {}),
+            updatedAt: serverTimestamp(),
+          };
+          for (const shipped of shipments) {
+            if (!shipped.id || String(shipped.id).startsWith("request-")) continue;
+            batch.update(doc(db, `users/${clientUser.uid}/shipped`, shipped.id), servicePayload);
+            writes += 1;
+          }
+          if (requestId) {
+            batch.update(
+              doc(db, `users/${clientUser.uid}/shipmentRequests`, requestId),
+              servicePayload
+            );
+            writes += 1;
+          }
+          if (writes > 0) await batch.commit();
+        }
         // Prefer request id so pre-dispatch + post-dispatch lines share keys (no dupes / no dropped services).
         const scopeId = String(requestId || shippedIds[0] || "noscope").trim();
         const lines = [
