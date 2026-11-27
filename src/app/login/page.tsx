@@ -110,6 +110,7 @@ function LoginPageContent() {
         }
         
         const { getPostLoginPath } = await import("@/lib/auth-redirect");
+        const { getSafeInternalPath } = await import("@/lib/safe-redirect");
         const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
         const session = beginAuditSession();
         await logUserAuditEvent("sign_in", {
@@ -119,9 +120,11 @@ function LoginPageContent() {
             userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
           },
         });
-        router.push(getPostLoginPath(userProfile));
+        const nextPath = getSafeInternalPath(searchParams.get("next"));
+        router.push(nextPath || getPostLoginPath(userProfile));
       } else {
         // If no profile exists, redirect to regular dashboard
+        const { getSafeInternalPath } = await import("@/lib/safe-redirect");
         const { beginAuditSession, logUserAuditEvent } = await import("@/lib/user-audit-trail-client");
         const session = beginAuditSession();
         await logUserAuditEvent("sign_in", {
@@ -131,7 +134,8 @@ function LoginPageContent() {
             userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
           },
         });
-        router.push("/dashboard");
+        const nextPath = getSafeInternalPath(searchParams.get("next"));
+        router.push(nextPath || "/dashboard");
       }
     } catch (error: any) {
       // Map auth error codes to generic, product-friendly messages

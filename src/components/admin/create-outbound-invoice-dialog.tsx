@@ -450,11 +450,35 @@ export function CreateOutboundInvoiceDialog({
         const primaryShipDate =
           productLines.map((l) => l.shipDate).find((d) => Boolean(String(d || "").trim())) ||
           format(new Date(), "dd/MM/yyyy");
+        const isSyntheticShippedId = (id: string) => {
+          const v = String(id || "").trim();
+          return (
+            !v ||
+            v.startsWith("request-") ||
+            v.startsWith("shipped-req-") ||
+            v.startsWith("shipped-doc-")
+          );
+        };
+        // Table rows often use synthetic ids (shipped-req-…); prefer real Firestore shipped doc ids.
         const shippedIds = [
           ...new Set(
-            shipments
-              .map((s) => s.id)
-              .filter((id): id is string => Boolean(id) && !String(id).startsWith("request-"))
+            shipments.flatMap((s) => {
+              const row = s as ShippedItem & {
+                shippedDocId?: string;
+                shippedDocIds?: string[];
+              };
+              const ids: string[] = [];
+              if (Array.isArray(row.shippedDocIds)) {
+                row.shippedDocIds.forEach((id) => {
+                  if (id && !isSyntheticShippedId(id)) ids.push(id);
+                });
+              }
+              const primary = String(row.shippedDocId || "").trim();
+              if (primary && !isSyntheticShippedId(primary)) ids.push(primary);
+              const rawId = String(row.id || "").trim();
+              if (rawId && !isSyntheticShippedId(rawId)) ids.push(rawId);
+              return ids;
+            })
           ),
         ];
         const requestId =
@@ -472,9 +496,11 @@ export function CreateOutboundInvoiceDialog({
               : {}),
             updatedAt: serverTimestamp(),
           };
-          for (const shipped of shipments) {
-            if (!shipped.id || String(shipped.id).startsWith("request-")) continue;
-            batch.update(doc(db, `users/${clientUser.uid}/shipped`, shipped.id), servicePayload);
+          for (const shippedId of shippedIds) {
+            batch.update(
+              doc(db, `users/${clientUser.uid}/shipped`, shippedId),
+              servicePayload
+            );
             writes += 1;
           }
           if (requestId) {

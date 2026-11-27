@@ -21,6 +21,7 @@ import {
   CRM_OUTBOUND_DRAFT_BILLING_SOURCE,
   crmOutboundDraftConsolidationKey,
 } from "@/lib/outbound-billing";
+import { buildPrepcorexOrderOpenUrl } from "@/lib/prepcorex-order-open";
 import type { ShippedItem, UserProfile } from "@/types";
 
 export type CrmDraftLineInput = {
@@ -35,37 +36,18 @@ export type CrmDraftLineInput = {
   packaging?: string;
   /** Outbound request id shown as Order … on the CRM line. */
   orderNumber?: string;
-  /** Opens PrepCorex admin Shipped Orders with this order searched. */
+  /** Opens PrepCorex order bridge (client or admin Shipped Orders after login). */
   orderUrl?: string;
   /** Prevents double-append of the same shipped row / service key. */
   sourceKey?: string;
 };
-
-function createCrmInvoiceNumber(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const randomNum = Math.floor(Math.random() * 1000)
-    .toString()
-    .padStart(3, "0");
-  return `INV-${year}${month}-${randomNum}`;
-}
 
 function createCrmDraftReference(): string {
   return `DRAFT-PCX-${Date.now().toString().slice(-8)}`;
 }
 
 function buildPrepcorexShippedOrderUrl(clientUserId: string, orderNumber: string): string {
-  const base = (
-    process.env.NEXT_PUBLIC_APP_URL || "https://prepcorex.com"
-  ).replace(/\/$/, "");
-  const params = new URLSearchParams({
-    userId: clientUserId,
-    section: "shipped-orders",
-    status: "shipped",
-    search: orderNumber,
-  });
-  return `${base}/admin/dashboard/inventory?${params.toString()}`;
+  return buildPrepcorexOrderOpenUrl(clientUserId, orderNumber);
 }
 
 function money(n: unknown): number {
@@ -358,13 +340,10 @@ export async function appendLinesToCrmOutboundDraft(input: {
     );
 
     const existingNote = String(data.invoiceNote || "").trim();
+    // Keep DRAFT-PCX-… as invoiceNumber until CRM View / Download / Send / Sync.
     const existingNumber = String(data.invoiceNumber || "").trim();
-    const needsRealNumber = !existingNumber || /^draft(\b|-|_)/i.test(existingNumber);
-    const nextInvoiceNumber = needsRealNumber ? createCrmInvoiceNumber() : existingNumber;
-    const nextDraftReference =
-      String(data.draftReference || "").trim() ||
-      (needsRealNumber && existingNumber ? existingNumber : "") ||
-      (needsRealNumber ? createCrmDraftReference() : "");
+    const missingNumber = !existingNumber;
+    const draftNumber = missingNumber ? createCrmDraftReference() : "";
     await updateDoc(doc(db, "external_invoices", existing.id), {
       items: nextItems,
       subtotal,
@@ -377,10 +356,10 @@ export async function appendLinesToCrmOutboundDraft(input: {
       lastPrepcorexAppendBy: input.adminUid || null,
       // Drop the old auto-built note if it is still on this draft.
       ...(isAutoBuiltCrmDraftNote(existingNote) ? { invoiceNote: "" } : {}),
-      ...(needsRealNumber
+      ...(missingNumber
         ? {
-            invoiceNumber: nextInvoiceNumber,
-            ...(nextDraftReference ? { draftReference: nextDraftReference } : {}),
+            invoiceNumber: draftNumber,
+            draftReference: draftNumber,
           }
         : {}),
     });
@@ -394,9 +373,9 @@ export async function appendLinesToCrmOutboundDraft(input: {
   const dd = String(today.getDate()).padStart(2, "0");
   const invoiceDate = `${yyyy}-${mm}-${dd}`;
   const subtotal = money(normalizeIncoming.reduce((sum, it) => sum + it.amount, 0));
-  // Client-facing number is INV-…; DRAFT-PCX-… is internal reference only.
-  const invoiceNumber = createCrmInvoiceNumber();
+  // Stay as DRAFT-PCX-… in the CRM list until View / Download / Send / Sync assigns INV-….
   const draftReference = createCrmDraftReference();
+  const invoiceNumber = draftReference;
 
   // Use this client's saved CRM invoice template when admin has saved one.
   const template = await getClientInvoiceTemplate({

@@ -339,6 +339,17 @@ function isInboundHistoryEvent(e: RawEvent): boolean {
   return false;
 }
 
+/**
+ * Same-day "inbound before outbound" is only for warehouse receive / initial stock.
+ * Admin Restock keeps its wall-clock `restockedAt` — forcing it before later same-day
+ * ships made Newest-first disagree with Date/Time (e.g. restock 10:21 under ships 9:33).
+ */
+function isSameDayInboundPriorityEvent(e: RawEvent): boolean {
+  if (!isInboundHistoryEvent(e)) return false;
+  if (e.eventType === "restock") return false;
+  return e.eventType === "received" || e.eventType === "created";
+}
+
 function isOutboundHistoryEvent(e: RawEvent): boolean {
   if (
     e.eventType === "shipped" ||
@@ -1016,13 +1027,14 @@ function canLinkStockChain(a: RawEvent, b: RawEvent): boolean {
 
 /** Pick next event when several are valid — stock chain only when time order agrees. */
 function compareHistoryEventsTiebreak(a: RawEvent, b: RawEvent): number {
-  // Same calendar day: inbound/receive before outbound/ship (backdated ships must not precede receives).
-  // Skip when both rows are outbound-linked (reserve/restore/dispatch) — keep real timestamps.
+  // Same calendar day: warehouse receive / created before outbound (backdated ships must not
+  // precede putaway). Do NOT apply this to Restock — restockedAt is wall-clock and must sort
+  // with Date/Time so Newest-first stays consistent for every client.
   if (a.timestamp && b.timestamp && calendarDayKey(a.timestamp) === calendarDayKey(b.timestamp)) {
     const bothOutboundLinked = Boolean(a.outboundLinkKind) && Boolean(b.outboundLinkKind);
     if (!bothOutboundLinked) {
-      const aIn = isInboundHistoryEvent(a);
-      const bIn = isInboundHistoryEvent(b);
+      const aIn = isSameDayInboundPriorityEvent(a);
+      const bIn = isSameDayInboundPriorityEvent(b);
       const aOut = isOutboundHistoryEvent(a);
       const bOut = isOutboundHistoryEvent(b);
       if (aIn && bOut) return -1;

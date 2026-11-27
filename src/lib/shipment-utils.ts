@@ -402,17 +402,40 @@ export function buildShippedOrderDetails(
   const billedLines = normalizeAdminInvoiceServiceLines(
     (shipment as { adminInvoiceServices?: unknown }).adminInvoiceServices
   );
-  const add =
-    billedLines.length > 0
-      ? {
-          lines: billedLines.map(
-            (line) =>
-              `${line.description}: ${line.quantity}` +
-              (line.unitPrice > 0 ? ` × $${line.unitPrice.toFixed(2)}` : "")
-          ),
-          total: adminInvoiceServicesTotal(billedLines),
-        }
-      : additionalServicesBreakdown(shipment.additionalServices);
+  const fromAdd = additionalServicesBreakdown(shipment.additionalServices);
+  // Prefer CRM-billed catalog/service lines; fall back to priced additionalServices.
+  // If both exist, union by description so Save-to-CRM catalog adds are never hidden.
+  const add = (() => {
+    if (billedLines.length === 0) return fromAdd;
+    if (fromAdd.lines.length === 0) {
+      return {
+        lines: billedLines.map(
+          (line) =>
+            `${line.description}: ${line.quantity}` +
+            (line.unitPrice > 0 ? ` × $${line.unitPrice.toFixed(2)}` : "")
+        ),
+        total: adminInvoiceServicesTotal(billedLines),
+      };
+    }
+    const seen = new Set(billedLines.map((l) => l.description.trim().toLowerCase()));
+    const mergedLines = billedLines.map(
+      (line) =>
+        `${line.description}: ${line.quantity}` +
+        (line.unitPrice > 0 ? ` × $${line.unitPrice.toFixed(2)}` : "")
+    );
+    for (const line of fromAdd.lines) {
+      const desc = String(line.split(":")[0] || "")
+        .trim()
+        .toLowerCase();
+      if (!desc || seen.has(desc)) continue;
+      seen.add(desc);
+      mergedLines.push(line);
+    }
+    return {
+      lines: mergedLines,
+      total: Math.max(adminInvoiceServicesTotal(billedLines), fromAdd.total),
+    };
+  })();
   const tracking = resolveShippedCourierTracking({
     shipment,
     request: options?.request,
@@ -768,6 +791,9 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
 
   const first = items[0];
   const additionalServices = resolveOutboundAdditionalServicesPayload(req);
+  const adminInvoiceServices = normalizeAdminInvoiceServiceLines(
+    (req as { adminInvoiceServices?: unknown }).adminInvoiceServices
+  );
   const courierTracking = String(req.warehouseCourierTracking || "").trim();
   return {
     id: req.id || "request",
@@ -788,5 +814,7 @@ export function shippedItemFromShipmentRequest(req: ShipmentRequest): ShippedIte
     ...(additionalServices
       ? { additionalServices: additionalServices as ShippedItem["additionalServices"] }
       : {}),
+    // CRM Save-to-draft catalog lines (Master Case, etc.) live here — must not be dropped.
+    ...(adminInvoiceServices.length > 0 ? { adminInvoiceServices } : {}),
   };
 }

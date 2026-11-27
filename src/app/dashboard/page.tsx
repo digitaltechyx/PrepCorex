@@ -45,6 +45,7 @@ import { doc, updateDoc, deleteField } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useDashboardNav } from "@/contexts/dashboard-nav-context";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { isWarehouseDispatchedRequest } from "@/lib/warehouse-outbound-request-status";
 import {
   ChartContainer,
   ChartTooltip,
@@ -368,10 +369,15 @@ export default function DashboardPage() {
     return pendingInvoices.reduce((sum, inv) => sum + (inv.grandTotal || 0), 0);
   }, [invoices]);
 
+  // Match Shipped Orders → Pending tab: open statuses that are not warehouse-dispatched yet.
+  // Dispatched requests often still have status pending/confirmed until client sync; they belong under Shipped.
   const pendingFulfillmentCount = useMemo(() => {
     return shipmentRequests.filter((r) => {
       const s = (r.status || "").toLowerCase();
-      return s === "pending" || s === "confirmed" || s === "awaiting_label_upload";
+      if (s !== "pending" && s !== "confirmed" && s !== "awaiting_label_upload") {
+        return false;
+      }
+      return !isWarehouseDispatchedRequest(r as unknown as Record<string, unknown>);
     }).length;
   }, [shipmentRequests]);
 

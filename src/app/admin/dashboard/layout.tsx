@@ -13,6 +13,7 @@ import {
 import { hasRole } from "@/lib/permissions";
 import { UserAuditActivityTracker } from "@/components/audit/user-audit-activity-tracker";
 import { LexiFloatingChat } from "@/components/admin/lexi/lexi-floating-chat";
+import { loginPathWithNext } from "@/lib/safe-redirect";
 
 export default function AdminDashboardLayout({
   children,
@@ -38,7 +39,15 @@ export default function AdminDashboardLayout({
   useEffect(() => {
     if (!loading) {
       // Allow both admin and sub_admin to access admin dashboard
-      if (!user || !canAccessAdmin) {
+      if (!user) {
+        const returnTo =
+          typeof window !== "undefined"
+            ? `${window.location.pathname}${window.location.search || ""}`
+            : "/admin/dashboard";
+        router.replace(loginPathWithNext(returnTo));
+        return;
+      }
+      if (!canAccessAdmin) {
         router.replace("/login");
       }
     }

@@ -323,6 +323,9 @@ export function ShippedTable({
 
   useEffect(() => {
     const raw = searchParams.get("status")?.toLowerCase();
+    const searchRaw = String(
+      searchParams.get("search") || searchParams.get("q") || ""
+    ).trim();
     if (
       raw === STATUS_URL_PENDING ||
       raw === STATUS_URL_SHIPPED ||
@@ -330,14 +333,14 @@ export function ShippedTable({
       raw === STATUS_URL_CANCELLED
     ) {
       setStatusFilter(raw);
+    } else if (searchRaw) {
+      // Invoice / order deep links often omit status; default to Shipped so the order is visible.
+      setStatusFilter(STATUS_URL_SHIPPED);
     }
     const dateRaw = searchParams.get("date")?.toLowerCase();
     if (dateRaw && DATE_FILTER_KEYS.has(dateRaw)) {
       setDateFilter(dateRaw);
     }
-    const searchRaw = String(
-      searchParams.get("search") || searchParams.get("q") || ""
-    ).trim();
     if (searchRaw) {
       setSearchTerm(searchRaw);
       setCurrentPage(1);
@@ -515,6 +518,42 @@ export function ShippedTable({
         totalUnits: item.totalUnits ?? (base as { totalUnits?: number }).totalUnits,
       } as ShippedItem;
     }
+
+    // Merge CRM-billed services from the live shipped doc + table row + request.
+    // Save-to-CRM catalog lines (e.g. Master Case) are stored on shipped/request as
+    // adminInvoiceServices; request-only payloads used to drop them.
+    const billedByDesc = new Map<
+      string,
+      { description: string; quantity: number; unitPrice: number }
+    >();
+    for (const candidate of [
+      (detailsItem as { adminInvoiceServices?: unknown } | null)?.adminInvoiceServices,
+      (item as { adminInvoiceServices?: unknown }).adminInvoiceServices,
+      (payload as { adminInvoiceServices?: unknown }).adminInvoiceServices,
+      (rawRequest as { adminInvoiceServices?: unknown } | undefined)?.adminInvoiceServices,
+    ]) {
+      for (const line of normalizeAdminInvoiceServiceLines(candidate)) {
+        const key = line.description.trim().toLowerCase();
+        const prev = billedByDesc.get(key);
+        if (!prev || line.quantity >= prev.quantity) billedByDesc.set(key, line);
+      }
+    }
+    const adminInvoiceServices = Array.from(billedByDesc.values());
+    const shippedAdd = (detailsItem as ShippedItem | null)?.additionalServices;
+    const rowAdd = (item as { additionalServices?: ShippedItem["additionalServices"] })
+      .additionalServices;
+    payload = {
+      ...payload,
+      ...(adminInvoiceServices.length > 0 ? { adminInvoiceServices } : {}),
+      ...(shippedAdd || rowAdd || payload.additionalServices
+        ? {
+            additionalServices:
+              shippedAdd ||
+              (Array.isArray(rowAdd) ? undefined : rowAdd) ||
+              payload.additionalServices,
+          }
+        : {}),
+    } as ShippedItem;
 
     setShipmentDetailsItem(detailsItem);
     setShipmentDetails(

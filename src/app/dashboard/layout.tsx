@@ -16,6 +16,7 @@ import { DashboardNavProvider } from "@/contexts/dashboard-nav-context";
 import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/permissions";
 import { isEmailVerificationSatisfied } from "@/lib/email-verification";
 import { userRequiresEmailVerification } from "@/lib/email-verification";
+import { loginPathWithNext } from "@/lib/safe-redirect";
 import {
   SidebarProvider,
   SidebarInset,
@@ -144,8 +145,12 @@ export default function DashboardLayout({
       }
       // locked/disabled clients may sign in and see the restricted overlay (Option A)
     } else if (!loading && !user) {
-      // No user and not loading - redirect to login
-      router.replace("/login");
+      // Preserve deep link (e.g. invoice order URL) through login.
+      const returnTo =
+        typeof window !== "undefined"
+          ? `${pathname || "/dashboard"}${window.location.search || ""}`
+          : pathname || "/dashboard";
+      router.replace(loginPathWithNext(returnTo));
     }
   }, [user, userProfile, loading, router, signOut, pathname]);
 
