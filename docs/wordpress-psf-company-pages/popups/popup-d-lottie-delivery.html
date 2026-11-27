@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Popup D · Lottie Delivery</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.12/dist/lottie-player.js"></script>
+  <style>
+    :root {
+      --orange: #ff8806; --orange-deep: #e07805; --ink: #14110e;
+      --muted: #5c564e; --cream: #f7f4ef; --soft: #fff8f0; --line: rgba(20,17,14,.1);
+      --font: "Outfit", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: var(--font); background: var(--cream); color: var(--ink); }
+    .demo { max-width: 560px; margin: 0 auto; padding: 3rem 1.25rem; color: var(--muted); line-height: 1.55; }
+    .demo h1 { color: var(--ink); font-size: 1.5rem; margin: 0 0 .5rem; }
+    .demo a { color: var(--orange); font-weight: 700; }
+    .demo button {
+      margin-top: 1rem; min-height: 2.75rem; padding: 0 1.2rem; border: none; border-radius: 12px;
+      background: var(--orange); color: #fff; font: inherit; font-weight: 750; cursor: pointer;
+    }
+
+    .psf-pop {
+      position: fixed; inset: 0; z-index: 99999;
+      display: grid; place-items: center; padding: 1rem;
+      background: rgba(20,17,14,.55); backdrop-filter: blur(6px);
+      opacity: 0; pointer-events: none; transition: opacity .35s ease;
+    }
+    .psf-pop.is-open { opacity: 1; pointer-events: auto; }
+    .psf-pop__card {
+      position: relative; width: min(880px, 100%);
+      display: grid; grid-template-columns: 1.05fr .95fr;
+      border-radius: 22px; overflow: hidden;
+      background: #fff; box-shadow: 0 30px 80px rgba(20,17,14,.28);
+      transform: translateY(18px) scale(.98); transition: transform .4s cubic-bezier(.2,.8,.2,1);
+    }
+    .psf-pop.is-open .psf-pop__card { transform: none; }
+    .psf-pop__close {
+      position: absolute; top: .75rem; right: .75rem; z-index: 5;
+      width: 2.25rem; height: 2.25rem; border-radius: 999px;
+      border: 1.5px solid var(--line); background: #fff; color: var(--ink);
+      font-size: 1.25rem; line-height: 1; cursor: pointer;
+    }
+    .psf-pop__close:hover { border-color: var(--orange); color: var(--orange); }
+
+    .psf-pop__visual {
+      position: relative; padding: 1.75rem 1.25rem 1.25rem;
+      background:
+        radial-gradient(ellipse 80% 55% at 50% 100%, rgba(255,136,6,.4), transparent 55%),
+        linear-gradient(165deg, #1c1814, #2a2118 55%, #14110e);
+      color: #fff8f0; display: flex; flex-direction: column; align-items: center; text-align: center;
+    }
+    .psf-pop__eyebrow {
+      margin: 0; font-size: .68rem; font-weight: 750; letter-spacing: .12em;
+      text-transform: uppercase; color: #ffb44a;
+    }
+    .psf-pop__visual h2 {
+      margin: .55rem 0 0; font-size: clamp(1.4rem, 2.8vw, 1.85rem);
+      font-weight: 800; letter-spacing: -.03em; line-height: 1.15; max-width: 16ch;
+    }
+    .psf-pop__lottie {
+      width: min(280px, 100%); height: 240px; margin-top: .5rem;
+    }
+    .psf-pop__lottie lottie-player { width: 100%; height: 100%; }
+
+    .psf-pop__copy { padding: 2rem 1.75rem 1.75rem; display: flex; flex-direction: column; justify-content: center; }
+    .psf-pop__copy h3 {
+      margin: 0; font-size: clamp(1.35rem, 2.5vw, 1.65rem); font-weight: 800;
+      letter-spacing: -.03em; line-height: 1.2;
+    }
+    .psf-pop__copy p {
+      margin: .7rem 0 0; color: var(--muted); font-size: .95rem; line-height: 1.55; font-weight: 500;
+    }
+    .psf-pop__actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.25rem; }
+    .psf-pop__btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 2.9rem; padding: 0 1.15rem; border-radius: 12px;
+      font-family: var(--font); font-size: .92rem; font-weight: 750; text-decoration: none !important;
+      transition: transform .2s ease;
+    }
+    .psf-pop__btn:hover { transform: translateY(-2px); }
+    .psf-pop__btn--primary {
+      color: #fff !important;
+      background: linear-gradient(135deg, #ff9f2e, var(--orange) 50%, var(--orange-deep));
+      box-shadow: 0 12px 28px rgba(255,136,6,.28);
+    }
+    .psf-pop__btn--ghost {
+      color: var(--ink) !important; border: 1.5px solid var(--line); background: #fff;
+    }
+    .psf-pop__pills { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 1rem; }
+    .psf-pop__pills span {
+      padding: .28rem .65rem; border-radius: 999px; font-size: .72rem; font-weight: 700;
+      background: var(--soft); color: #9a5404; border: 1px solid rgba(255,136,6,.3);
+    }
+
+    @media (max-width: 700px) {
+      .psf-pop__card { grid-template-columns: 1fr; }
+      .psf-pop__lottie { height: 200px; }
+      .psf-pop__actions { flex-direction: column; }
+      .psf-pop__btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="demo">
+    <h1>Popup D — Lottie Delivery</h1>
+    <p>Split modal with a Lottie courier / package delivery loop. No stock photos.</p>
+    <button type="button" id="psf-pop-reopen">Show popup again</button>
+    <p style="margin-top:1rem">
+      <a href="popup-c-rocket-mascot.html">← C</a> ·
+      <a href="popup-e-lottie-success.html">E →</a> ·
+      <a href="README.md">All</a>
+    </p>
+  </div>
+
+  <div class="psf-pop" id="psf-pop" role="dialog" aria-modal="true" aria-labelledby="psf-pop-title">
+    <div class="psf-pop__card">
+      <button class="psf-pop__close" type="button" aria-label="Close" data-psf-pop-close>&times;</button>
+      <div class="psf-pop__visual">
+        <p class="psf-pop__eyebrow">Walmart-approved · Amazon-ready</p>
+        <h2>Your inventory shouldn’t wait.</h2>
+        <div class="psf-pop__lottie">
+          <lottie-player
+            src="./lottie/delivery.json"
+            background="transparent"
+            speed="1"
+            loop
+            autoplay
+            aria-label="Delivery animation"
+          ></lottie-player>
+        </div>
+      </div>
+      <div class="psf-pop__copy">
+        <h3 id="psf-pop-title">Prep that ships on time, every time.</h3>
+        <p>One flat rate. No hidden fees. No minimums. Compliant, accurate, and out the door in 24–48 hours.</p>
+        <div class="psf-pop__pills">
+          <span>Amazon FBA</span>
+          <span>Walmart WFS</span>
+          <span>TikTok Shop</span>
+        </div>
+        <div class="psf-pop__actions">
+          <a class="psf-pop__btn psf-pop__btn--primary" href="https://prepservicesfba.com/free-fulfillment-audit/">Get a Free Quote</a>
+          <a class="psf-pop__btn psf-pop__btn--ghost" href="tel:+13476613010">Book a Call with Arshad</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var KEY = "psfPopDDismissed";
+      var pop = document.getElementById("psf-pop");
+      function open() { pop.classList.add("is-open"); document.body.style.overflow = "hidden"; }
+      function close() {
+        pop.classList.remove("is-open"); document.body.style.overflow = "";
+        try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+      }
+      pop.querySelectorAll("[data-psf-pop-close]").forEach(function (el) { el.addEventListener("click", close); });
+      pop.addEventListener("click", function (e) { if (e.target === pop) close(); });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+      document.getElementById("psf-pop-reopen").addEventListener("click", function () {
+        try { sessionStorage.removeItem(KEY); } catch (e) {}
+        open();
+      });
+      var dismissed = false;
+      try { dismissed = sessionStorage.getItem(KEY) === "1"; } catch (e) {}
+      if (!dismissed) setTimeout(open, 900);
+    })();
+  </script>
+</body>
+</html>

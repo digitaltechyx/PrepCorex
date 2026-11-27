@@ -330,6 +330,54 @@ export type ShipBestOrderDetail = {
   logisticsProductName?: string;
 };
 
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+/** Normalize ShipBest order/detail payloads (field names vary by product). */
+export function normalizeShipBestOrderDetail(
+  raw: Record<string, unknown> | ShipBestOrderDetail | null | undefined
+): ShipBestOrderDetail | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const labelUrl = firstNonEmptyString(
+    data.labelUrl,
+    data.label_url,
+    data.labelFileUrl,
+    data.label_file_url,
+    data.fileUrl,
+    data.file_url,
+    data.pdfUrl,
+    data.pdf_url,
+    data.printUrl,
+    data.print_url
+  );
+  const trackingNo = firstNonEmptyString(
+    data.trackingNo,
+    data.tracking_no,
+    data.trackingNumber,
+    data.tracking_number
+  );
+  return {
+    orderNo: firstNonEmptyString(data.orderNo, data.order_no) || undefined,
+    customNo: firstNonEmptyString(data.customNo, data.custom_no) || undefined,
+    status: data.status != null ? Number(data.status) : undefined,
+    errorMsg: firstNonEmptyString(data.errorMsg, data.error_msg) || undefined,
+    trackingNo: trackingNo || undefined,
+    labelUrl: labelUrl || undefined,
+    feePrice: data.feePrice != null ? Number(data.feePrice) : undefined,
+    feePriceCurrency: firstNonEmptyString(data.feePriceCurrency, data.fee_price_currency) || undefined,
+    logisticsProductCode:
+      firstNonEmptyString(data.logisticsProductCode, data.logistics_product_code) || undefined,
+    logisticsProductName:
+      firstNonEmptyString(data.logisticsProductName, data.logistics_product_name) || undefined,
+  };
+}
+
 export async function shipbestOrderDetail(opts: {
   orderNo?: string;
   customNo?: string;
@@ -337,18 +385,22 @@ export async function shipbestOrderDetail(opts: {
   if (!opts.orderNo && !opts.customNo) {
     throw new Error("orderNo or customNo is required");
   }
-  const data = await shipbestRequest<ShipBestOrderDetail>("/api/order/detail", {
+  const data = await shipbestRequest<Record<string, unknown>>("/api/order/detail", {
     ...(opts.orderNo ? { orderNo: opts.orderNo } : {}),
     ...(opts.customNo ? { customNo: opts.customNo } : {}),
   });
-  return data || null;
+  return normalizeShipBestOrderDetail(data);
 }
 
+/**
+ * Wait for the printable label URL.
+ * ShipBest often returns tracking before the PDF is ready — do not stop on tracking alone.
+ */
 export async function shipbestWaitForLabel(
   customNo: string,
   options?: { attempts?: number; delayMs?: number }
 ): Promise<ShipBestOrderDetail> {
-  const attempts = options?.attempts ?? 12;
+  const attempts = options?.attempts ?? 24;
   const delayMs = options?.delayMs ?? 2500;
   let last: ShipBestOrderDetail | null = null;
 
@@ -360,7 +412,7 @@ export async function shipbestWaitForLabel(
     if (last?.status === 6) {
       throw new Error("ShipBest order was cancelled");
     }
-    if (last?.trackingNo || last?.labelUrl) {
+    if (last?.labelUrl) {
       return last;
     }
     if (i < attempts - 1) {
@@ -368,6 +420,7 @@ export async function shipbestWaitForLabel(
     }
   }
 
+  // Last resort: return whatever we have (may be tracking-only) so purchase still completes.
   if (last) return last;
   throw new Error("ShipBest order detail not available after create");
 }

@@ -1,0 +1,159 @@
+<!--
+  PSF Lead Popup H — paste into Elementor HTML widget (site-wide footer recommended).
+  Optional: change --pop-hero to your warehouse photo from WordPress Media.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.12/dist/lottie-player.js"></script>
+<style>
+  .psf-pop *, .psf-pop *::before, .psf-pop *::after { box-sizing: border-box; }
+  .psf-pop {
+    --orange: #ff8806;
+    --orange-deep: #e07805;
+    --ink: #14110e;
+    --muted: #5c564e;
+    --line: rgba(20,17,14,.1);
+    --font: "Outfit", system-ui, sans-serif;
+    /* Optional: replace with your WP Media warehouse photo URL */
+    --pop-hero: url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80");
+
+    position: fixed; inset: 0; z-index: 999999;
+    display: grid; place-items: center; padding: 1rem;
+    background: rgba(20,17,14,.55); backdrop-filter: blur(7px);
+    opacity: 0; pointer-events: none; transition: opacity .35s ease;
+    font-family: var(--font); color: var(--ink);
+  }
+  .psf-pop.is-open { opacity: 1; pointer-events: auto; }
+  .psf-pop__card {
+    position: relative; width: min(480px, 100%);
+    border-radius: 26px; overflow: hidden; background: #fff;
+    box-shadow: 0 30px 80px rgba(20,17,14,.3);
+    transform: translateY(20px) scale(.97);
+    transition: transform .4s cubic-bezier(.2,.8,.2,1);
+  }
+  .psf-pop.is-open .psf-pop__card { transform: none; }
+  .psf-pop__close {
+    position: absolute; top: .7rem; right: .7rem; z-index: 5;
+    width: 2.15rem; height: 2.15rem; border-radius: 999px;
+    border: 1.5px solid rgba(255,255,255,.35); background: rgba(20,17,14,.35);
+    color: #fff; cursor: pointer; font-size: 1.2rem; line-height: 1;
+    backdrop-filter: blur(4px); padding: 0;
+  }
+  .psf-pop__top {
+    position: relative;
+    padding: 1.5rem 1.25rem .65rem; text-align: center; color: #fff8f0;
+    background:
+      linear-gradient(180deg, rgba(20,17,14,.45) 0%, rgba(20,17,14,.28) 40%, rgba(20,17,14,.72) 100%),
+      var(--pop-hero) center / cover no-repeat;
+    min-height: 280px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .psf-pop__top::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+    background: linear-gradient(180deg, transparent, #fff);
+    pointer-events: none;
+  }
+  .psf-pop__eyebrow {
+    position: relative; z-index: 1; margin: 0;
+    font-size: .68rem; font-weight: 750; letter-spacing: .12em;
+    text-transform: uppercase; color: #ffb44a;
+    text-shadow: 0 2px 16px rgba(20,17,14,.45);
+  }
+  .psf-pop__top h2 {
+    position: relative; z-index: 1; margin: .5rem 0 0;
+    font-size: 1.45rem; font-weight: 800; letter-spacing: -.03em; line-height: 1.15;
+    text-shadow: 0 2px 16px rgba(20,17,14,.45);
+  }
+  .psf-pop__lottie {
+    position: relative; z-index: 1;
+    width: min(280px, 90%); height: 200px; margin: .35rem auto 0;
+    filter: drop-shadow(0 12px 24px rgba(20,17,14,.35));
+  }
+  .psf-pop__lottie lottie-player { width: 100%; height: 100%; }
+  .psf-pop__bottom {
+    padding: 1.35rem 1.5rem 1.5rem; text-align: center; background: #fff;
+  }
+  .psf-pop__bottom p {
+    margin: 0; color: var(--muted); font-size: .94rem; line-height: 1.5; font-weight: 500;
+  }
+  .psf-pop__actions { display: grid; gap: .55rem; margin-top: 1.1rem; }
+  .psf-pop__btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 3rem; border-radius: 12px;
+    font-family: var(--font); font-size: .95rem; font-weight: 750;
+    text-decoration: none !important; transition: transform .2s ease;
+  }
+  .psf-pop__btn:hover { transform: translateY(-2px); }
+  .psf-pop__btn--primary {
+    color: #fff !important;
+    background: linear-gradient(135deg, #ff9f2e, var(--orange) 50%, var(--orange-deep));
+    box-shadow: 0 12px 28px rgba(255,136,6,.28);
+  }
+  .psf-pop__btn--ghost {
+    color: var(--ink) !important; border: 1.5px solid var(--line); background: #fff;
+  }
+  @media (max-width: 480px) {
+    .psf-pop { padding: .75rem; }
+    .psf-pop__top { min-height: 240px; }
+    .psf-pop__lottie { height: 170px; }
+  }
+</style>
+
+<div class="psf-pop" id="psf-pop" role="dialog" aria-modal="true" aria-labelledby="psf-pop-title">
+  <div class="psf-pop__card">
+    <button class="psf-pop__close" type="button" aria-label="Close" data-psf-pop-close>&times;</button>
+    <div class="psf-pop__top">
+      <p class="psf-pop__eyebrow">Prep Services FBA</p>
+      <h2 id="psf-pop-title">Ship Faster. Stress Less.</h2>
+      <div class="psf-pop__lottie">
+        <lottie-player
+          src="https://assets9.lottiefiles.com/packages/lf20_jcikwtux.json"
+          background="transparent"
+          speed="1"
+          loop
+          autoplay
+          aria-label="Shipping animation"
+        ></lottie-player>
+      </div>
+    </div>
+    <div class="psf-pop__bottom">
+      <p>Amazon FBA, Walmart WFS, and multi-channel prep — with PrepCorex visibility built in.</p>
+      <div class="psf-pop__actions">
+        <a class="psf-pop__btn psf-pop__btn--primary" href="https://prepservicesfba.com/free-fulfillment-audit/">Get a Free Quote</a>
+        <a class="psf-pop__btn psf-pop__btn--ghost" href="https://geektechyx.ace.page/meet/prep-services-fba" target="_blank" rel="noopener">Book a Call with Arshad</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = "psfPopHDismissed";
+  var DELAY_MS = 1200;
+  var pop = document.getElementById("psf-pop");
+  if (!pop) return;
+
+  function open() {
+    pop.classList.add("is-open");
+    document.documentElement.style.overflow = "hidden";
+  }
+  function close() {
+    pop.classList.remove("is-open");
+    document.documentElement.style.overflow = "";
+    try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+  }
+
+  pop.querySelectorAll("[data-psf-pop-close]").forEach(function (el) {
+    el.addEventListener("click", close);
+  });
+  pop.addEventListener("click", function (e) {
+    if (e.target === pop) close();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && pop.classList.contains("is-open")) close();
+  });
+
+  var dismissed = false;
+  try { dismissed = sessionStorage.getItem(KEY) === "1"; } catch (e) {}
+  if (!dismissed) setTimeout(open, DELAY_MS);
+})();
+</script>

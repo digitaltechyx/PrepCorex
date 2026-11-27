@@ -12,6 +12,10 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import {
+  getClientInvoiceTemplate,
+  isAutoBuiltCrmDraftNote,
+} from "@/lib/crm-client-invoice-template";
 import { normalizeShipmentItems } from "@/lib/shipment-utils";
 import {
   CRM_OUTBOUND_DRAFT_BILLING_SOURCE,
@@ -29,9 +33,40 @@ export type CrmDraftLineInput = {
   shipDate?: string;
   sku?: string;
   packaging?: string;
+  /** Outbound request id shown as Order … on the CRM line. */
+  orderNumber?: string;
+  /** Opens PrepCorex admin Shipped Orders with this order searched. */
+  orderUrl?: string;
   /** Prevents double-append of the same shipped row / service key. */
   sourceKey?: string;
 };
+
+function createCrmInvoiceNumber(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const randomNum = Math.floor(Math.random() * 1000)
+    .toString()
+    .padStart(3, "0");
+  return `INV-${year}${month}-${randomNum}`;
+}
+
+function createCrmDraftReference(): string {
+  return `DRAFT-PCX-${Date.now().toString().slice(-8)}`;
+}
+
+function buildPrepcorexShippedOrderUrl(clientUserId: string, orderNumber: string): string {
+  const base = (
+    process.env.NEXT_PUBLIC_APP_URL || "https://prepcorex.com"
+  ).replace(/\/$/, "");
+  const params = new URLSearchParams({
+    userId: clientUserId,
+    section: "shipped-orders",
+    status: "shipped",
+    search: orderNumber,
+  });
+  return `${base}/admin/dashboard/inventory?${params.toString()}`;
+}
 
 function money(n: unknown): number {
   const v = Number(n);
@@ -165,9 +200,61 @@ export function buildCrmLinesFromShipments(
   return lines;
 }
 
+/** One CRM row per outbound. Detail stays on the shipment request in the client account. */
+export function collapseCrmLinesToOrderLine(
+  lines: CrmDraftLineInput[],
+  orderNumber: string,
+  opts?: { clientUserId?: string | null }
+): CrmDraftLineInput[] {
+  const order = String(orderNumber || "").trim();
+  const usable = (lines || []).filter((line) => String(line.description || "").trim());
+  if (!order || usable.length === 0) return usable;
+
+  const amount = money(
+    usable.reduce((sum, line) => {
+      const quantity = Number(line.quantity) || 0;
+      const unitPrice = money(line.unitPrice);
+      return sum + money(line.amount ?? quantity * unitPrice);
+    }, 0)
+  );
+  const shipDate = usable
+    .map((line) => String(line.shipDate || "").trim())
+    .find(Boolean);
+  const clientUserId = String(opts?.clientUserId || "").trim();
+  const orderUrl = clientUserId
+    ? buildPrepcorexShippedOrderUrl(clientUserId, order)
+    : "";
+
+  return [
+    {
+      description: `Order ${order}`,
+      quantity: 1,
+      unitPrice: amount,
+      amount,
+      orderNumber: order,
+      ...(orderUrl ? { orderUrl } : {}),
+      ...(shipDate ? { shipDate } : {}),
+      packaging: "Outbound",
+      sourceKey: crmOrderLineSourceKey(order),
+    },
+  ];
+}
+
+export function crmOrderLineSourceKey(orderNumber: string): string {
+  return `request:${String(orderNumber || "").trim()}:order`;
+}
+
+function isLegacyOrderDetailKey(sourceKey: string, orderNumber: string): boolean {
+  const key = String(sourceKey || "").trim();
+  const order = String(orderNumber || "").trim();
+  if (!key || !order) return false;
+  return key.startsWith(`request:${order}:`) && key !== crmOrderLineSourceKey(order);
+}
+
 /**
  * Find or create one open CRM draft for this PrepCorex client and append lines.
- * Dedupes by `sourceKey` stored on each item.
+ * Each outbound becomes one line (order number + total). Re-saving the same
+ * order updates that line instead of adding another row.
  */
 export async function appendLinesToCrmOutboundDraft(input: {
   clientUser: Pick<UserProfile, "uid" | "name" | "email" | "phone">;
@@ -175,11 +262,18 @@ export async function appendLinesToCrmOutboundDraft(input: {
   shipmentRequestId?: string | null;
   shippedIds?: string[];
   adminUid?: string | null;
-}): Promise<{ externalInvoiceId: string; created: boolean; addedCount: number }> {
+}): Promise<{ externalInvoiceId: string; created: boolean; addedCount: number; updatedCount: number }> {
   const clientUserId = String(input.clientUser.uid || "").trim();
   if (!clientUserId) throw new Error("Missing client user id");
   const consolidationKey = crmOutboundDraftConsolidationKey(clientUserId);
-  const incoming = (input.lines || []).filter((l) => String(l.description || "").trim());
+  const orderNumber = String(
+    input.shipmentRequestId || input.shippedIds?.find((id) => Boolean(id)) || ""
+  ).trim();
+  const incoming = collapseCrmLinesToOrderLine(
+    (input.lines || []).filter((l) => String(l.description || "").trim()),
+    orderNumber,
+    { clientUserId }
+  );
   if (incoming.length === 0) {
     throw new Error("Nothing to add to the CRM draft");
   }
@@ -200,6 +294,8 @@ export async function appendLinesToCrmOutboundDraft(input: {
     const shipDate = String(line.shipDate || "").trim();
     const sku = String(line.sku || "").trim();
     const packaging = String(line.packaging || "").trim();
+    const lineOrderNumber = String(line.orderNumber || "").trim();
+    const orderUrl = String(line.orderUrl || "").trim();
     return {
       id: line.id || newLineId(),
       description: String(line.description).trim(),
@@ -210,21 +306,37 @@ export async function appendLinesToCrmOutboundDraft(input: {
       ...(shipDate ? { shipDate } : {}),
       ...(sku ? { sku } : {}),
       ...(packaging ? { packaging } : {}),
+      ...(lineOrderNumber ? { orderNumber: lineOrderNumber } : {}),
+      ...(orderUrl ? { orderUrl } : {}),
       sourceKey: line.sourceKey || undefined,
     };
   });
 
   if (existing) {
     const data = existing.data() as Record<string, unknown>;
-    const prevItems = Array.isArray(data.items) ? [...(data.items as any[])] : [];
-    const existingKeys = new Set(
-      prevItems.map((it) => String(it?.sourceKey || "").trim()).filter(Boolean)
+    const prevItems = (Array.isArray(data.items) ? [...(data.items as any[])] : []).filter(
+      (it) => !isLegacyOrderDetailKey(String(it?.sourceKey || ""), orderNumber)
     );
-    const toAdd = normalizeIncoming.filter((line) => {
-      if (!line.sourceKey) return true;
-      return !existingKeys.has(line.sourceKey);
-    });
-    const nextItems = [...prevItems, ...toAdd];
+    const nextItems = [...prevItems];
+    let addedCount = 0;
+    let updatedCount = 0;
+    for (const line of normalizeIncoming) {
+      const key = String(line.sourceKey || "").trim();
+      const idx = key
+        ? nextItems.findIndex((it) => String(it?.sourceKey || "").trim() === key)
+        : -1;
+      if (idx >= 0) {
+        nextItems[idx] = {
+          ...nextItems[idx],
+          ...line,
+          id: nextItems[idx].id || line.id,
+        };
+        updatedCount += 1;
+      } else {
+        nextItems.push(line);
+        addedCount += 1;
+      }
+    }
     const subtotal = money(nextItems.reduce((sum, it) => sum + money(it.amount), 0));
     const salesTax = money(data.salesTax);
     const shippingCost = money(data.shippingCost);
@@ -245,6 +357,14 @@ export async function appendLinesToCrmOutboundDraft(input: {
       ].filter(Boolean))
     );
 
+    const existingNote = String(data.invoiceNote || "").trim();
+    const existingNumber = String(data.invoiceNumber || "").trim();
+    const needsRealNumber = !existingNumber || /^draft(\b|-|_)/i.test(existingNumber);
+    const nextInvoiceNumber = needsRealNumber ? createCrmInvoiceNumber() : existingNumber;
+    const nextDraftReference =
+      String(data.draftReference || "").trim() ||
+      (needsRealNumber && existingNumber ? existingNumber : "") ||
+      (needsRealNumber ? createCrmDraftReference() : "");
     await updateDoc(doc(db, "external_invoices", existing.id), {
       items: nextItems,
       subtotal,
@@ -255,9 +375,17 @@ export async function appendLinesToCrmOutboundDraft(input: {
       updatedAt: serverTimestamp(),
       lastPrepcorexAppendAt: serverTimestamp(),
       lastPrepcorexAppendBy: input.adminUid || null,
+      // Drop the old auto-built note if it is still on this draft.
+      ...(isAutoBuiltCrmDraftNote(existingNote) ? { invoiceNote: "" } : {}),
+      ...(needsRealNumber
+        ? {
+            invoiceNumber: nextInvoiceNumber,
+            ...(nextDraftReference ? { draftReference: nextDraftReference } : {}),
+          }
+        : {}),
     });
 
-    return { externalInvoiceId: existing.id, created: false, addedCount: toAdd.length };
+    return { externalInvoiceId: existing.id, created: false, addedCount, updatedCount };
   }
 
   const today = new Date();
@@ -266,16 +394,30 @@ export async function appendLinesToCrmOutboundDraft(input: {
   const dd = String(today.getDate()).padStart(2, "0");
   const invoiceDate = `${yyyy}-${mm}-${dd}`;
   const subtotal = money(normalizeIncoming.reduce((sum, it) => sum + it.amount, 0));
-  const invoiceNumber = `DRAFT-PCX-${Date.now().toString().slice(-8)}`;
+  // Client-facing number is INV-…; DRAFT-PCX-… is internal reference only.
+  const invoiceNumber = createCrmInvoiceNumber();
+  const draftReference = createCrmDraftReference();
+
+  // Use this client's saved CRM invoice template when admin has saved one.
+  const template = await getClientInvoiceTemplate({
+    email: input.clientUser.email,
+    prepcorexClientUserId: clientUserId,
+  });
 
   const docRef = await addDoc(collection(db, "external_invoices"), {
     status: "draft",
     invoiceNumber,
+    draftReference,
     invoiceDate,
     dueDate: invoiceDate,
-    companyName: "Prep Services FBA",
-    clientName: input.clientUser.name || "Client",
-    clientEmail: input.clientUser.email || "",
+    companyName: template?.companyName || "Prep Services FBA",
+    companyAddress: template?.companyAddress || "",
+    companyCityStateZip: template?.companyCityStateZip || "",
+    companyCountry: template?.companyCountry || "",
+    companyPhone: template?.companyPhone || "",
+    companyEmail: template?.companyEmail || "",
+    clientName: input.clientUser.name || template?.clientName || "Client",
+    clientEmail: input.clientUser.email || template?.clientEmail || "",
     clientPhone: input.clientUser.phone || "",
     clientAddress: "",
     items: normalizeIncoming,
@@ -292,13 +434,22 @@ export async function appendLinesToCrmOutboundDraft(input: {
     prepcorexClientUserId: clientUserId,
     prepcorexShippedIds: [...new Set((input.shippedIds || []).filter(Boolean))],
     prepcorexShipmentRequestIds: input.shipmentRequestId ? [input.shipmentRequestId] : [],
-    invoiceNote: "Auto-built from PrepCorex outbound / fulfill (consolidated draft).",
+    invoiceNote: template?.invoiceNote || "",
+    fobPoint: template?.fobPoint || "",
+    shippingTerms: template?.shippingTerms || "",
+    shippedVia: template?.shippedVia || "",
+    terms: template?.terms || "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     createdByUid: input.adminUid || null,
   });
 
-  return { externalInvoiceId: docRef.id, created: true, addedCount: normalizeIncoming.length };
+  return {
+    externalInvoiceId: docRef.id,
+    created: true,
+    addedCount: normalizeIncoming.length,
+    updatedCount: 0,
+  };
 }
 
 /** Mark shipped (+ optional request) as linked to the CRM draft. */

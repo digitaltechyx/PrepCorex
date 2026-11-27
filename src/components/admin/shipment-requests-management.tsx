@@ -1320,7 +1320,11 @@ export function ShipmentRequestsManagement({
                           onClick={() => void openCreateInvoice(request)}
                         >
                           <FileText className="mr-1 h-3.5 w-3.5" />
-                          Add services → CRM
+                          {String(request.invoiceStatus || "")
+                            .trim()
+                            .toLowerCase() === "crm_draft" || request.crmExternalInvoiceId
+                            ? "Update CRM draft"
+                            : "Add services → CRM"}
                         </Button>
                       ) : null}
                     </div>
@@ -1474,7 +1478,12 @@ export function ShipmentRequestsManagement({
                                 onClick={() => void openCreateInvoice(request)}
                               >
                                 <FileText className="mr-1 h-3.5 w-3.5" />
-                                Add services → CRM
+                                {String(request.invoiceStatus || "")
+                                  .trim()
+                                  .toLowerCase() === "crm_draft" ||
+                                request.crmExternalInvoiceId
+                                  ? "Update CRM draft"
+                                  : "Add services → CRM"}
                               </Button>
                             ) : null}
                           </div>
@@ -2716,7 +2725,10 @@ function ReviewShipmentDialog({
           }) ? (
             <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 shadow-sm dark:bg-amber-950/40">
               <p className="text-sm font-medium text-amber-950 dark:text-amber-50">
-                Add services → CRM draft
+                {String(request.invoiceStatus || "").trim().toLowerCase() === "crm_draft" ||
+                request.crmExternalInvoiceId
+                  ? "Update CRM draft"
+                  : "Add services → CRM draft"}
               </p>
               <Button
                 type="button"
@@ -2729,7 +2741,10 @@ function ReviewShipmentDialog({
                 ) : (
                   <FileText className="mr-1.5 h-3.5 w-3.5" />
                 )}
-                Add services → CRM
+                {String(request.invoiceStatus || "").trim().toLowerCase() === "crm_draft" ||
+                request.crmExternalInvoiceId
+                  ? "Update CRM draft"
+                  : "Add services → CRM"}
               </Button>
             </div>
           ) : null}

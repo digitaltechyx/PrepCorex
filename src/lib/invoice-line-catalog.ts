@@ -123,9 +123,9 @@ export function shippedNeedsOutboundInvoice(item: {
 export const shippedNeedsInvoice = shippedNeedsOutboundInvoice;
 
 /**
- * Off (CRM draft) clients: still need post-dispatch Add Services / push to CRM
- * while pending and not yet linked to a CRM draft.
- * Only rows with explicit `invoiceStatus: "pending"` (set at dispatch / quick fulfill).
+ * Off (CRM draft) clients: Add / update services on the CRM draft.
+ * Stays available after the first save (`crm_draft`) so the same order line can be updated.
+ * Hidden only after a real PrepCorex invoice (`invoiceId` / `invoiced`).
  */
 export function shippedNeedsCrmDraftServices(item: {
   invoiceId?: string | null;
@@ -133,17 +133,19 @@ export function shippedNeedsCrmDraftServices(item: {
   crmExternalInvoiceId?: string | null;
 }, opts?: { allowPrepcorexCreateInvoice?: boolean }): boolean {
   if (opts?.allowPrepcorexCreateInvoice !== false) return false;
-  if (item.invoiceId || item.crmExternalInvoiceId) return false;
-  return String(item.invoiceStatus || "").trim().toLowerCase() === "pending";
+  if (item.invoiceId) return false;
+  const status = String(item.invoiceStatus || "").trim().toLowerCase();
+  if (status === "invoiced") return false;
+  return status === "pending" || status === "crm_draft";
 }
 
 /**
- * Create Invoice / Add services offer:
+ * Create Invoice offer (billing On):
  * - After confirm (Continue fulfillment), before or after dispatch
  * - Hidden once invoiced / linked to CRM draft
  * - After dispatch, still requires explicit `invoiceStatus: "pending"` (legacy rows stay hidden)
  */
-function shipmentRequestOffersBilling(
+function shipmentRequestOffersPrepcorexInvoice(
   request: {
     status?: string | null;
     warehouseDispatchStatus?: string | null;
@@ -169,6 +171,35 @@ function shipmentRequestOffersBilling(
   return reqStatus === "confirmed" && (inv === "" || inv === "pending");
 }
 
+/**
+ * CRM draft offer (billing Off): same fulfillment stages as Create Invoice,
+ * but stays available after first CRM save so services / total can be updated.
+ */
+function shipmentRequestOffersCrmDraft(
+  request: {
+    status?: string | null;
+    warehouseDispatchStatus?: string | null;
+    warehouseDispatchedClientSyncAt?: unknown;
+    invoiceId?: string | null;
+    invoiceStatus?: string | null;
+    crmExternalInvoiceId?: string | null;
+  }
+): boolean {
+  if (request.invoiceId) return false;
+  const inv = String(request.invoiceStatus || "").trim().toLowerCase();
+  if (inv === "invoiced") return false;
+
+  const dispatch = String(request.warehouseDispatchStatus || "").trim().toLowerCase();
+  const reqStatus = String(request.status || "").trim().toLowerCase();
+  const hasDispatchStamp = Boolean(request.warehouseDispatchedClientSyncAt);
+  const statusOk = inv === "" || inv === "pending" || inv === "crm_draft";
+
+  if (dispatch === "dispatched" || hasDispatchStamp) {
+    return statusOk;
+  }
+  return reqStatus === "confirmed" && statusOk;
+}
+
 export function shipmentRequestNeedsOutboundInvoice(request: {
   status?: string | null;
   warehouseDispatchStatus?: string | null;
@@ -177,7 +208,7 @@ export function shipmentRequestNeedsOutboundInvoice(request: {
   crmExternalInvoiceId?: string | null;
 }, opts?: { allowPrepcorexCreateInvoice?: boolean }): boolean {
   if (opts?.allowPrepcorexCreateInvoice === false) return false;
-  return shipmentRequestOffersBilling(request);
+  return shipmentRequestOffersPrepcorexInvoice(request);
 }
 
 export function shipmentRequestNeedsCrmDraftServices(request: {
@@ -188,5 +219,5 @@ export function shipmentRequestNeedsCrmDraftServices(request: {
   crmExternalInvoiceId?: string | null;
 }, opts?: { allowPrepcorexCreateInvoice?: boolean }): boolean {
   if (opts?.allowPrepcorexCreateInvoice !== false) return false;
-  return shipmentRequestOffersBilling(request);
+  return shipmentRequestOffersCrmDraft(request);
 }

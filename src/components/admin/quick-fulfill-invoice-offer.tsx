@@ -69,12 +69,15 @@ export function QuickFulfillInvoiceOffer({
     };
   }, [clientUser.uid, shippedId]);
 
+  const invoiceStatus = String(shipment?.invoiceStatus || "")
+    .trim()
+    .toLowerCase();
   const canAct = shipment
     ? allowCreateInvoice
       ? shippedNeedsInvoice(shipment, { allowPrepcorexCreateInvoice: true })
       : !shipment.invoiceId &&
-        !shipment.crmExternalInvoiceId &&
-        String(shipment.invoiceStatus || "").trim().toLowerCase() === "pending"
+        invoiceStatus !== "invoiced" &&
+        (invoiceStatus === "pending" || invoiceStatus === "crm_draft" || invoiceStatus === "")
     : false;
 
   const mode: "prepcorex" | "crm_draft" = allowCreateInvoice ? "prepcorex" : "crm_draft";
@@ -101,7 +104,7 @@ export function QuickFulfillInvoiceOffer({
         <p className="text-sm text-destructive">{loadError}</p>
       ) : !canAct ? (
         <p className="text-sm text-muted-foreground">
-          This order is already invoiced or already in a CRM draft. Close to continue.
+          This order is already invoiced on PrepCorex. Close to continue.
         </p>
       ) : null}
 

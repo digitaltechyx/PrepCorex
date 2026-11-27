@@ -468,8 +468,10 @@ export function CreateOutboundInvoiceDialog({
         });
 
         toast({
-          title: result.created ? "CRM draft created" : "Added to CRM draft",
-          description: `${result.addedCount} line(s) saved on the consolidated CRM invoice. Open CRM Invoice management to review and send.`,
+          title: result.created ? "CRM draft created" : "CRM draft updated",
+          description: result.updatedCount
+            ? "This outbound is one line on the CRM draft (order number + total). The existing line was updated."
+            : "This outbound was saved as one line on the CRM draft: order number and total. SKU and service detail stays on the order in the client account.",
         });
         onOpenChange(false);
         onCreated?.();
@@ -616,7 +618,7 @@ export function CreateOutboundInvoiceDialog({
             </DialogTitle>
             <DialogDescription>
               {isCrmDraftMode
-                ? "Add any additional services for this dispatch, then save into this client’s consolidated CRM draft. Each line’s Item Description in CRM will include Ship date."
+                ? "Add any additional services for this dispatch, then save into this client’s consolidated CRM draft. CRM gets one line for this order (order number + total). The client can open that order number on their account for every SKU and service."
                 : isMarketplace
                   ? "Review fulfilled order lines, add services from your catalog if needed, then generate the invoice."
                   : "Review shipment lines, add additional services (from your catalog or manually), then generate the invoice."}

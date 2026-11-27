@@ -88,6 +88,13 @@ function outboundVideoShipmentId(item: {
   return id || null;
 }
 
+function outboundOrderNumber(item: {
+  requestId?: string;
+  shipmentRequestId?: string | null;
+}): string {
+  return String(item.requestId || item.shipmentRequestId || "").trim();
+}
+
 function warehouseLineEditNotice(shipment: Record<string, unknown>): string | null {
   const from = String(shipment.warehouseLineEditFrom ?? "").trim();
   if (!from) return null;
@@ -324,6 +331,13 @@ export function ShippedTable({
     const dateRaw = searchParams.get("date")?.toLowerCase();
     if (dateRaw && DATE_FILTER_KEYS.has(dateRaw)) {
       setDateFilter(dateRaw);
+    }
+    const searchRaw = String(
+      searchParams.get("search") || searchParams.get("q") || ""
+    ).trim();
+    if (searchRaw) {
+      setSearchTerm(searchRaw);
+      setCurrentPage(1);
     }
   }, [searchParams]);
   const itemsPerPage = 10;
@@ -961,10 +975,15 @@ export function ShippedTable({
   const filteredData = useMemo(() => {
     const filtered = combinedData.filter((item) => {
       const q = searchTerm.toLowerCase().trim();
+      const orderNumber = outboundOrderNumber(item).toLowerCase();
       const haystack = String(
         (item as { searchText?: string }).searchText || item.productName || ""
       ).toLowerCase();
-      const matchesSearch = !q || haystack.includes(q) || item.productName.toLowerCase().includes(q);
+      const matchesSearch =
+        !q ||
+        haystack.includes(q) ||
+        item.productName.toLowerCase().includes(q) ||
+        (orderNumber.length > 0 && orderNumber.includes(q));
       const matchesStatus = rowMatchesStatusFilter(item, statusFilter);
 
       let matchesDate = true;
@@ -1039,17 +1058,24 @@ export function ShippedTable({
         allowPrepcorexCreateInvoice: allowCreate,
       })
     ) {
+      const alreadyOnCrm =
+        String(shippedDoc.invoiceStatus || "").trim().toLowerCase() === "crm_draft" ||
+        Boolean(shippedDoc.crmExternalInvoiceId);
       return (
         <Button
           type="button"
           variant="secondary"
           size="sm"
           className="h-8 shrink-0 gap-1 text-xs"
-          title="Add services and append to CRM draft invoice"
+          title={
+            alreadyOnCrm
+              ? "Update this outbound’s CRM draft line (order number + total)"
+              : "Add services and save as one order line on the CRM draft"
+          }
           onClick={() => admin.onCreateInvoice?.(shippedDoc)}
         >
           <FileText className="h-3.5 w-3.5" />
-          Add services → CRM
+          {alreadyOnCrm ? "Update CRM draft" : "Add services → CRM"}
         </Button>
       );
     }
@@ -1237,6 +1263,11 @@ export function ShippedTable({
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-semibold text-sm">{item.productName}</div>
+                    {outboundOrderNumber(item) ? (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground break-all">
+                        Order {outboundOrderNumber(item)}
+                      </p>
+                    ) : null}
                     {(item as { lineCount?: number }).lineCount != null &&
                     (item as { lineCount?: number }).lineCount! > 1 ? (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -1446,6 +1477,11 @@ export function ShippedTable({
                       <TableCell className="font-medium max-w-32 sm:max-w-none truncate">
                         <div className="flex flex-col sm:block">
                           <span className="font-medium">{item.productName}</span>
+                          {outboundOrderNumber(item) ? (
+                            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground break-all">
+                              Order {outboundOrderNumber(item)}
+                            </p>
+                          ) : null}
                           {(item as { lineCount?: number }).lineCount != null &&
                           (item as { lineCount?: number }).lineCount! > 1 ? (
                             <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">

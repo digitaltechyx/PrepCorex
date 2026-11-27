@@ -545,13 +545,17 @@ export function AdminInventoryManagement({
   // Dispose requests dedicated section sub-tab (requests | log)
   const [disposeRequestsSubTab, setDisposeRequestsSubTab] = useState<"requests" | "log">("requests");
 
-  // When navigated from Notifications "Process", open User Requests section and correct tab
+  // Deep links: Notifications "Process" → user-requests; CRM invoice order link → shipped-orders
   useEffect(() => {
     if (initialSection === "user-requests") {
       setActiveSection("user-requests");
       if (initialRequestTab) {
         setUserRequestsTab(notificationTypeToTabValue(initialRequestTab));
       }
+      return;
+    }
+    if (initialSection === "shipped-orders") {
+      setActiveSection("shipped-orders");
     }
   }, [initialSection, initialRequestTab]);
 

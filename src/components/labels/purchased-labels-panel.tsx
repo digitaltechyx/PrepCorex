@@ -188,6 +188,18 @@ function handleDownloadLabel(labelUrl: string) {
   }
 }
 
+function isShipBestPurchase(label: LabelPurchase): boolean {
+  if (label.labelProvider === "shipbest") return true;
+  if (String(label.shipbestCustomNo || "").trim()) return true;
+  if (String(label.shipbestOrderNo || "").trim()) return true;
+  const rate = label.selectedRate as { labelProvider?: string; object_id?: string; provider?: string } | undefined;
+  return (
+    rate?.labelProvider === "shipbest" ||
+    String(rate?.object_id || "").startsWith("shipbest:") ||
+    /shipbest/i.test(String(rate?.provider || ""))
+  );
+}
+
 function handleTrackShipment(trackingNumber: string, provider: string) {
   let trackingUrl = "";
   switch (provider.toLowerCase()) {
@@ -419,6 +431,46 @@ export function PurchasedLabelsPanel({
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageEnd = Math.min(pageStart + PAGE_SIZE, filteredLabels.length);
   const pageLabels = filteredLabels.slice(pageStart, pageEnd);
+  const [refreshingLabelId, setRefreshingLabelId] = useState<string | null>(null);
+
+  const refreshShipBestLabel = async (label: LabelPurchase) => {
+    if (!user || !userId || !label.id) return;
+    setRefreshingLabelId(label.id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/shipbest/refresh-label", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          labelPurchaseId: label.id,
+          userId,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        labelUrl?: string;
+      };
+      if (!res.ok || !data.labelUrl) {
+        throw new Error(data.error || "Label PDF is not ready yet.");
+      }
+      handleDownloadLabel(data.labelUrl);
+      toast({
+        title: "Label ready",
+        description: "ShipBest label PDF opened.",
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not fetch label",
+        description: err instanceof Error ? err.message : "Try again in a minute.",
+      });
+    } finally {
+      setRefreshingLabelId(null);
+    }
+  };
 
   const statementPreviewCount = useMemo(
     () =>
@@ -715,10 +767,17 @@ export function PurchasedLabelsPanel({
                       error: "text-red-700",
                       info: "text-sky-700",
                     };
-                    const canDownload =
-                      Boolean(label.labelUrl) &&
-                      (label.status === "label_purchased" || label.status === "completed") &&
+                    const isPurchased =
+                      label.status === "label_purchased" || label.status === "completed";
+                    const notRefunded =
                       String(label.refundStatus || "").toLowerCase() !== "refunded";
+                    const canDownload =
+                      Boolean(label.labelUrl) && isPurchased && notRefunded;
+                    const canFetchShipBestLabel =
+                      !label.labelUrl &&
+                      isPurchased &&
+                      notRefunded &&
+                      isShipBestPurchase(label);
 
                     return (
                       <TableRow key={label.id || `label-${pageStart + index}`}>
@@ -767,6 +826,20 @@ export function PurchasedLabelsPanel({
                                 >
                                   <Download className="mr-1.5 h-3.5 w-3.5" />
                                   Download
+                                </Button>
+                              ) : canFetchShipBestLabel ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={refreshingLabelId === label.id}
+                                  onClick={() => void refreshShipBestLabel(label)}
+                                >
+                                  {refreshingLabelId === label.id ? (
+                                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                                  )}
+                                  {refreshingLabelId === label.id ? "Fetching…" : "Download"}
                                 </Button>
                               ) : null}
                               {label.trackingNumber ? (

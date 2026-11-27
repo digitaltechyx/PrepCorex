@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Popup E · Lottie Success</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/@lottiefiles/lottie-player@2.0.12/dist/lottie-player.js"></script>
+  <style>
+    :root {
+      --orange: #ff8806; --orange-deep: #e07805; --ink: #14110e;
+      --muted: #5c564e; --cream: #f7f4ef; --soft: #fff8f0; --line: rgba(20,17,14,.1);
+      --font: "Outfit", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: var(--font); background: var(--cream); color: var(--ink); }
+    .demo { max-width: 560px; margin: 0 auto; padding: 3rem 1.25rem; color: var(--muted); line-height: 1.55; }
+    .demo h1 { color: var(--ink); font-size: 1.5rem; margin: 0 0 .5rem; }
+    .demo a { color: var(--orange); font-weight: 700; }
+    .demo button {
+      margin-top: 1rem; min-height: 2.75rem; padding: 0 1.2rem; border: none; border-radius: 12px;
+      background: var(--orange); color: #fff; font: inherit; font-weight: 750; cursor: pointer;
+    }
+
+    .psf-pop {
+      position: fixed; inset: 0; z-index: 99999;
+      display: grid; place-items: center; padding: 1rem;
+      background: rgba(20,17,14,.5); backdrop-filter: blur(7px);
+      opacity: 0; pointer-events: none; transition: opacity .35s ease;
+    }
+    .psf-pop.is-open { opacity: 1; pointer-events: auto; }
+    .psf-pop__card {
+      position: relative; width: min(440px, 100%);
+      border-radius: 24px; padding: 1.5rem 1.5rem 1.45rem;
+      background: #fff; border: 1px solid var(--line);
+      box-shadow: 0 28px 70px rgba(20,17,14,.22);
+      text-align: center;
+      transform: scale(.94); transition: transform .4s cubic-bezier(.2,.8,.2,1);
+    }
+    .psf-pop.is-open .psf-pop__card { transform: scale(1); }
+    .psf-pop__close {
+      position: absolute; top: .7rem; right: .7rem;
+      width: 2.15rem; height: 2.15rem; border-radius: 999px;
+      border: 1.5px solid var(--line); background: #fff; cursor: pointer; font-size: 1.2rem;
+    }
+    .psf-pop__lottie {
+      width: 180px; height: 180px; margin: 0 auto .35rem;
+      background: radial-gradient(circle at 50% 60%, rgba(255,136,6,.18), transparent 65%);
+      border-radius: 50%;
+    }
+    .psf-pop__lottie lottie-player { width: 100%; height: 100%; }
+    .psf-pop__eyebrow {
+      display: inline-flex; margin: 0 0 .55rem; padding: .28rem .7rem; border-radius: 999px;
+      border: 1px solid rgba(255,136,6,.35); background: var(--soft); color: #9a5404;
+      font-size: .7rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .psf-pop__card h2 {
+      margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -.03em; line-height: 1.15;
+    }
+    .psf-pop__card h2 em { font-style: normal; color: var(--orange); }
+    .psf-pop__card > p {
+      margin: .65rem auto 0; max-width: 34ch; color: var(--muted); font-size: .94rem; line-height: 1.5; font-weight: 500;
+    }
+    .psf-pop__actions { display: grid; gap: .55rem; margin-top: 1.2rem; }
+    .psf-pop__btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 3rem; border-radius: 12px; font-family: var(--font); font-size: .95rem; font-weight: 750;
+      text-decoration: none !important; transition: transform .2s ease;
+    }
+    .psf-pop__btn:hover { transform: translateY(-2px); }
+    .psf-pop__btn--primary {
+      color: #fff !important;
+      background: linear-gradient(135deg, #ff9f2e, var(--orange) 50%, var(--orange-deep));
+      box-shadow: 0 12px 28px rgba(255,136,6,.28);
+    }
+    .psf-pop__btn--ghost {
+      color: var(--ink) !important; border: 1.5px solid var(--line); background: #fff;
+    }
+    .psf-pop__trust {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: .55rem .9rem;
+      margin-top: 1rem; font-size: .75rem; font-weight: 650; color: var(--muted);
+    }
+    .psf-pop__trust span::before { content: "✓ "; color: var(--orange); font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="demo">
+    <h1>Popup E — Lottie Success</h1>
+    <p>Compact center card with a celebratory success Lottie — great for conversion-focused pages.</p>
+    <button type="button" id="psf-pop-reopen">Show popup again</button>
+    <p style="margin-top:1rem">
+      <a href="popup-d-lottie-delivery.html">← D</a> ·
+      <a href="popup-f-lottie-wave.html">F →</a>
+    </p>
+  </div>
+
+  <div class="psf-pop" id="psf-pop" role="dialog" aria-modal="true" aria-labelledby="psf-pop-title">
+    <div class="psf-pop__card">
+      <button class="psf-pop__close" type="button" aria-label="Close" data-psf-pop-close>&times;</button>
+      <div class="psf-pop__lottie">
+        <lottie-player
+          src="./lottie/success.json"
+          background="transparent"
+          speed="1"
+          loop
+          autoplay
+          aria-label="Success animation"
+        ></lottie-player>
+      </div>
+      <p class="psf-pop__eyebrow">Free quote · Founder call</p>
+      <h2 id="psf-pop-title">Ready for prep that <em>just works</em>?</h2>
+      <p>Compliant FBA / WFS prep with clear pricing. Get a free quote — or book time with Arshad.</p>
+      <div class="psf-pop__actions">
+        <a class="psf-pop__btn psf-pop__btn--primary" href="https://prepservicesfba.com/free-fulfillment-audit/">Get a Free Quote</a>
+        <a class="psf-pop__btn psf-pop__btn--ghost" href="tel:+13476613010">Book a Call with Arshad</a>
+      </div>
+      <div class="psf-pop__trust">
+        <span>$0 setup</span>
+        <span>$0 portal fee</span>
+        <span>NJ warehouse</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var KEY = "psfPopEDismissed";
+      var pop = document.getElementById("psf-pop");
+      function open() { pop.classList.add("is-open"); document.body.style.overflow = "hidden"; }
+      function close() {
+        pop.classList.remove("is-open"); document.body.style.overflow = "";
+        try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+      }
+      pop.querySelectorAll("[data-psf-pop-close]").forEach(function (el) { el.addEventListener("click", close); });
+      pop.addEventListener("click", function (e) { if (e.target === pop) close(); });
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+      document.getElementById("psf-pop-reopen").addEventListener("click", function () {
+        try { sessionStorage.removeItem(KEY); } catch (e) {}
+        open();
+      });
+      var dismissed = false;
+      try { dismissed = sessionStorage.getItem(KEY) === "1"; } catch (e) {}
+      if (!dismissed) setTimeout(open, 900);
+    })();
+  </script>
+</body>
+</html>

@@ -210,8 +210,10 @@ export async function lexiCreateOutboundInvoiceOnClient(
       externalInvoiceId: result.externalInvoiceId,
     });
     return result.created
-      ? `CRM draft created (${result.addedCount} line(s)) for ${clientUser.name}. Open CRM Invoice management to review.`
-      : `Added ${result.addedCount} line(s) to the consolidated CRM draft for ${clientUser.name}.`;
+      ? `CRM draft created for ${clientUser.name}. This outbound is one line (order number + total). Open CRM Invoice management to review.`
+      : result.updatedCount
+        ? `Updated the CRM draft line for this outbound (order number + total) for ${clientUser.name}.`
+        : `Added this outbound as one line (order number + total) on the CRM draft for ${clientUser.name}.`;
   }
 
   const today = new Date();
