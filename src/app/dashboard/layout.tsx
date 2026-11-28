@@ -17,6 +17,7 @@ import { hasRole, getUserRoles, isAccountActivated, hasFeature } from "@/lib/per
 import { isEmailVerificationSatisfied } from "@/lib/email-verification";
 import { userRequiresEmailVerification } from "@/lib/email-verification";
 import { loginPathWithNext } from "@/lib/safe-redirect";
+import { useViewAsClient } from "@/contexts/view-as-client-context";
 import {
   SidebarProvider,
   SidebarInset,
@@ -28,6 +29,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, userProfile, loading, signOut } = useAuth();
+  const { isViewingAsClient, targetLoading, isViewAsPending } = useViewAsClient();
   const router = useRouter();
   const pathname = usePathname();
   const [showProfile, setShowProfile] = useState(false);
@@ -68,9 +70,18 @@ export default function DashboardLayout({
   useEffect(() => {
     // Wait for both auth and profile to finish loading
     if (!loading && user) {
+      // Wait for view-as bootstrap so we don't treat the admin as a normal
+      // /dashboard visitor and bounce them to /admin (then later to /login).
+      if (targetLoading || isViewAsPending) return;
+
       // If userProfile is still null but user exists, wait a bit more
       if (userProfile === null) {
         // User exists but profile not loaded yet - wait
+        return;
+      }
+
+      // Admin previewing a client account — stay on client dashboard UI.
+      if (isViewingAsClient) {
         return;
       }
       
@@ -152,10 +163,20 @@ export default function DashboardLayout({
           : pathname || "/dashboard";
       router.replace(loginPathWithNext(returnTo));
     }
-  }, [user, userProfile, loading, router, signOut, pathname]);
+  }, [
+    user,
+    userProfile,
+    loading,
+    router,
+    signOut,
+    pathname,
+    isViewingAsClient,
+    targetLoading,
+    isViewAsPending,
+  ]);
 
   // Show loading while auth state is being determined
-  if (loading) {
+  if (loading || targetLoading || isViewAsPending) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />

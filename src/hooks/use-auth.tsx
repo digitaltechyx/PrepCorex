@@ -4,6 +4,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/default-warehouse";
 import { normalizeUserLocationIds } from "@/lib/user-locations";
 import { isClientPortalAccount } from "@/lib/client-account-status";
+import { ViewAsClientContext } from "@/contexts/view-as-client-context";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -34,6 +36,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const authUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Set up auth state listener
@@ -41,9 +44,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribeAuth = onAuthStateChanged(
       auth,
       async (fbUser) => {
-      setUser(fbUser);
+        const prevUid = authUidRef.current;
+        const nextUid = fbUser?.uid ?? null;
+        authUidRef.current = nextUid;
+
+        // Account switch (admin ↔ impersonated client): drop stale profile immediately
+        // so admin layouts do not keep querying with the previous role.
+        if (prevUid && nextUid && prevUid !== nextUid) {
+          setUserProfile(null);
+          setLoading(true);
+        }
+
+        setUser(fbUser);
         setAuthInitialized(true);
-      if (!fbUser) {
+        if (!fbUser) {
           setUserProfile(null);
           setLoading(false);
         }
@@ -51,6 +65,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       },
       (error) => {
         console.error("Auth state error:", error);
+        authUidRef.current = null;
         setUser(null);
         setUserProfile(null);
         setAuthInitialized(true);
@@ -75,8 +90,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const roleList = Array.isArray(data.roles) ? data.roles : (data.role != null ? [data.role] : ["user"]);
         const rolesNormalized = roleList.map(normalizeRole).filter(Boolean);
         return {
-          uid: user.uid,
           ...data,
+          // Always prefer Auth uid / doc id — never let a stale Firestore `uid` field win
+          // (that breaks isSelf rules and causes permission-denied on /dashboard).
+          uid: user.uid,
           email: data.email ?? null,
           name: data.name ?? null,
           phone: data.phone ?? null,
@@ -100,10 +117,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setUserProfile(null);
           }
         } catch {
-          const fallbackSnap = await getDoc(userRef);
-          if (fallbackSnap.exists()) {
-            setUserProfile(buildProfile(fallbackSnap.data()));
-          } else {
+          try {
+            const fallbackSnap = await getDoc(userRef);
+            if (fallbackSnap.exists()) {
+              setUserProfile(buildProfile(fallbackSnap.data()));
+            } else {
+              setUserProfile(null);
+            }
+          } catch (fallbackErr) {
+            console.warn("Could not load user profile:", fallbackErr);
             setUserProfile(null);
           }
         } finally {
@@ -166,6 +188,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const lastLoginRecordedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!user?.uid || !userProfile) return;
+    // Admin client-preview tabs use ?viewAs= — do not record as the client's login.
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("viewAs")
+    ) {
+      return;
+    }
     if (!isClientPortalAccount(userProfile)) return;
     const status = userProfile.status || "approved";
     if (status !== "approved") return;
@@ -221,6 +250,43 @@ export const useAuth = () => {
   if (context === undefined) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
+
+  // Optional View-as overlay — only while actively previewing on /dashboard.
+  // Never wrap admin routes as the client (that was kicking admins to /login).
+  const viewAs = useContext(ViewAsClientContext);
+
+  const proxiedUser = useMemo(() => {
+    if (!context.user || !viewAs?.isViewingAsClient || !viewAs.targetUid) {
+      return context.user;
+    }
+    return new Proxy(context.user, {
+      get(target, prop, receiver) {
+        if (prop === "uid") return viewAs.targetUid;
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value === "function") {
+          return (value as (...args: unknown[]) => unknown).bind(target);
+        }
+        return value;
+      },
+    });
+  }, [context.user, viewAs?.isViewingAsClient, viewAs?.targetUid]);
+
+  if (viewAs?.targetLoading) {
+    return {
+      ...context,
+      loading: true,
+    };
+  }
+
+  if (viewAs?.isViewingAsClient && viewAs.targetProfile) {
+    return {
+      user: proxiedUser,
+      userProfile: viewAs.targetProfile,
+      loading: context.loading,
+      signOut: context.signOut,
+    };
+  }
+
   return context;
 };
 

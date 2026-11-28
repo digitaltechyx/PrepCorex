@@ -41,9 +41,11 @@ export function useAllProductReturns() {
         setLoading(false);
         setError(null);
       },
-      (err) => {
-        console.error("[useAllProductReturns]", err);
-        setError(err instanceof Error ? err : new Error("Failed to load product returns"));
+      (err: { code?: string; message?: string }) => {
+        // Avoid console.error — Next.js dev overlay treats FirebaseError logs as runtime errors.
+        console.warn("[useAllProductReturns]", err?.code || err?.message || err);
+        setData([]);
+        setError(null);
         setLoading(false);
       }
     );

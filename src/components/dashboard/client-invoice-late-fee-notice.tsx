@@ -30,8 +30,8 @@ function formatMoney(n: number): string {
  * Uses a pending-only invoices query (not the full sidebar invoices listener).
  */
 export function ClientInvoiceLateFeeNotice() {
-  const { userProfile } = useAuth();
-  const uid = userProfile?.uid || "";
+  const { user, userProfile } = useAuth();
+  const uid = user?.uid || userProfile?.uid || "";
   const isClient = hasRole(userProfile, "user");
 
   const pendingQuery = useMemo(() => {

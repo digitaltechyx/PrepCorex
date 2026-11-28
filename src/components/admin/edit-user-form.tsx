@@ -19,9 +19,10 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Loader2 } from "lucide-react";
+import { Eye, Loader2 } from "lucide-react";
 import type { UserProfile, UserRole } from "@/types";
-import { getUserRoles } from "@/lib/permissions";
+import { getUserRoles, hasRole } from "@/lib/permissions";
+import { beginViewAsClient } from "@/lib/admin-impersonation-client";
 import {
   CUSTOM_PRICING_PROFILE_OPTION,
   GLOBAL_PRICING_PROFILES,
@@ -78,6 +79,31 @@ interface EditUserFormProps {
 
 export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
   const { toast } = useToast();
+  const [viewAsBusy, setViewAsBusy] = useState(false);
+  const canViewAsClient =
+    (user.status === "approved" || !user.status) &&
+    !hasRole(user, "admin") &&
+    !hasRole(user, "sub_admin");
+
+  async function handleViewAsClient() {
+    setViewAsBusy(true);
+    try {
+      toast({
+        title: "Opening client account…",
+        description:
+          "Opens in a new tab. Your admin session stays in this tab — you can open several clients at once.",
+      });
+      await beginViewAsClient(user.uid);
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Could not open client view",
+        description: e instanceof Error ? e.message : "Failed to start client view.",
+      });
+      setViewAsBusy(false);
+    }
+  }
+
   const [isLoading, setIsLoading] = useState(false);
   const [deferEmailVerification, setDeferEmailVerification] = useState(
     user.emailVerificationDeferredByAdmin === true
@@ -630,19 +656,39 @@ export function EditUserForm({ user, onSuccess, onCancel }: EditUserFormProps) {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={isLoading}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={isLoading}>
-            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Changes
-          </Button>
+        <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          {canViewAsClient ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isLoading || viewAsBusy}
+              onClick={() => void handleViewAsClient()}
+              className="w-full sm:w-auto"
+            >
+              {viewAsBusy ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Eye className="mr-2 h-4 w-4" />
+              )}
+              View as client
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel}
+              disabled={isLoading || viewAsBusy}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isLoading || viewAsBusy}>
+              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

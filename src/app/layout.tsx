@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/hooks/use-auth";
 import { Toaster } from "@/components/ui/toaster";
 import { WhatsAppFloatingButton } from "@/components/whatsapp-floating-button";
+import { ViewAsClientProviders } from "@/components/admin/view-as-client-providers";
 
 export const metadata: Metadata = {
   title: "PrepCorex",
@@ -41,9 +42,11 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <AuthProvider>
-          {children}
-          <Toaster />
-          <WhatsAppFloatingButton />
+          <ViewAsClientProviders>
+            {children}
+            <Toaster />
+            <WhatsAppFloatingButton />
+          </ViewAsClientProviders>
         </AuthProvider>
       </body>
     </html>

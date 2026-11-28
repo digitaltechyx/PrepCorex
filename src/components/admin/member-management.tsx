@@ -12,7 +12,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useCollection } from "@/hooks/use-collection";
 import { db, auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText, Lock, ShieldBan, ShieldCheck, MailCheck } from "lucide-react";
+import { CheckCircle, XCircle, User, Calendar, Phone, Mail, Eye, Trash2, UserCheck, RotateCcw, Search, X, ArrowUpDown, Edit, Shield, ScrollText, Lock, ShieldBan, ShieldCheck, MailCheck, MonitorPlay } from "lucide-react";
+import { beginViewAsClient } from "@/lib/admin-impersonation-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import type { UserProfile } from "@/types";
@@ -259,6 +260,27 @@ export function MemberManagement({
     }
   };
 
+  const handleViewAsClient = async (user: UserProfile) => {
+    setAccountActionUid(user.uid);
+    try {
+      await beginViewAsClient(user.uid);
+      toast({
+        title: "Client opened in a new tab",
+        description:
+          "Keep this Users tab for admin. Allow popups if the new tab did not open.",
+      });
+    } catch (error: unknown) {
+      toast({
+        variant: "destructive",
+        title: "Could not open client view",
+        description:
+          error instanceof Error ? error.message : "Failed to start client view.",
+      });
+    } finally {
+      setAccountActionUid(null);
+    }
+  };
+
   const handleApproveUser = async (user: UserProfile) => {
     try {
       const token = await auth.currentUser?.getIdToken();
@@ -415,6 +437,10 @@ export function MemberManagement({
       return undefined;
     };
     const isClient = isClientPortalAccount(user);
+    const canViewAsClient =
+      (user.status === "approved" || !user.status) &&
+      !hasRole(user, "admin") &&
+      !hasRole(user, "sub_admin");
     const isActionLoading = accountActionUid === user.uid;
     const statusBadge = (() => {
       switch (user.status) {
@@ -548,21 +574,42 @@ export function MemberManagement({
                             {isUserEditMode ? "Update user information." : "Complete information about this user."}
                       </DialogDescription>
                         </div>
-                        {!isUserEditMode && isAdmin && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setIsUserEditMode(true);
-                            }}
-                            className="w-full sm:ml-auto sm:w-auto"
-                            type="button"
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </Button>
+                        {!isUserEditMode && (
+                          <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row">
+                            {canViewAsClient && (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                type="button"
+                                disabled={isActionLoading}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleViewAsClient(user);
+                                }}
+                                className="w-full sm:w-auto"
+                              >
+                                <MonitorPlay className="mr-2 h-4 w-4" />
+                                View as client
+                              </Button>
+                            )}
+                            {isAdmin && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setIsUserEditMode(true);
+                                }}
+                                className="w-full sm:w-auto"
+                                type="button"
+                              >
+                                <Edit className="mr-2 h-4 w-4" />
+                                Edit
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </DialogHeader>
@@ -850,6 +897,24 @@ export function MemberManagement({
                     </TooltipContent>
                   </Tooltip>
                 )}
+              {tabKind === "approved" && canViewAsClient && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      disabled={isActionLoading}
+                      onClick={() => void handleViewAsClient(user)}
+                      className="h-8 w-8 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                    >
+                      <MonitorPlay className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>View as client (no password)</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {tabKind === "approved" && isClient && (
                 <>
                   <Tooltip>

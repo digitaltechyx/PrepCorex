@@ -164,7 +164,7 @@ function isDateInRange(date: Date | null, from?: Date, to?: Date): boolean {
 }
 
 export default function DashboardPage() {
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const nav = useDashboardNav();
@@ -179,44 +179,45 @@ export default function DashboardPage() {
     }
   }, [userProfile, router]);
 
+  const dataUid = user?.uid || userProfile?.uid || "";
   const {
     data: inventoryData,
     loading: inventoryLoading,
   } = useCollection<InventoryItem>(
-    userProfile ? `users/${userProfile.uid}/inventory` : ""
+    dataUid ? `users/${dataUid}/inventory` : ""
   );
   const {
     data: shippedData,
     loading: shippedLoading,
   } = useCollection<ShippedItem>(
-    userProfile ? `users/${userProfile.uid}/shipped` : ""
+    dataUid ? `users/${dataUid}/shipped` : ""
   );
   const {
     data: invoices,
     loading: invoicesLoading,
   } = useCollection<Invoice>(
-    userProfile ? `users/${userProfile.uid}/invoices` : ""
+    dataUid ? `users/${dataUid}/invoices` : ""
   );
   const { data: inventoryRequests, loading: inventoryRequestsLoading } = useCollection<InventoryRequestLite>(
-    userProfile ? `users/${userProfile.uid}/inventoryRequests` : ""
+    dataUid ? `users/${dataUid}/inventoryRequests` : ""
   );
   const { data: shipmentRequests, loading: shipmentRequestsLoading } = useCollection<ShipmentRequestLite>(
-    userProfile ? `users/${userProfile.uid}/shipmentRequests` : ""
+    dataUid ? `users/${dataUid}/shipmentRequests` : ""
   );
   const { data: shopifyConnections, loading: shopifyConnectionsLoading } = useCollection<Record<string, unknown>>(
-    userProfile ? `users/${userProfile.uid}/shopifyConnections` : ""
+    dataUid ? `users/${dataUid}/shopifyConnections` : ""
   );
   const { data: ebayConnections, loading: ebayConnectionsLoading } = useCollection<Record<string, unknown>>(
-    userProfile ? `users/${userProfile.uid}/ebayConnections` : ""
+    dataUid ? `users/${dataUid}/ebayConnections` : ""
   );
   const { data: documentRequestsLite, loading: documentRequestsLoading } = useCollection<DocumentRequestLite>(
-    userProfile ? `users/${userProfile.uid}/documentRequests` : ""
+    dataUid ? `users/${dataUid}/documentRequests` : ""
   );
   const { data: productReturns, loading: productReturnsLoading } = useCollection<ProductReturnLite>(
-    userProfile ? `users/${userProfile.uid}/productReturns` : ""
+    dataUid ? `users/${dataUid}/productReturns` : ""
   );
   const { data: disposeRequests, loading: disposeRequestsLoading } = useCollection<DisposeRequest>(
-    userProfile ? `users/${userProfile.uid}/disposeRequests` : ""
+    dataUid ? `users/${dataUid}/disposeRequests` : ""
   );
   const { data: warehouseLocations } = useCollection<WarehouseLocationDoc>("locations");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");

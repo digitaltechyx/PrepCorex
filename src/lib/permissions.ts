@@ -72,17 +72,19 @@ export function getUserRoles(userProfile: UserProfile | null | undefined): UserR
     return null;
   };
 
-  // If roles array exists, use it
+  // Prefer roles array when it has at least one valid role; empty [] must fall back to legacy `role`
+  // (older client docs often have roles: [] with role: "user").
   if (userProfile.roles && Array.isArray(userProfile.roles)) {
-    return userProfile.roles.map(normalizeRole).filter(Boolean) as UserRole[];
+    const fromArray = userProfile.roles.map(normalizeRole).filter(Boolean) as UserRole[];
+    if (fromArray.length > 0) return fromArray;
   }
-  
+
   // Fallback to legacy single role
   if (userProfile.role) {
     const n = normalizeRole(userProfile.role);
     return n ? [n] : [];
   }
-  
+
   return [];
 }
 

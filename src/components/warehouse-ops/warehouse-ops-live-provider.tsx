@@ -164,24 +164,30 @@ function useClientInventoryLive(clientUserIds: string[], enabled = true) {
       return;
     }
     const unsubs = clientUserIds.map((uid) =>
-      onSnapshot(collection(db, "users", uid, "inventory"), (snap) => {
-        const docs = snap.docs.map((d) => ({
-          id: d.id,
-          data: d.data() as Record<string, unknown>,
-        }));
-        const productMap = inventoryDocToProductMap(docs);
-        const inventoryRows = docs.map((d) => ({ id: d.id, ...d.data }));
-        setProductMaps((prev) => {
-          const next = new Map(prev);
-          next.set(uid, productMap);
-          return next;
-        });
-        setInventoryByUser((prev) => {
-          const next = new Map(prev);
-          next.set(uid, inventoryRows);
-          return next;
-        });
-      })
+      onSnapshot(
+        collection(db, "users", uid, "inventory"),
+        (snap) => {
+          const docs = snap.docs.map((d) => ({
+            id: d.id,
+            data: d.data() as Record<string, unknown>,
+          }));
+          const productMap = inventoryDocToProductMap(docs);
+          const inventoryRows = docs.map((d) => ({ id: d.id, ...d.data }));
+          setProductMaps((prev) => {
+            const next = new Map(prev);
+            next.set(uid, productMap);
+            return next;
+          });
+          setInventoryByUser((prev) => {
+            const next = new Map(prev);
+            next.set(uid, inventoryRows);
+            return next;
+          });
+        },
+        (err) => {
+          console.warn("[warehouse-ops-live] inventory listener:", uid, err);
+        }
+      )
     );
     return () => unsubs.forEach((u) => u());
   }, [key, clientUserIds, enabled]);
