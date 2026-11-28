@@ -307,8 +307,33 @@ export function CreateOutboundInvoiceDialog({
         }
       }
       setServiceLines(buildInitialServiceLines(shipments, requestData));
+
+      // Repair older CRM invoices that still have per-SKU breakdown instead of Order … lines.
+      if (isCrmDraftMode) {
+        const linkedInvoiceId = String(
+          requestData?.crmExternalInvoiceId ||
+            shipments.map((s) => (s as { crmExternalInvoiceId?: string }).crmExternalInvoiceId).find(Boolean) ||
+            ""
+        ).trim();
+        if (linkedInvoiceId) {
+          try {
+            const { collapseLegacyCrmInvoiceItemsToOrderLines } = await import(
+              "@/lib/crm-outbound-draft-invoice"
+            );
+            const result = await collapseLegacyCrmInvoiceItemsToOrderLines(linkedInvoiceId);
+            if (result.repaired) {
+              toast({
+                title: "CRM invoice updated",
+                description: `Converted ${result.orderCount} outbound(s) to Order number lines (with requested date).`,
+              });
+            }
+          } catch (repairErr) {
+            console.warn("[crm-draft] could not repair legacy invoice lines", repairErr);
+          }
+        }
+      }
     })();
-  }, [open, shipments, shipmentRequestId, clientUser?.uid]);
+  }, [open, shipments, shipmentRequestId, clientUser?.uid, isCrmDraftMode, toast]);
 
   const reloadCatalog = async () => {
     if (!catalogOwnerUid) return;

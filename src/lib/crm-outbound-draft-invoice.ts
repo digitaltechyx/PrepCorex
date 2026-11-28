@@ -3,6 +3,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   query,
@@ -32,6 +33,8 @@ export type CrmDraftLineInput = {
   compareUnitPrice?: number;
   amount?: number;
   shipDate?: string;
+  /** Outbound request created/requested date (dd/MM/yyyy), shown with Order … */
+  requestedDate?: string;
   sku?: string;
   packaging?: string;
   /** Outbound request id shown as Order … on the CRM line. */
@@ -182,11 +185,42 @@ export function buildCrmLinesFromShipments(
   return lines;
 }
 
+/** Build CRM Item Description: order id + optional requested date. */
+export function formatCrmOrderLineDescription(
+  orderNumber: string,
+  requestedDate?: string | null
+): string {
+  const order = String(orderNumber || "").trim();
+  if (!order) return "";
+  const requested = String(requestedDate || "").trim();
+  return requested ? `Order ${order} · Requested ${requested}` : `Order ${order}`;
+}
+
+async function resolveShipmentRequestedDateLabel(
+  clientUserId: string,
+  shipmentRequestId?: string | null
+): Promise<string> {
+  const uid = String(clientUserId || "").trim();
+  const requestId = String(shipmentRequestId || "").trim();
+  if (!uid || !requestId) return "";
+  try {
+    const snap = await getDoc(doc(db, `users/${uid}/shipmentRequests`, requestId));
+    if (!snap.exists()) return "";
+    const data = snap.data() || {};
+    return formatShipDateForCrmDescription(
+      data.requestedAt ?? data.date ?? data.createdAt,
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 /** One CRM row per outbound. Detail stays on the shipment request in the client account. */
 export function collapseCrmLinesToOrderLine(
   lines: CrmDraftLineInput[],
   orderNumber: string,
-  opts?: { clientUserId?: string | null }
+  opts?: { clientUserId?: string | null; requestedDate?: string | null }
 ): CrmDraftLineInput[] {
   const order = String(orderNumber || "").trim();
   const usable = (lines || []).filter((line) => String(line.description || "").trim());
@@ -202,6 +236,10 @@ export function collapseCrmLinesToOrderLine(
   const shipDate = usable
     .map((line) => String(line.shipDate || "").trim())
     .find(Boolean);
+  const requestedDate =
+    String(opts?.requestedDate || "").trim() ||
+    usable.map((line) => String((line as { requestedDate?: string }).requestedDate || "").trim()).find(Boolean) ||
+    "";
   const clientUserId = String(opts?.clientUserId || "").trim();
   const orderUrl = clientUserId
     ? buildPrepcorexShippedOrderUrl(clientUserId, order)
@@ -209,13 +247,14 @@ export function collapseCrmLinesToOrderLine(
 
   return [
     {
-      description: `Order ${order}`,
+      description: formatCrmOrderLineDescription(order, requestedDate),
       quantity: 1,
       unitPrice: amount,
       amount,
       orderNumber: order,
       ...(orderUrl ? { orderUrl } : {}),
       ...(shipDate ? { shipDate } : {}),
+      ...(requestedDate ? { requestedDate } : {}),
       packaging: "Outbound",
       sourceKey: crmOrderLineSourceKey(order),
     },
@@ -231,6 +270,215 @@ function isLegacyOrderDetailKey(sourceKey: string, orderNumber: string): boolean
   const order = String(orderNumber || "").trim();
   if (!key || !order) return false;
   return key.startsWith(`request:${order}:`) && key !== crmOrderLineSourceKey(order);
+}
+
+function isCrmOrderDescription(description: unknown): boolean {
+  return /^Order\s+[A-Za-z0-9_-]+/i.test(String(description || "").trim());
+}
+
+/**
+ * Convert old per-SKU / per-service CRM draft lines into one Order … line per
+ * shipment request. Safe to run on draft or finalized invoices.
+ */
+export async function collapseLegacyCrmInvoiceItemsToOrderLines(
+  externalInvoiceId: string
+): Promise<{ repaired: boolean; orderCount: number }> {
+  const invoiceId = String(externalInvoiceId || "").trim();
+  if (!invoiceId) return { repaired: false, orderCount: 0 };
+
+  const ref = doc(db, "external_invoices", invoiceId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { repaired: false, orderCount: 0 };
+
+  const data = snap.data() || {};
+  const clientUserId = String(data.prepcorexClientUserId || "").trim();
+  let nextItems: any[] = Array.isArray(data.items) ? [...(data.items as any[])] : [];
+  if (nextItems.length === 0) return { repaired: false, orderCount: 0 };
+
+  const orderIds = new Set<string>();
+  for (const id of Array.isArray(data.prepcorexShipmentRequestIds)
+    ? (data.prepcorexShipmentRequestIds as unknown[])
+    : []) {
+    const v = String(id || "").trim();
+    if (v) orderIds.add(v);
+  }
+  for (const it of nextItems) {
+    const key = String(it?.sourceKey || "").trim();
+    const keyMatch = /^request:([^:]+):/.exec(key);
+    if (keyMatch?.[1]) orderIds.add(keyMatch[1]);
+    const on = String(it?.orderNumber || "").trim();
+    if (on) orderIds.add(on);
+  }
+
+  let changed = false;
+  let orderCount = 0;
+
+  const rebuildOrderLine = async (orderId: string, linesForOrder: any[]) => {
+    const requestedDate = clientUserId
+      ? await resolveShipmentRequestedDateLabel(clientUserId, orderId)
+      : "";
+    const shipDate =
+      linesForOrder.map((it) => String(it?.shipDate || "").trim()).find(Boolean) || "";
+    const totalForOrder = money(
+      linesForOrder.reduce((sum, it) => sum + money(it?.amount), 0)
+    );
+    const existingId =
+      linesForOrder.find(
+        (it) => String(it?.sourceKey || "").trim() === crmOrderLineSourceKey(orderId)
+      )?.id ||
+      linesForOrder.find((it) => isCrmOrderDescription(it?.description))?.id ||
+      newLineId();
+    const orderUrl = clientUserId
+      ? buildPrepcorexShippedOrderUrl(clientUserId, orderId)
+      : "";
+    return {
+      id: existingId,
+      description: formatCrmOrderLineDescription(orderId, requestedDate),
+      quantity: 1,
+      unitPrice: totalForOrder,
+      compareUnitPrice: 0,
+      amount: totalForOrder,
+      orderNumber: orderId,
+      packaging: "Outbound",
+      sourceKey: crmOrderLineSourceKey(orderId),
+      ...(orderUrl ? { orderUrl } : {}),
+      ...(shipDate ? { shipDate } : {}),
+      ...(requestedDate ? { requestedDate } : {}),
+    };
+  };
+
+  for (const orderId of orderIds) {
+    if (!orderId) continue;
+    const legacy = nextItems.filter((it) =>
+      isLegacyOrderDetailKey(String(it?.sourceKey || ""), orderId)
+    );
+    const orderKey = crmOrderLineSourceKey(orderId);
+    const existingOrderLines = nextItems.filter(
+      (it) =>
+        String(it?.sourceKey || "").trim() === orderKey ||
+        (String(it?.orderNumber || "").trim() === orderId &&
+          isCrmOrderDescription(it?.description))
+    );
+
+    // Nothing to collapse for this order.
+    if (legacy.length === 0) {
+      // Still refresh description with requested date when an order line exists.
+      if (existingOrderLines.length === 1) {
+        const refreshed = await rebuildOrderLine(orderId, existingOrderLines);
+        const prev = existingOrderLines[0];
+        if (
+          String(prev?.description || "") !== refreshed.description ||
+          money(prev?.amount) !== refreshed.amount
+        ) {
+          nextItems = nextItems.map((it) => (it === prev ? refreshed : it));
+          changed = true;
+          orderCount += 1;
+        }
+      }
+      continue;
+    }
+
+    const linesForOrder = [...legacy, ...existingOrderLines];
+    const collapsed = await rebuildOrderLine(orderId, linesForOrder);
+    nextItems = [
+      ...nextItems.filter(
+        (it) =>
+          !isLegacyOrderDetailKey(String(it?.sourceKey || ""), orderId) &&
+          String(it?.sourceKey || "").trim() !== orderKey &&
+          !(
+            String(it?.orderNumber || "").trim() === orderId &&
+            isCrmOrderDescription(it?.description)
+          )
+      ),
+      collapsed,
+    ];
+    changed = true;
+    orderCount += 1;
+  }
+
+  // Fallback: one linked request, lines still look like old product/service breakdown.
+  if (!changed && orderIds.size === 1) {
+    const orderId = [...orderIds][0];
+    const hasBreakdown = nextItems.some((it) => !isCrmOrderDescription(it?.description));
+    const hasOrderLine = nextItems.some((it) => isCrmOrderDescription(it?.description));
+    if (hasBreakdown && (!hasOrderLine || nextItems.length > 1)) {
+      const collapsed = await rebuildOrderLine(orderId, nextItems);
+      nextItems = [collapsed];
+      changed = true;
+      orderCount = 1;
+    }
+  }
+
+  if (!changed) {
+    // Still re-link PrepCorex docs so Update CRM buttons show for older syncs.
+    if (clientUserId && orderIds.size > 0) {
+      try {
+        await markShipmentsLinkedToCrmDraft({
+          clientUserId,
+          shippedIds: Array.isArray(data.prepcorexShippedIds)
+            ? (data.prepcorexShippedIds as unknown[]).map((id) => String(id || "").trim()).filter(Boolean)
+            : [],
+          shipmentRequestId: [...orderIds][0] || null,
+          externalInvoiceId: invoiceId,
+        });
+        for (const orderId of orderIds) {
+          if (!orderId || orderId === [...orderIds][0]) continue;
+          await markShipmentsLinkedToCrmDraft({
+            clientUserId,
+            shippedIds: [],
+            shipmentRequestId: orderId,
+            externalInvoiceId: invoiceId,
+          });
+        }
+      } catch (linkErr) {
+        console.warn("[crm-draft] could not re-link shipments after no-op repair", linkErr);
+      }
+    }
+    return { repaired: false, orderCount: 0 };
+  }
+
+  const subtotal = money(nextItems.reduce((sum, it) => sum + money(it?.amount), 0));
+  const salesTax = money(data.salesTax);
+  const shippingCost = money(data.shippingCost);
+  const lateFee = money(data.lateFee);
+  const amountPaid = money(data.amountPaid);
+  const total = money(subtotal + salesTax + shippingCost);
+
+  await updateDoc(ref, {
+    items: nextItems,
+    subtotal,
+    total,
+    outstandingBalance: money(total + lateFee - amountPaid),
+    updatedAt: serverTimestamp(),
+    lastPrepcorexOrderLineRepairAt: serverTimestamp(),
+  });
+
+  // Ensure linked outbounds keep Update CRM draft (older syncs may lack these fields).
+  if (clientUserId && orderIds.size > 0) {
+    try {
+      await markShipmentsLinkedToCrmDraft({
+        clientUserId,
+        shippedIds: Array.isArray(data.prepcorexShippedIds)
+          ? (data.prepcorexShippedIds as unknown[]).map((id) => String(id || "").trim()).filter(Boolean)
+          : [],
+        shipmentRequestId: [...orderIds][0] || null,
+        externalInvoiceId: invoiceId,
+      });
+      for (const orderId of orderIds) {
+        if (!orderId || orderId === [...orderIds][0]) continue;
+        await markShipmentsLinkedToCrmDraft({
+          clientUserId,
+          shippedIds: [],
+          shipmentRequestId: orderId,
+          externalInvoiceId: invoiceId,
+        });
+      }
+    } catch (linkErr) {
+      console.warn("[crm-draft] could not re-link shipments after order-line repair", linkErr);
+    }
+  }
+
+  return { repaired: true, orderCount };
 }
 
 /**
@@ -251,10 +499,14 @@ export async function appendLinesToCrmOutboundDraft(input: {
   const orderNumber = String(
     input.shipmentRequestId || input.shippedIds?.find((id) => Boolean(id)) || ""
   ).trim();
+  const requestedDate = await resolveShipmentRequestedDateLabel(
+    clientUserId,
+    input.shipmentRequestId || orderNumber
+  );
   const incoming = collapseCrmLinesToOrderLine(
     (input.lines || []).filter((l) => String(l.description || "").trim()),
     orderNumber,
-    { clientUserId }
+    { clientUserId, requestedDate }
   );
   if (incoming.length === 0) {
     throw new Error("Nothing to add to the CRM draft");
@@ -274,6 +526,7 @@ export async function appendLinesToCrmOutboundDraft(input: {
     const unitPrice = money(line.unitPrice);
     const amount = money(line.amount ?? quantity * unitPrice);
     const shipDate = String(line.shipDate || "").trim();
+    const requestedDate = String(line.requestedDate || "").trim();
     const sku = String(line.sku || "").trim();
     const packaging = String(line.packaging || "").trim();
     const lineOrderNumber = String(line.orderNumber || "").trim();
@@ -286,6 +539,7 @@ export async function appendLinesToCrmOutboundDraft(input: {
       compareUnitPrice: money(line.compareUnitPrice ?? 0),
       amount,
       ...(shipDate ? { shipDate } : {}),
+      ...(requestedDate ? { requestedDate } : {}),
       ...(sku ? { sku } : {}),
       ...(packaging ? { packaging } : {}),
       ...(lineOrderNumber ? { orderNumber: lineOrderNumber } : {}),
@@ -295,7 +549,17 @@ export async function appendLinesToCrmOutboundDraft(input: {
   });
 
   if (existing) {
-    const data = existing.data() as Record<string, unknown>;
+    // Upgrade any leftover per-SKU / service rows for this (and other) orders.
+    try {
+      await collapseLegacyCrmInvoiceItemsToOrderLines(existing.id);
+    } catch (repairErr) {
+      console.warn("[crm-draft] legacy order-line repair failed", repairErr);
+    }
+    const refreshed = await getDoc(doc(db, "external_invoices", existing.id));
+    const data = (refreshed.exists() ? refreshed.data() : existing.data()) as Record<
+      string,
+      unknown
+    >;
     const prevItems = (Array.isArray(data.items) ? [...(data.items as any[])] : []).filter(
       (it) => !isLegacyOrderDetailKey(String(it?.sourceKey || ""), orderNumber)
     );
@@ -438,24 +702,40 @@ export async function markShipmentsLinkedToCrmDraft(input: {
   shipmentRequestId?: string | null;
   externalInvoiceId: string;
 }): Promise<void> {
+  const linkFields = {
+    invoiceStatus: "crm_draft" as const,
+    crmExternalInvoiceId: input.externalInvoiceId,
+    crmDraftSyncedAt: serverTimestamp(),
+  };
   const batch = writeBatch(db);
+  let ops = 0;
   for (const shippedId of input.shippedIds) {
     if (!shippedId) continue;
-    batch.update(doc(db, `users/${input.clientUserId}/shipped`, shippedId), {
-      invoiceStatus: "crm_draft",
-      crmExternalInvoiceId: input.externalInvoiceId,
-      crmDraftSyncedAt: serverTimestamp(),
-    });
+    const shippedRef = doc(db, `users/${input.clientUserId}/shipped`, shippedId);
+    try {
+      const snap = await getDoc(shippedRef);
+      if (!snap.exists()) continue;
+      batch.update(shippedRef, linkFields);
+      ops += 1;
+    } catch {
+      /* skip missing / unreadable */
+    }
   }
   if (input.shipmentRequestId) {
-    batch.update(
-      doc(db, `users/${input.clientUserId}/shipmentRequests`, input.shipmentRequestId),
-      {
-        invoiceStatus: "crm_draft",
-        crmExternalInvoiceId: input.externalInvoiceId,
-        crmDraftSyncedAt: serverTimestamp(),
-      }
+    const reqRef = doc(
+      db,
+      `users/${input.clientUserId}/shipmentRequests`,
+      input.shipmentRequestId
     );
+    try {
+      const snap = await getDoc(reqRef);
+      if (snap.exists()) {
+        batch.update(reqRef, linkFields);
+        ops += 1;
+      }
+    } catch {
+      /* skip missing / unreadable */
+    }
   }
-  await batch.commit();
+  if (ops > 0) await batch.commit();
 }

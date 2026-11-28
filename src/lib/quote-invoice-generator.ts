@@ -256,9 +256,14 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
   } else {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.text("Item Description", margin, y);
-    doc.text("Qty", margin + 92, y);
-    doc.text("Unit Price", margin + 120, y);
+    const colSr = margin;
+    const colDesc = margin + 12;
+    const colQty = margin + 100;
+    const colUnit = margin + 124;
+    doc.text("Sr.", colSr, y);
+    doc.text("Item Description", colDesc, y);
+    doc.text("Qty", colQty, y);
+    doc.text("Unit Price", colUnit, y);
     doc.text("Amount", pageWidth - margin, y, { align: "right" });
     y += 3;
     doc.line(margin, y, pageWidth - margin, y);
@@ -266,8 +271,8 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    const descriptionWidth = 86;
-    data.items.forEach((item) => {
+    const descriptionWidth = 82;
+    data.items.forEach((item, index) => {
       if (y > contentMaxY) {
         doc.addPage();
         y = margin;
@@ -276,15 +281,16 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
       const lines = doc.splitTextToSize(desc, descriptionWidth);
       const firstLine = lines[0] ?? "—";
       const linkUrl = String(item.descriptionUrl || "").trim();
+      doc.text(String(index + 1), colSr, y);
       if (linkUrl) {
         doc.setTextColor(37, 99, 235);
-        doc.textWithLink(firstLine, margin, y, { url: linkUrl });
+        doc.textWithLink(firstLine, colDesc, y, { url: linkUrl });
         doc.setTextColor(0, 0, 0);
       } else {
-        doc.text(firstLine, margin, y);
+        doc.text(firstLine, colDesc, y);
       }
-      doc.text(String(item.quantity), margin + 92, y);
-      doc.text(`$${item.unitPrice.toFixed(2)}`, margin + 120, y);
+      doc.text(String(item.quantity), colQty, y);
+      doc.text(`$${item.unitPrice.toFixed(2)}`, colUnit, y);
       doc.text(`$${item.amount.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
       y += 5;
       lines.slice(1).forEach((line: string) => {
@@ -292,7 +298,7 @@ export async function generateQuoteInvoicePdfBlob(data: QuoteInvoiceData): Promi
           doc.addPage();
           y = margin;
         }
-        doc.text(line, margin, y);
+        doc.text(line, colDesc, y);
         y += 5;
       });
       y += 2;

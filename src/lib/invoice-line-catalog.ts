@@ -136,7 +136,12 @@ export function shippedNeedsCrmDraftServices(item: {
   if (item.invoiceId) return false;
   const status = String(item.invoiceStatus || "").trim().toLowerCase();
   if (status === "invoiced") return false;
-  return status === "pending" || status === "crm_draft";
+  // Keep Update available after first sync even if invoiceStatus was never stamped.
+  return (
+    status === "pending" ||
+    status === "crm_draft" ||
+    Boolean(String(item.crmExternalInvoiceId || "").trim())
+  );
 }
 
 /**
@@ -189,10 +194,16 @@ function shipmentRequestOffersCrmDraft(
   const inv = String(request.invoiceStatus || "").trim().toLowerCase();
   if (inv === "invoiced") return false;
 
+  // Already on a CRM draft — keep Update visible even if fulfillment stage
+  // or invoiceStatus was never stamped on older syncs.
+  if (inv === "crm_draft" || Boolean(String(request.crmExternalInvoiceId || "").trim())) {
+    return true;
+  }
+
   const dispatch = String(request.warehouseDispatchStatus || "").trim().toLowerCase();
   const reqStatus = String(request.status || "").trim().toLowerCase();
   const hasDispatchStamp = Boolean(request.warehouseDispatchedClientSyncAt);
-  const statusOk = inv === "" || inv === "pending" || inv === "crm_draft";
+  const statusOk = inv === "" || inv === "pending";
 
   if (dispatch === "dispatched" || hasDispatchStamp) {
     return statusOk;
